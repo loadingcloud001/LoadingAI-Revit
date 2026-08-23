@@ -1,3 +1,5 @@
+using System.Text.Json;
+using RevitAiPoc.Revit;
 using RevitAiPoc.Tools;
 
 namespace RevitAiPoc.Llm;
@@ -105,6 +107,17 @@ public sealed class AgentLoop
                 return fallback;
             }
 
+            if (msgOut.ToolCalls is { Count: > 0 })
+            {
+                foreach (var tc in msgOut.ToolCalls)
+                {
+                    if (string.IsNullOrWhiteSpace(tc.Id))
+                        tc.Id = "call_" + Guid.NewGuid().ToString("N")[..8];
+                    tc.Function.Arguments = LlmJson.NormalizeToolArguments(tc.Function.Arguments);
+                }
+                msgOut.Content ??= "";
+            }
+
             lock (_historyLock)
             {
                 _history.Add(new ChatMessage
@@ -123,6 +136,18 @@ public sealed class AgentLoop
                 onTrace(text);
                 return text;
             }
+
+            DebugLog.Write("agent.tool_calls", new
+            {
+                round,
+                calls = msgOut.ToolCalls.Select(tc => new
+                {
+                    tc.Id,
+                    tc.Function.Name,
+                    args = tc.Function.Arguments,
+                    argsValidJson = IsJsonObjectOrArray(tc.Function.Arguments)
+                }).ToList()
+            });
 
             foreach (var tc in msgOut.ToolCalls)
             {
@@ -172,4 +197,15 @@ public sealed class AgentLoop
     }
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "...";
+
+    private static bool IsJsonObjectOrArray(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        try
+        {
+            using var d = JsonDocument.Parse(raw);
+            return d.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+        }
+        catch { return false; }
+    }
 }

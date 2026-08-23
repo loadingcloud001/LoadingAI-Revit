@@ -152,8 +152,11 @@ public sealed class StreamToolCallAccumulator
     {
         var list = _calls.OrderBy(k => k.Key).Select(k => k.Value).ToList();
         foreach (var tc in list)
+        {
             if (string.IsNullOrEmpty(tc.Id))
                 tc.Id = "call_" + Guid.NewGuid().ToString("N")[..8];
+            tc.Function.Arguments = LlmJson.NormalizeToolArguments(tc.Function.Arguments);
+        }
         // Filter out entries with empty name (partial streaming artifacts)
         list.RemoveAll(tc => string.IsNullOrWhiteSpace(tc.Function.Name));
         return list;

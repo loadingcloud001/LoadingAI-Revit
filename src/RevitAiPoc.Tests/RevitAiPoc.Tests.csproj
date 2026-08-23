@@ -13,6 +13,8 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.2.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\RevitAiPoc\RevitAiPoc.csproj" />
+    <ProjectReference Include="..\RevitAiPoc\RevitAiPoc.csproj">
+      <AdditionalProperties>SkipHostPluginBuild=true;SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>

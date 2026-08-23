@@ -24,3 +24,7 @@ Structural Analysis SDK/
 *.doc
 *.pdf
 *.rtf
+*_backup/
+*_backup/**
+*.0001.rvt
+*.0*.rvt

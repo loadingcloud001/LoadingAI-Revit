@@ -47,7 +47,7 @@
     <Error Condition="'@(_MissingPlugin)' != ''" Text="Shipped plugin was not deployed: @(_MissingPlugin->'%(Dll)')" />
   </Target>
 
-  <Target Name="CopyAddin" AfterTargets="Build">
+  <Target Name="CopyAddin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(RevitAddinDir)" />
     <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\2027\" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />

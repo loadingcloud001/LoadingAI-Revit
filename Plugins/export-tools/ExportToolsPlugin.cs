@@ -12,6 +12,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
     public string Id => "export-tools";
     public string Name => "Export Tools";
     public string Version => "1.0.0";
+    private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
 
     public IEnumerable<ToolEntry> CreateTools(RevitBridge bridge, QueryCache cache)
     {
@@ -73,7 +74,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     return $"Exported {views.Count} sheet(s)/view(s) to PDF: {dest}";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            }, ExportTimeout);
         }
     };
 
@@ -121,7 +122,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     return $"Exported {views.Count} view(s) to DWG in {dir} (prefix \"{fname}\")";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            }, ExportTimeout);
         }
     };
 
@@ -164,20 +165,24 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     var options = new IFCExportOptions();
                     if (!string.IsNullOrWhiteSpace(version) && Enum.TryParse<IFCVersion>(version, true, out var ver))
                         options.FileVersion = ver;
-                    using var tx = new Transaction(doc, "Revit AI POC: export IFC");
-                    tx.Start();
-                    var ok = doc.Export(dir, fname, options);
                     var path = Path.Combine(dir, fname + ".ifc");
-                    if (!ok)
+                    DebugLog.Write("export_ifc.start", new
                     {
-                        tx.RollBack();
-                        return $"IFC export failed to {path}.";
-                    }
-                    tx.Commit();
+                        dir,
+                        fname,
+                        version,
+                        title = doc.Title,
+                        inTransaction = doc.IsModifiable
+                    });
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var ok = doc.Export(dir, fname, options);
+                    sw.Stop();
+                    DebugLog.Write("export_ifc.end", new { ok, path, elapsedMs = sw.ElapsedMilliseconds });
+                    if (!ok) return $"IFC export failed to {path}.";
                     return $"Exported IFC: {path}";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            }, ExportTimeout);
         }
     };
 
