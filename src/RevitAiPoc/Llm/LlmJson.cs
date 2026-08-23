@@ -14,14 +14,27 @@ public static class LlmJson
     {
         if (c == null) return "";
         if (c is string s) return s;
+        if (c is List<ChatContentPart> parts) return string.Join("\n", parts.Where(p => p.Type == "text").Select(p => p.Text ?? ""));
         if (c is JsonElement je)
         {
             if (je.ValueKind == JsonValueKind.String) return je.GetString() ?? "";
+            if (je.ValueKind == JsonValueKind.Array)
+            {
+                var texts = new List<string>();
+                foreach (var el in je.EnumerateArray())
+                {
+                    if (el.TryGetProperty("type", out var t) && t.GetString() == "text" && el.TryGetProperty("text", out var tx))
+                        texts.Add(tx.GetString() ?? "");
+                }
+                return string.Join("\n", texts);
+            }
             if (je.ValueKind == JsonValueKind.Null) return "";
             return je.GetRawText();
         }
         return c.ToString() ?? "";
     }
+
+    public static bool IsMultimodal(object? c) => c is List<ChatContentPart> || (c is JsonElement je && je.ValueKind == JsonValueKind.Array);
 
     /// <summary>
     /// Providers require tool-call arguments to be a JSON object/array string.

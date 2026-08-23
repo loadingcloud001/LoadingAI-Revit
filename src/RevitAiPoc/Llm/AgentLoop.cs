@@ -54,16 +54,44 @@ public sealed class AgentLoop
         Action<string> onTrace,
         Action<string>? onDelta,
         CancellationToken ct = default)
+        => await RunAsync(provider, ChatMessage.FromText("user", userText), null, toolExecutor, onTrace, onDelta, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        CancellationToken ct = default)
     {
         lock (_historyLock)
         {
-            _history.Add(new ChatMessage { Role = "user", Content = userText });
+            _history.Add(userMsg);
             ChatHistoryTrimmer.Trim(_history);
         }
-        try { HistoryStore.Append("user", userText); HistoryStore.Trim(); } catch { }
+        var userTextForSelect = LlmJson.GetContentString(userMsg.Content);
+        try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
-        var tools = ToolSelector.Select(_registry.GetToolDefinitions(), userText);
+        var allTools = _registry.GetToolDefinitions();
+        // Mode filtering: ask=null tools, plan=L1 only, build/auto= all
+        if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
+            allTools = new List<ToolDefinition>();
+        else if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+        {
+            // filter to L1 only via registry entries tier
+            var l1Names = _registry.Entries.Where(e => e.Tier == ToolTier.L1).Select(e => e.Definition.Function.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            allTools = allTools.Where(t => l1Names.Contains(t.Function.Name)).ToList();
+        }
+        var tools = ToolSelector.Select(allTools, userTextForSelect);
         var sys = BuildSystemPrompt(tools);
+        // Mode-specific system prompt augment (Kil -inspired)
+        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+            sys = "PLAN MODE — read-only: use only L1 tools to survey the model. Do NOT modify the model; output a numbered plan with steps and which tools would be used. Ask for confirmation before act.\n" + sys;
+        else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
+            sys = "ASK MODE — answer questions without using tools unless needed to inspect. Be concise and cite sources.\n" + sys;
+        else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
+            sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
         lock (_historyLock)
         {
             if (_history.Count > 0 && _history[0].Role == "system")

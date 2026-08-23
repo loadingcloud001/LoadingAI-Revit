@@ -12,6 +12,8 @@ public sealed class ToolRegistry
     public List<ToolDefinition> GetToolDefinitions()
         => _tools.Values.Select(v => v.Definition).ToList();
 
+    public IReadOnlyCollection<ToolEntry> Entries => _tools.Values;
+
     public bool TryGet(string name, out ToolEntry entry) => _tools.TryGetValue(name, out entry!);
 }
 

@@ -45,8 +45,20 @@ export type PluginInfo = {
   tools: PluginToolInfo[];
 };
 
+export type Attachment = {
+  id: string;
+  name: string;
+  mediaType: string;
+  dataUrl: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+};
+
+export type ChatMode = 'ask' | 'plan' | 'build' | 'auto';
+
 export type ToHost =
-  | { type: 'send'; text: string }
+  | { type: 'send'; text: string; attachments?: Attachment[]; mode?: ChatMode }
   | { type: 'clear' }
   | { type: 'cancel' }
   | { type: 'saveSettings'; settings: AppSettings }
@@ -55,23 +67,43 @@ export type ToHost =
   | { type: 'testProvider'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
+  | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
   | { type: 'removePlugin'; pluginId: string }
   | { type: 'reloadPlugins' };
+
+export type PlanPayload = {
+  title: string;
+  description?: string;
+  steps: { title: string; description?: string; tool?: string; status?: 'pending' | 'running' | 'done' | 'error' }[];
+  isStreaming?: boolean;
+};
+
+export type ApprovalPayload = {
+  toolCallId: string;
+  toolName: string;
+  tier: string;
+  args: string;
+  description?: string;
+};
 
 export type FromHost =
   | { type: 'status'; text: string }
   | { type: 'trace'; text: string }
   | { type: 'tool_call'; text: string }
   | { type: 'tool_result'; text: string }
-  | { type: 'assistant'; text: string }
+  | { type: 'tool_approval'; approval: ApprovalPayload }
+  | { type: 'plan'; plan: PlanPayload }
+  | { type: 'reasoning'; text: string; isStreaming?: boolean }
+  | { type: 'suggestions'; suggestions: string[] }
+  | { type: 'assistant'; text: string; attachments?: Attachment[] }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'catalog'; presets: ProviderPreset[] }
   | { type: 'testResult'; ok: boolean; message: string; providerId?: string; models?: string[] }
   | { type: 'models'; providerId: string; models: string[]; error?: string }
   | { type: 'plugins'; plugins: PluginInfo[] }
-  | { type: 'history'; messages: { role: string; text: string }[] }
+  | { type: 'history'; messages: { role: string; text: string; attachments?: Attachment[] }[] }
   | { type: 'error'; text: string }
   | { type: 'delta'; text: string };
 

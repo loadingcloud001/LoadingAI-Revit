@@ -8,14 +8,58 @@ using RevitAiPoc.Revit;
 
 namespace RevitAiPoc.Llm;
 
+public sealed class ChatContentPart
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "";
+    [JsonPropertyName("text")] public string? Text { get; set; }
+    [JsonPropertyName("image_url")] public ChatImageUrl? ImageUrl { get; set; }
+}
+public sealed class ChatImageUrl
+{
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+    [JsonPropertyName("detail")] public string? Detail { get; set; }
+}
+
+public sealed class ChatContentConverter : JsonConverter<object?>
+{
+    public override object? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String) return reader.GetString();
+        if (reader.TokenType == JsonTokenType.StartArray) return JsonSerializer.Deserialize<List<ChatContentPart>>(ref reader, options);
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        using var doc = JsonDocument.ParseValue(ref reader);
+        return doc.RootElement.Clone();
+    }
+    public override void Write(Utf8JsonWriter writer, object? value, JsonSerializerOptions options)
+    {
+        if (value is string s) { writer.WriteStringValue(s); return; }
+        if (value is List<ChatContentPart> parts) { JsonSerializer.Serialize(writer, parts, options); return; }
+        if (value == null) { writer.WriteNullValue(); return; }
+        JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
 public sealed class ChatMessage
 {
     [JsonPropertyName("role")] public string Role { get; set; } = "";
-    [JsonPropertyName("content")] public object? Content { get; set; }
+    [JsonPropertyName("content")]
+    [JsonConverter(typeof(ChatContentConverter))]
+    public object? Content { get; set; }
     [JsonPropertyName("tool_calls")] public List<ToolCall>? ToolCalls { get; set; }
     [JsonPropertyName("tool_call_id")] public string? ToolCallId { get; set; }
     [JsonPropertyName("name")] public string? Name { get; set; }
+
+    public static ChatMessage FromText(string role, string text) => new() { Role = role, Content = text };
+    public static ChatMessage FromMultimodal(string role, string text, IReadOnlyList<AttachmentDto> images)
+    {
+        if (images.Count == 0) return FromText(role, text);
+        var parts = new List<ChatContentPart>();
+        if (!string.IsNullOrWhiteSpace(text)) parts.Add(new ChatContentPart { Type = "text", Text = text });
+        foreach (var a in images) parts.Add(new ChatContentPart { Type = "image_url", ImageUrl = new ChatImageUrl { Url = a.DataUrl, Detail = "auto" } });
+        return new ChatMessage { Role = role, Content = parts };
+    }
 }
+public sealed record AttachmentDto(string Id, string Name, string MediaType, string DataUrl);
 
 public sealed class ToolCall
 {
@@ -483,11 +527,32 @@ public sealed class OpenAiCompatibleClient : IDisposable
             }
             else
             {
-                var text = LlmJson.GetContentString(m.Content);
                 var role = m.Role == "system" ? "system" : m.Role == "assistant" ? "assistant" : "user";
-                if (string.IsNullOrEmpty(text) && m.ToolCalls is { Count: > 0 })
-                    continue;
-                input.Add(new Dictionary<string, object> { ["role"] = role, ["content"] = text });
+                if (m.Content is List<ChatContentPart> parts)
+                {
+                    var content = parts.Select(p => p.Type == "text"
+                        ? (object)new Dictionary<string, object> { ["type"] = "input_text", ["text"] = p.Text ?? "" }
+                        : new Dictionary<string, object> { ["type"] = "input_image", ["image_url"] = p.ImageUrl?.Url ?? "", ["detail"] = p.ImageUrl?.Detail ?? "auto" }).ToList();
+                    input.Add(new Dictionary<string, object> { ["role"] = role, ["content"] = content });
+                }
+                else if (m.Content is JsonElement je && je.ValueKind == JsonValueKind.Array)
+                {
+                    var list = new List<object>();
+                    foreach (var el in je.EnumerateArray())
+                    {
+                        if (el.TryGetProperty("type", out var t) && t.GetString() == "text" && el.TryGetProperty("text", out var tx))
+                            list.Add(new Dictionary<string, object> { ["type"] = "input_text", ["text"] = tx.GetString() ?? "" });
+                        else if (el.TryGetProperty("type", out var t2) && t2.GetString() == "image_url" && el.TryGetProperty("image_url", out var iu) && iu.TryGetProperty("url", out var url))
+                            list.Add(new Dictionary<string, object> { ["type"] = "input_image", ["image_url"] = url.GetString() ?? "" });
+                    }
+                    input.Add(new Dictionary<string, object> { ["role"] = role, ["content"] = list });
+                }
+                else
+                {
+                    var text = LlmJson.GetContentString(m.Content);
+                    if (string.IsNullOrEmpty(text) && m.ToolCalls is { Count: > 0 }) continue;
+                    input.Add(new Dictionary<string, object> { ["role"] = role, ["content"] = text });
+                }
             }
         }
         return input;
@@ -610,11 +675,14 @@ public sealed class OpenAiCompatibleClient : IDisposable
                     catch { }
                     return new { tc.Id, tc.Function.Name, argsLen = raw.Length, argsPreview = raw.Length > 80 ? raw[..80] : raw, argsValidJson = valid };
                 }).ToList();
+                var isMulti = LlmJson.IsMultimodal(m.Content);
                 return new
                 {
                     m.Role,
                     contentNull = m.Content == null,
-                    contentLen = LlmJson.GetContentString(m.Content).Length,
+                    isMultimodal = isMulti,
+                    contentLen = isMulti ? -1 : LlmJson.GetContentString(m.Content).Length,
+                    contentPreview = isMulti ? "[multimodal]" : (LlmJson.GetContentString(m.Content).Length > 120 ? LlmJson.GetContentString(m.Content)[..120] : LlmJson.GetContentString(m.Content)),
                     toolCallId = m.ToolCallId,
                     toolName = m.Name,
                     toolCalls = args

@@ -391,6 +391,14 @@ public partial class HostPage : Page
                         break;
                     }
 
+                case "approveTool":
+                    {
+                        var toolCallId = doc.RootElement.TryGetProperty("toolCallId", out var tc) ? tc.GetString() ?? "" : "";
+                        var approved = doc.RootElement.TryGetProperty("approved", out var ap) && ap.ValueKind == JsonValueKind.True;
+                        PostToWeb(new { type = "status", text = approved ? $"Approved {toolCallId}" : $"Denied {toolCallId}" });
+                        break;
+                    }
+
                 case "clear":
                     _cts?.Cancel();
                     _agent?.ClearHistory();
@@ -403,8 +411,30 @@ public partial class HostPage : Page
 
                 case "send":
                     {
-                        var text = doc.RootElement.GetProperty("text").GetString() ?? "";
-                        if (string.IsNullOrWhiteSpace(text)) break;
+                        var text = doc.RootElement.TryGetProperty("text", out var tEl) ? tEl.GetString() ?? "" : "";
+                        var mode = doc.RootElement.TryGetProperty("mode", out var mEl) ? mEl.GetString() ?? "auto" : "auto";
+                        // parse attachments
+                        var attachments = new List<AttachmentDto>();
+                        if (doc.RootElement.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var el in atts.EnumerateArray())
+                            {
+                                try
+                                {
+                                    var dataUrl = el.TryGetProperty("dataUrl", out var du) ? du.GetString() ?? "" : "";
+                                    if (string.IsNullOrWhiteSpace(dataUrl)) continue;
+                                    if (!dataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) continue;
+                                    if (dataUrl.Length * 0.75 > 4.5 * 1024 * 1024) { PostToWeb(new { type = "error", text = "Image too large (>4MB) — please compress or crop." }); continue; }
+                                    var id = el.TryGetProperty("id", out var ide) ? ide.GetString() ?? Guid.NewGuid().ToString("N")[..8] : Guid.NewGuid().ToString("N")[..8];
+                                    var name = el.TryGetProperty("name", out var ne) ? ne.GetString() ?? "image.png" : "image.png";
+                                    var mt = el.TryGetProperty("mediaType", out var me) ? me.GetString() ?? "image/png" : "image/png";
+                                    attachments.Add(new AttachmentDto(id, name, mt, dataUrl));
+                                    if (attachments.Count >= 5) break;
+                                }
+                                catch { }
+                            }
+                        }
+                        if (string.IsNullOrWhiteSpace(text) && attachments.Count == 0) break;
                         _lastUserText = text;
                         if (_isRunning)
                         {
@@ -418,7 +448,7 @@ public partial class HostPage : Page
                             PostToWeb(new { type = "error", text = "No provider configured." });
                             break;
                         }
-                        if (string.IsNullOrWhiteSpace(provider.ApiKey))
+                        if (string.IsNullOrWhiteSpace(provider.ApiKey) && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
                         {
                             PostToWeb(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });
                             break;
@@ -435,13 +465,17 @@ public partial class HostPage : Page
                         _cts = new CancellationTokenSource();
                         var ct = _cts.Token;
                         var agent = _agent;
-                        PostToWeb(new { type = "status", text = "Working..." });
+                        PostToWeb(new { type = "status", text = mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..." });
+                        // Mode-aware plan trace
+                        if (mode == "plan") PostToWeb(new { type = "plan", plan = new { title = "Plan", description = "Read-only analysis", steps = new[] { new { title = "Survey model", description = "Use L1 tools to inspect", tool = "get_model_summary", status = "pending" } }, isStreaming = false } });
 
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                string result = await agent.RunAsync(provider, text,
+                                var userMsg = attachments.Count > 0 ? ChatMessage.FromMultimodal("user", text, attachments) : ChatMessage.FromText("user", text);
+                                var effectiveMode = mode == "auto" ? null : mode;
+                                string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                                     ExecuteToolAsync,
                                     trace =>
                                     {
