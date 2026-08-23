@@ -191,6 +191,39 @@ public partial class HostPage : Page
         return active != null ? $"Active: {active.Name} | {active.BaseUrl} | {active.Model}" : "No provider";
     }
 
+    private ProviderConfig? ResolveProviderForTest(JsonDocument doc)
+    {
+        try
+        {
+            if (doc.RootElement.TryGetProperty("providerId", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+            {
+                var id = idEl.GetString() ?? "";
+                var found = _settings.Providers.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+                if (found != null) return new ProviderConfig
+                {
+                    Id = found.Id, Name = found.Name, BaseUrl = found.BaseUrl, Model = found.Model, ApiKey = found.ApiKey,
+                    ApiKind = found.ApiKind, Group = found.Group, Icon = found.Icon
+                };
+            }
+            if (doc.RootElement.TryGetProperty("provider", out var provEl) && provEl.ValueKind == JsonValueKind.Object)
+            {
+                var prov = JsonSerializer.Deserialize<ProviderConfig>(provEl.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (prov == null) return null;
+                // masked key -> lookup stored
+                if (ProviderSettings.IsMaskedKey(prov.ApiKey) || string.IsNullOrWhiteSpace(prov.ApiKey))
+                {
+                    var stored = _settings.Providers.FirstOrDefault(p => p.Id.Equals(prov.Id, StringComparison.OrdinalIgnoreCase));
+                    if (stored != null && (ProviderSettings.IsMaskedKey(prov.ApiKey) || string.IsNullOrWhiteSpace(prov.ApiKey)))
+                        prov.ApiKey = stored.ApiKey;
+                }
+                if (string.IsNullOrWhiteSpace(prov.ApiKind)) prov.ApiKind = ProviderSettings.InferApiKind(prov);
+                return prov;
+            }
+        }
+        catch { }
+        return null;
+    }
+
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         string? json = null;
@@ -238,6 +271,43 @@ public partial class HostPage : Page
                             PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                             PostToWeb(new { type = "status", text = GetStatusText() });
                         }
+                        break;
+                    }
+
+                case "getCatalog":
+                    PostToWeb(new { type = "catalog", presets = ProviderCatalog.Presets });
+                    break;
+
+                case "testProvider":
+                    {
+                        var prov = ResolveProviderForTest(doc);
+                        if (prov == null) { PostToWeb(new { type = "testResult", ok = false, message = "Provider not found." }); break; }
+                        PostToWeb(new { type = "status", text = $"Testing {prov.Name}..." });
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var (ok, msg, models) = await _client.TestAsync(prov);
+                                Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok, message = msg, models, providerId = prov.Id }));
+                            }
+                            catch (Exception ex) { Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = ex.Message, providerId = prov.Id })); }
+                        });
+                        break;
+                    }
+
+                case "listModels":
+                    {
+                        var prov = ResolveProviderForTest(doc);
+                        if (prov == null) { PostToWeb(new { type = "models", models = Array.Empty<string>(), error = "Provider not found." }); break; }
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var list = await _client.ListModelsAsync(prov);
+                                Dispatcher.Invoke(() => PostToWeb(new { type = "models", providerId = prov.Id, models = list }));
+                            }
+                            catch (Exception ex) { Dispatcher.Invoke(() => PostToWeb(new { type = "models", providerId = prov.Id, models = Array.Empty<string>(), error = ex.Message })); }
+                        });
                         break;
                     }
 

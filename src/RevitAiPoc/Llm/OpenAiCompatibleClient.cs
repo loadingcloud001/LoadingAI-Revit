@@ -149,6 +149,102 @@ public sealed class OpenAiCompatibleClient : IDisposable
     private static bool IsResponsesModel(string model)
         => !string.IsNullOrWhiteSpace(model) && ResponsesModels.Contains(model.Trim());
 
+    private static string ResolveApiKind(ProviderConfig p)
+    {
+        if (!string.IsNullOrWhiteSpace(p.ApiKind))
+            return p.ApiKind.Trim().ToLowerInvariant();
+        if (IsResponsesModel(p.Model)) return "responses";
+        if (p.BaseUrl.Contains("anthropic.com", StringComparison.OrdinalIgnoreCase)) return "anthropic";
+        return "openai";
+    }
+
+    public async Task<IReadOnlyList<string>> ListModelsAsync(ProviderConfig provider, CancellationToken ct = default)
+    {
+        var url = BuildModelsUrl(provider.BaseUrl);
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrWhiteSpace(provider.ApiKey))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        using var resp = await _http.SendAsync(req, cts.Token);
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string err = body;
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(body);
+                if (!string.IsNullOrWhiteSpace(parsed?.Error?.Message)) err = parsed.Error.Message!;
+            }
+            catch { }
+            throw new HttpRequestException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {err}");
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                var list = new List<string>();
+                foreach (var el in data.EnumerateArray())
+                {
+                    if (el.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                        list.Add(id.GetString()!);
+                }
+                return list;
+            }
+        }
+        catch { }
+        return Array.Empty<string>();
+    }
+
+    public async Task<(bool ok, string message, IReadOnlyList<string>? models)> TestAsync(ProviderConfig provider, CancellationToken ct = default)
+    {
+        // 1. try list models (validates baseUrl + key)
+        List<string>? models = null;
+        try
+        {
+            var list = await ListModelsAsync(provider, ct);
+            models = list.ToList();
+            // check requested model exists if list non-empty
+            if (models.Count > 0 && !string.IsNullOrWhiteSpace(provider.Model) && !models.Contains(provider.Model))
+            {
+                // not fatal, just warn but continue to chat test
+            }
+        }
+        catch (Exception ex)
+        {
+            // For local ollama without auth, list may still succeed; if fails, report but try chat anyway for ollama
+            var kind = ResolveApiKind(provider);
+            if (kind == "openai" && provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                // ignore list failure for local, continue
+            }
+            else if (!provider.BaseUrl.Contains("localhost"))
+            {
+                return (false, $"List models failed: {ex.Message}", null);
+            }
+        }
+
+        // 2. minimal chat probe
+        var kind2 = ResolveApiKind(provider);
+        if (kind2 == "anthropic")
+            return (false, "Anthropic direct API (messages) not yet implemented. Use OpenRouter (openai compat) with model anthropic/claude-sonnet-4, or switch ApiKind to openai.", models);
+        try
+        {
+            var probe = new List<ChatMessage> { new() { Role = "user", Content = "hi" } };
+            // use non-stream trivial call with tiny max
+            if (kind2 == "responses")
+                await ResponsesOnceAsync(provider, probe, null, ct);
+            else
+                await ChatOnceAsync(provider, probe, null, ct);
+            return (true, models != null ? $"OK — {models.Count} models available" : "OK", models);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message, models);
+        }
+    }
+
     public async Task<ChatCompletionResponse> ChatAsync(
         ProviderConfig provider,
         List<ChatMessage> messages,
@@ -156,10 +252,14 @@ public sealed class OpenAiCompatibleClient : IDisposable
         Action<string>? onDelta,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(provider.ApiKey))
+        if (string.IsNullOrWhiteSpace(provider.ApiKey) && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Provider '{provider.Name}' has no API key. Please add it in settings.");
 
-        if (IsResponsesModel(provider.Model))
+        var kind = ResolveApiKind(provider);
+        if (kind == "anthropic")
+            throw new InvalidOperationException("Anthropic native API not supported via direct baseUrl. Use OpenRouter with ApiKind=openai and model 'anthropic/claude-sonnet-4'.");
+
+        if (kind == "responses" || IsResponsesModel(provider.Model))
         {
             var resp = await ResponsesOnceAsync(provider, messages, tools, ct);
             if (onDelta != null)
@@ -555,6 +655,18 @@ public sealed class OpenAiCompatibleClient : IDisposable
         if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
             return url[..^"/messages".Length] + "/responses";
         return url + "/responses";
+    }
+
+    private static string BuildModelsUrl(string baseUrl)
+    {
+        var url = baseUrl.Trim().TrimEnd('/');
+        if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+            url = url[..^"/chat/completions".Length];
+        else if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            url = url[..^"/responses".Length];
+        else if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
+            url = url[..^"/messages".Length];
+        return url + "/models";
     }
 
     public void Dispose() => _http.Dispose();

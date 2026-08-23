@@ -4,6 +4,20 @@ export type ProviderConfig = {
   baseUrl: string;
   model: string;
   apiKey: string;
+  apiKind?: string;
+  group?: string;
+  icon?: string;
+};
+
+export type ProviderPreset = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+  apiKind: string;
+  group: string;
+  icon: string;
+  description: string;
 };
 
 export type AppSettings = {
@@ -37,6 +51,9 @@ export type ToHost =
   | { type: 'cancel' }
   | { type: 'saveSettings'; settings: AppSettings }
   | { type: 'requestSettings' }
+  | { type: 'getCatalog' }
+  | { type: 'testProvider'; provider?: ProviderConfig; providerId?: string }
+  | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
@@ -50,6 +67,9 @@ export type FromHost =
   | { type: 'tool_result'; text: string }
   | { type: 'assistant'; text: string }
   | { type: 'settings'; settings: AppSettings }
+  | { type: 'catalog'; presets: ProviderPreset[] }
+  | { type: 'testResult'; ok: boolean; message: string; providerId?: string; models?: string[] }
+  | { type: 'models'; providerId: string; models: string[]; error?: string }
   | { type: 'plugins'; plugins: PluginInfo[] }
   | { type: 'history'; messages: { role: string; text: string }[] }
   | { type: 'error'; text: string }
@@ -89,12 +109,26 @@ export function postToHost(msg: ToHost) {
       const mock: AppSettings = {
         activeProviderId: 'deepseek',
         providers: [
-          { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '' },
-          { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '' },
-          { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama' }
+          { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◆' },
+          { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◉' },
+          { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama', apiKind: 'openai', group: 'local', icon: '⬢' },
+          { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', apiKey: '', apiKind: 'openai', group: 'gateway', icon: '◎' },
+          { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/go/v1', model: 'muse-spark-1.2-contributor', apiKey: '', apiKind: 'responses', group: 'gateway', icon: '⚡' },
         ]
       };
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'settings', settings: mock } })), 100);
+      const mockPresets: any[] = [
+        { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKind: 'openai', group: 'cloud', icon: '◆', description: 'DeepSeek V3 / R1' },
+        { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', apiKind: 'openai', group: 'gateway', icon: '◎', description: '300+ models gateway' },
+        { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKind: 'openai', group: 'local', icon: '⬢', description: 'Local Ollama' },
+      ];
+      setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'catalog', presets: mockPresets } })), 120);
+    }
+    if ((msg as any).type === 'testProvider') {
+      setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'testResult', ok: true, message: 'Mock OK — 12 models', providerId: (msg as any).providerId ?? (msg as any).provider?.id } })), 600);
+    }
+    if ((msg as any).type === 'listModels') {
+      setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'models', providerId: (msg as any).providerId ?? (msg as any).provider?.id ?? 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner', 'gpt-4o-mini'] } })), 400);
     }
   }
 }
