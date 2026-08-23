@@ -1,0 +1,17 @@
+{
+  "id": "hello",
+  "name": "Hello Example",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "Community Example",
+  "entryAssembly": "RevitAiPoc.Plugins.Hello.dll",
+  "tools": [
+    {
+      "name": "hello",
+      "tier": "L1",
+      "description": "Example L1 tool that says hello and shows the active document title. Use to test plugin loading.",
+      "enabledByDefault": true
+    }
+  ],
+  "verified": false
+}

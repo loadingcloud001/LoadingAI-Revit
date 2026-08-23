@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Revit AI POC</Name>
+    <Assembly>C:\Users\Loading Lo\AppData\Roaming\Autodesk\Revit\Addins\2027\RevitAiPoc\RevitAiPoc.dll</Assembly>
+    <AddInId>8F2C4E2A-9B3D-4E2A-A5F1-7D1A3B9C0E12</AddInId>
+    <FullClassName>RevitAiPoc.App</FullClassName>
+    <VendorId>RevitAiPoc</VendorId>
+    <VendorDescription>Revit AI POC</VendorDescription>
+  </AddIn>
+</RevitAddIns>

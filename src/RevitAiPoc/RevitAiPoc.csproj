@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>RevitAiPoc</AssemblyName>
+    <RootNamespace>RevitAiPoc</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.2.0" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.2.0" />
+    <PackageReference Include="Nice3point.Revit.Toolkit" Version="2027.*" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Post-build copy for POC: copy to %AppData%\Autodesk\Revit\Addins\2027\RevitAiPoc\ -->
+    <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\2027\RevitAiPoc\</RevitAddinDir>
+  </PropertyGroup>
+
+  <Target Name="CopyAddin" AfterTargets="Build">
+    <MakeDir Directories="$(RevitAddinDir)" />
+    <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\2027\" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).deps.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).deps.json')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\RevitAiPoc.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2027\" SkipUnchangedFiles="false" />
+    <!-- copy all runtime deps (Toolkit etc) -->
+    <ItemGroup>
+      <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_Deps)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
+    <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\2027\" Importance="high" />
+  </Target>
+
+  <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">
+    <RemoveDir Directories="$(RevitAddinDir)Web\dist" Condition="Exists('$(RevitAddinDir)Web\dist')" />
+    <ItemGroup>
+      <_WebFiles Include="$(MSBuildProjectDirectory)\Web\dist\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WebFiles)" DestinationFiles="@(_WebFiles->'$(RevitAddinDir)Web\dist\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Message Text="Copied Web/dist to $(RevitAddinDir)Web\dist\" Importance="high" />
+  </Target>
+
+</Project>

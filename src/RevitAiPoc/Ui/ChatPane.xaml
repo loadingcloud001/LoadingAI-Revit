@@ -1,0 +1,75 @@
+<Page
+    x:Class="RevitAiPoc.Ui.ChatPane"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="AI Chat"
+    Background="White">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Provider row -->
+        <Grid Grid.Row="0" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <ComboBox x:Name="ProviderCombo" Grid.Column="0" Margin="0,0,6,0" DisplayMemberPath="Name" SelectionChanged="ProviderCombo_SelectionChanged"/>
+            <Button x:Name="SettingsBtn" Grid.Column="1" Content="Settings" Width="70" Margin="0,0,6,0" Click="SettingsBtn_Click"/>
+            <Button x:Name="ClearBtn" Grid.Column="2" Content="Clear" Width="50" Click="ClearBtn_Click"/>
+        </Grid>
+
+        <!-- Status -->
+        <TextBlock x:Name="StatusText" Grid.Row="1" Margin="0,0,0,4" Foreground="Gray" FontSize="11" Text="Ready"/>
+
+        <!-- Transcript -->
+        <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1" Margin="0,0,0,6">
+            <ScrollViewer x:Name="TranscriptScroll" VerticalScrollBarVisibility="Auto">
+                <TextBox x:Name="TranscriptBox" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" VerticalScrollBarVisibility="Disabled" AcceptsReturn="True" FontFamily="Consolas" FontSize="12" Background="White"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Settings panel (collapsible) -->
+        <Border x:Name="SettingsPanel" Grid.Row="3" BorderBrush="#CCC" BorderThickness="1" Padding="8" Margin="0,0,0,6" Visibility="Collapsed" Background="#F9F9F9">
+            <StackPanel>
+                <TextBlock Text="Providers (Bearer only)" FontWeight="Bold" Margin="0,0,0,6"/>
+                <ListBox x:Name="ProvidersList" Height="90" DisplayMemberPath="Name" SelectionChanged="ProvidersList_SelectionChanged" Margin="0,0,0,6"/>
+                <Grid Margin="0,0,0,4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="70"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" VerticalAlignment="Center"/><TextBox x:Name="EditName" Grid.Row="0" Grid.Column="1" Margin="0,2"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center"/><TextBox x:Name="EditBaseUrl" Grid.Row="1" Grid.Column="1" Margin="0,2"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Model" VerticalAlignment="Center"/><TextBox x:Name="EditModel" Grid.Row="2" Grid.Column="1" Margin="0,2"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="API Key" VerticalAlignment="Center"/><TextBox x:Name="EditApiKey" Grid.Row="3" Grid.Column="1" Margin="0,2"/>
+                    <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Content="Add New" Width="75" Margin="0,0,6,0" Click="AddProvider_Click"/>
+                        <Button Content="Save" Width="60" Margin="0,0,6,0" Click="SaveProvider_Click"/>
+                        <Button Content="Delete" Width="60" Margin="0,0,6,0" Click="DeleteProvider_Click"/>
+                        <Button Content="Use" Width="50" Margin="0,0,6,0" Click="UseProvider_Click"/>
+                        <Button Content="Close" Width="50" Click="CloseSettings_Click"/>
+                    </StackPanel>
+                </Grid>
+                <TextBlock Text="Stored at %AppData%\RevitAiPoc\settings.json — not in project." Foreground="Gray" FontSize="10" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Input -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="InputBox" Grid.Column="0" Margin="0,0,6,0" MinHeight="60" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" KeyDown="InputBox_KeyDown" />
+            <Button x:Name="SendBtn" Grid.Column="1" Content="Send" Width="70" Height="60" Click="SendBtn_Click"/>
+        </Grid>
+    </Grid>
+</Page>

@@ -1,0 +1,12 @@
+*.rvt
+*.rfa
+*.rte
+bin/
+obj/
+.vs/
+*.user
+*.suo
+src/RevitAiPoc/bin/
+src/RevitAiPoc/obj/
+%AppData%/RevitAiPoc/settings.json
+RevitAiPoc/settings.json
