@@ -8,5 +8,7 @@ obj/
 *.suo
 src/RevitAiPoc/bin/
 src/RevitAiPoc/obj/
-%AppData%/RevitAiPoc/settings.json
-RevitAiPoc/settings.json
+src/RevitAiPoc.Tests/bin/
+src/RevitAiPoc.Tests/obj/
+web/node_modules/
+web/dist/

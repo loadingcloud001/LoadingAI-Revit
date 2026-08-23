@@ -33,7 +33,7 @@ public static class ParamExcelTools
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";
                     var elems=new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().Take(lim).ToList();
                     string[] cols=string.IsNullOrWhiteSpace(paramNames)? new[]{"Comments","Mark"} : paramNames.Split(',', StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
-                    var path=filePath; if(string.IsNullOrWhiteSpace(path)) path=Path.Combine(Path.GetTempPath(), $"export_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                    var path=ExportPaths.ResolveWrite(filePath, $"export_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                     var sb=new StringBuilder();
                     sb.AppendLine("Id,"+string.Join(",", cols));
                     foreach(var el in elems){
@@ -56,9 +56,11 @@ public static class ParamExcelTools
     private static ToolEntry CreateImportExcelToParams(RevitBridge bridge) => new()
     {
         Tier = ToolTier.L3,
+        RequiresWriteConfirm=true,
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="import_excel_to_params", Description="Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName.", Parameters=new{type="object",properties=new{filePath=new{type="string"},paramName=new{type="string"}},required=new[]{"filePath","paramName"}}}},
         Handler = async json=>{
             string fp="", pn=""; try{using var d=JsonDocument.Parse(json); fp=d.RootElement.GetProperty("filePath").GetString()??""; pn=d.RootElement.GetProperty("paramName").GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
+            try { fp = ExportPaths.ResolveRead(fp); } catch (Exception ex) { return ex.Message; }
             if(!File.Exists(fp)) return $"File not found: {fp}";
             var lines=File.ReadAllLines(fp);
             if(lines.Length<2) return "File empty or no data rows";
@@ -105,6 +107,7 @@ public static class ParamExcelTools
     private static ToolEntry CreateCopyParams(RevitBridge bridge) => new()
     {
         Tier = ToolTier.L2,
+        RequiresWriteConfirm=true,
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="copy_params", Description="Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit.", Parameters=new{type="object",properties=new{category=new{type="string"},sourceParam=new{type="string"},targetParam=new{type="string"},limit=new{type="integer"}},required=new[]{"category","sourceParam","targetParam"}}}},
         Handler = async json=>{
             string cat="",src="",tgt=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; src=d.RootElement.GetProperty("sourceParam").GetString()??""; tgt=d.RootElement.GetProperty("targetParam").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
@@ -136,6 +139,7 @@ public static class ParamExcelTools
     private static ToolEntry CreateReplaceText(RevitBridge bridge) => new()
     {
         Tier = ToolTier.L2,
+        RequiresWriteConfirm=true,
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="replace_text", Description="Regex replace in parameter (pyRevit: Replace). Params: category, paramName, pattern, replacement, limit.", Parameters=new{type="object",properties=new{category=new{type="string"},paramName=new{type="string"},pattern=new{type="string"},replacement=new{type="string"},limit=new{type="integer"}},required=new[]{"category","paramName","pattern","replacement"}}}},
         Handler = async json=>{
             string cat="",pn="",pat="",rep=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; pn=d.RootElement.GetProperty("paramName").GetString()??""; pat=d.RootElement.GetProperty("pattern").GetString()??""; rep=d.RootElement.GetProperty("replacement").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
@@ -168,6 +172,7 @@ public static class ParamExcelTools
     private static ToolEntry CreateNumberingAuto(RevitBridge bridge) => new()
     {
         Tier = ToolTier.L2,
+        RequiresWriteConfirm=true,
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="numbering_auto", Description="Auto number Mark by selection order or category (pyRevit: Auto Number). Params: category or use selection if omitted, prefix, start, pad.", Parameters=new{type="object",properties=new{category=new{type="string"},prefix=new{type="string"},start=new{type="integer"},pad=new{type="integer"}},required=Array.Empty<string>()}}},
         Handler = async json=>{
             string? cat=null; string pref=""; int start=1,pad=3;

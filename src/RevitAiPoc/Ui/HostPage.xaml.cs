@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using Autodesk.Revit.UI;
 using Microsoft.Web.WebView2.Core;
 using RevitAiPoc.Llm;
 using RevitAiPoc.Plugins.Core;
@@ -26,6 +27,7 @@ public partial class HostPage : Page
     private AgentLoop? _agent;
     private bool _isRunning;
     private CancellationTokenSource? _cts;
+    private string _lastUserText = "";
 
     public HostPage()
     {
@@ -47,7 +49,11 @@ public partial class HostPage : Page
         try
         {
             await Web.EnsureCoreWebView2Async();
+#if DEBUG
             Web.CoreWebView2.Settings.AreDevToolsEnabled = true;
+#else
+            Web.CoreWebView2.Settings.AreDevToolsEnabled = false;
+#endif
             Web.CoreWebView2.Settings.IsStatusBarEnabled = false;
             Web.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = true;
             try { Web.CoreWebView2.WebMessageReceived -= OnWebMessageReceived; } catch { }
@@ -107,7 +113,7 @@ public partial class HostPage : Page
             }
         }
         catch { }
-        _client.Dispose();
+        _isWebInitialized = false;
     }
 
     private void InitTools()
@@ -215,7 +221,7 @@ public partial class HostPage : Page
             switch (type)
             {
                 case "requestSettings":
-                    PostToWeb(new { type = "settings", settings = _settings });
+                    PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
                     PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                     break;
 
@@ -225,13 +231,10 @@ public partial class HostPage : Page
                         var s = JsonSerializer.Deserialize<AppSettings>(settingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                         if (s != null)
                         {
-                            // preserve case-insensitive comparer
-                            if (s.Plugins != null) s.Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase);
-                            else s.Plugins = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                            _settings = s;
+                            _settings = ProviderSettings.MergeFromWeb(_settings, s);
                             ProviderSettings.Save(_settings);
                             RebuildRegistry();
-                            PostToWeb(new { type = "settings", settings = _settings });
+                            PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
                             PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                             PostToWeb(new { type = "status", text = GetStatusText() });
                         }
@@ -284,6 +287,18 @@ public partial class HostPage : Page
                             var plugin = _discovered.FirstOrDefault(p => p.Meta.Id.Equals(pluginId, StringComparison.OrdinalIgnoreCase));
                             if (plugin != null && !string.IsNullOrWhiteSpace(plugin.Meta.FolderPath) && Directory.Exists(plugin.Meta.FolderPath))
                             {
+                                var td = new TaskDialog("Revit AI POC")
+                                {
+                                    MainInstruction = $"Remove plugin {pluginId}?",
+                                    MainContent = plugin.Meta.FolderPath,
+                                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                                    DefaultButton = TaskDialogResult.No
+                                };
+                                if (td.Show() != TaskDialogResult.Yes)
+                                {
+                                    PostToWeb(new { type = "status", text = "Remove cancelled." });
+                                    break;
+                                }
                                 try { Directory.Delete(plugin.Meta.FolderPath, true); PostToWeb(new { type = "status", text = $"Removed {pluginId}. Restart Revit to unload." }); }
                                 catch (Exception ex) { PostToWeb(new { type = "error", text = $"Remove failed: {ex.Message}. Close Revit and delete manually: {plugin.Meta.FolderPath}" }); }
                             }
@@ -320,6 +335,7 @@ public partial class HostPage : Page
                     {
                         var text = doc.RootElement.GetProperty("text").GetString() ?? "";
                         if (string.IsNullOrWhiteSpace(text)) break;
+                        _lastUserText = text;
                         if (_isRunning)
                         {
                             PostToWeb(new { type = "error", text = "Already working, please wait or press Stop." });
@@ -338,17 +354,24 @@ public partial class HostPage : Page
                             break;
                         }
 
+                        if (_agent == null)
+                        {
+                            PostToWeb(new { type = "error", text = "Agent not ready. Restart Revit and reopen the pane." });
+                            break;
+                        }
+
                         _isRunning = true;
                         _cts?.Dispose();
                         _cts = new CancellationTokenSource();
                         var ct = _cts.Token;
+                        var agent = _agent;
                         PostToWeb(new { type = "status", text = "Working..." });
 
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                string result = await _agent!.RunAsync(provider, text,
+                                string result = await agent.RunAsync(provider, text,
                                     ExecuteToolAsync,
                                     trace =>
                                     {
@@ -438,7 +461,7 @@ public partial class HostPage : Page
                     else if (d.RootElement.TryGetProperty("elementId", out var eid)) ids = eid.ToString();
                 }
                 catch { }
-                AuditLog.Append(name, "", ids, result, entry.Tier.ToString());
+                AuditLog.Append(name, _lastUserText, ids, result, entry.Tier.ToString());
                 // Invalidate read cache after any write
                 _cache.Invalidate();
             }

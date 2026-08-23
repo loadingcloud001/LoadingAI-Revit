@@ -36,7 +36,8 @@ public static class GeometryCreateTools
                     if(!string.IsNullOrWhiteSpace(ft)) ftype=new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().FirstOrDefault(f=>f.Name.Equals(ft,StringComparison.OrdinalIgnoreCase));
                     ftype??=new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().FirstOrDefault();
                     if(ftype==null) return "No floor types.";
-                    var pts=new[]{ new XYZ(x1,y1,0), new XYZ(x2,y1,0), new XYZ(x2,y2,0), new XYZ(x1,y2,0)};
+                    var z=level.Elevation;
+                    var pts=new[]{ new XYZ(x1,y1,z), new XYZ(x2,y1,z), new XYZ(x2,y2,z), new XYZ(x1,y2,z)};
                     var curveLoop=new CurveLoop();
                     for(int i=0;i<4;i++) curveLoop.Append(Line.CreateBound(pts[i], pts[(i+1)%4]));
                     using var tx=new Transaction(doc, $"Revit AI POC: floor {lvl}"); tx.Start();
@@ -78,10 +79,10 @@ public static class GeometryCreateTools
     private static ToolEntry CreateGridLevel(RevitBridge bridge) => new()
     {
         Tier=ToolTier.L3,
-        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="create_grid_level", Description="Create grid and level (Dynamo: Grid.ByLine/ Level). Params: type grid|level, name, x1,y1,x2,y2 or elevation.", Parameters=new{type="object",properties=new{type=new{type="string",description="grid or level"},name=new{type="string"},x1=new{type="number"},y1=new{type="number"},x2=new{type="number"},y2=new{type="number"},elevation=new{type="number"}},required=new[]{"type","name"}}}},
+        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="create_grid_level", Description="Create grid and level (Dynamo: Grid.ByLine/ Level). Params: kind grid|level, name, x1,y1,x2,y2 or elevation.", Parameters=new{type="object",properties=new{kind=new{type="string",description="grid or level"},name=new{type="string"},x1=new{type="number"},y1=new{type="number"},x2=new{type="number"},y2=new{type="number"},elevation=new{type="number"}},required=new[]{"kind","name"}}}},
         Handler=async json=>{
             string t="",nm=""; double x1=0,y1=0,x2=10,y2=0, elev=10;
-            try{using var d=JsonDocument.Parse(json); t=d.RootElement.GetProperty("type").GetString()??""; nm=d.RootElement.GetProperty("name").GetString()??""; if(d.RootElement.TryGetProperty("x1",out var a)&&a.ValueKind==JsonValueKind.Number) x1=a.GetDouble(); if(d.RootElement.TryGetProperty("y1",out var b)&&b.ValueKind==JsonValueKind.Number) y1=b.GetDouble(); if(d.RootElement.TryGetProperty("x2",out var c)&&c.ValueKind==JsonValueKind.Number) x2=c.GetDouble(); if(d.RootElement.TryGetProperty("y2",out var d2)&&d2.ValueKind==JsonValueKind.Number) y2=d2.GetDouble(); if(d.RootElement.TryGetProperty("elevation",out var e)&&e.ValueKind==JsonValueKind.Number) elev=e.GetDouble();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
+            try{using var d=JsonDocument.Parse(json); t=(d.RootElement.TryGetProperty("kind",out var k)?k.GetString():null)??(d.RootElement.TryGetProperty("type",out var ty)?ty.GetString():null)??""; nm=d.RootElement.GetProperty("name").GetString()??""; if(d.RootElement.TryGetProperty("x1",out var a)&&a.ValueKind==JsonValueKind.Number) x1=a.GetDouble(); if(d.RootElement.TryGetProperty("y1",out var b)&&b.ValueKind==JsonValueKind.Number) y1=b.GetDouble(); if(d.RootElement.TryGetProperty("x2",out var c)&&c.ValueKind==JsonValueKind.Number) x2=c.GetDouble(); if(d.RootElement.TryGetProperty("y2",out var d2)&&d2.ValueKind==JsonValueKind.Number) y2=d2.GetDouble(); if(d.RootElement.TryGetProperty("elevation",out var e)&&e.ValueKind==JsonValueKind.Number) elev=e.GetDouble();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
@@ -135,6 +136,7 @@ public static class GeometryCreateTools
     private static ToolEntry RotateAlign(RevitBridge bridge) => new()
     {
         Tier=ToolTier.L3,
+        RequiresWriteConfirm=true,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="rotate_elements", Description="Rotate elements around Z (pyRevit: Rotate). Params: elementIds, angleDegrees, originX,originY optional (else centroid).", Parameters=new{type="object",properties=new{elementIds=new{type="array",items=new{type="string"}},angleDegrees=new{type="number"},originX=new{type="number"},originY=new{type="number"}},required=new[]{"elementIds","angleDegrees"}}}},
         Handler=async json=>{
             List<string> ids=new(); double ang=0, ox=double.NaN, oy=double.NaN;

@@ -1,0 +1,331 @@
+﻿using System.Text.Json;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using RevitAiPoc.Llm;
+using RevitAiPoc.Revit;
+
+namespace RevitAiPoc.Tools;
+
+public static class GeometryTools
+{
+    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    {
+        yield return CreateMoveElements(bridge);
+        yield return CreateDeleteElements(bridge);
+        yield return CreateCreateWall(bridge);
+        yield return CreateCreateFamilyInstance(bridge);
+        yield return CreateDuplicateElement(bridge);
+    }
+
+    internal static ToolEntry CreateMoveElements(RevitBridge bridge)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "move_elements",
+                    Description = "Move elements by vector (feet).",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            elementIds = new { type = "array", items = new { type = "string" } },
+                            dx = new { type = "number", description = "Delta X in feet" },
+                            dy = new { type = "number", description = "Delta Y in feet" },
+                            dz = new { type = "number", description = "Delta Z in feet" }
+                        },
+                        required = new[] { "elementIds", "dx", "dy", "dz" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                List<string> eids = new(); double dx = 0, dy = 0, dz = 0;
+                try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); dx = d.RootElement.GetProperty("dx").GetDouble(); dy = d.RootElement.GetProperty("dy").GetDouble(); dz = d.RootElement.GetProperty("dz").GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                bool confirmed = await bridge.RunAsync(uiApp =>
+                {
+                    var td = new TaskDialog("Revit AI POC") { MainInstruction = $"Move {eids.Count} element(s) by ({dx},{dy},{dz}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!confirmed) return "Cancelled by user.";
+                var result = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        using var tx = new Transaction(doc, $"Revit AI POC: move {eids.Count} elements");
+                        tx.Start();
+                        var vec = new XYZ(dx, dy, dz);
+                        int ok = 0;
+                        var failed = new List<string>();
+                        foreach (var eidStr in eids)
+                        {
+                            var eid = AllTools.ParseEid(eidStr);
+                            try { ElementTransformUtils.MoveElement(doc, eid, vec); ok++; }
+                            catch (Exception ex) { failed.Add($"{eidStr}:{ex.Message}"); }
+                        }
+                        tx.Commit();
+                        var msg = $"Moved {ok}/{eids.Count} element(s) by ({dx},{dy},{dz}) ft.";
+                        if (failed.Count > 0) msg += " Failed: " + string.Join("; ", failed.Take(10));
+                        return msg;
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+                return result;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateDeleteElements(RevitBridge bridge)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "delete_elements",
+                    Description = "Delete elements by Id. Destructive ??asks for confirmation and shows preview.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new { elementIds = new { type = "array", items = new { type = "string" } } },
+                        required = new[] { "elementIds" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                List<string> eids = new();
+                try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                if (eids.Count == 0) return "Provide elementIds.";
+                var preview = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return (err: "Please open a model first.", s: "");
+                    var s = string.Join("\n", eids.Take(5).Select(id => { var el = doc.GetElement(AllTools.ParseEid(id)); return $"{id} {el?.Category?.Name} \"{el?.Name}\""; }));
+                    if (eids.Count > 5) s += $"\n... and {eids.Count - 5} more.";
+                    return (err: "", s: s);
+                });
+                if (!string.IsNullOrEmpty(preview.err)) return preview.err;
+                bool confirmed = await bridge.RunAsync(uiApp =>
+                {
+                    var td = new TaskDialog("Revit AI POC") { MainInstruction = $"Delete {eids.Count} element(s)? This cannot be undone except via Undo.", MainContent = preview.s, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!confirmed) return "Cancelled by user.";
+                var result = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        using var tx = new Transaction(doc, $"Revit AI POC: delete {eids.Count} elements");
+                        tx.Start();
+                        var ids = eids.Select(AllTools.ParseEid).ToList();
+                        doc.Delete(ids);
+                        tx.Commit();
+                        return $"Deleted {ids.Count} element(s). Undo with Ctrl+Z.";
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+                return result;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateCreateWall(RevitBridge bridge)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "create_wall",
+                    Description = "Create a wall by start/end points (feet) on a level. For testing geometry creation.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            levelName = new { type = "string", description = "Level name, e.g. Level 1" },
+                            x1 = new { type = "number" }, y1 = new { type = "number" }, x2 = new { type = "number" }, y2 = new { type = "number" },
+                            wallTypeName = new { type = "string", description = "Optional wall type name" }
+                        },
+                        required = new[] { "levelName", "x1", "y1", "x2", "y2" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null;
+                try { using var d = JsonDocument.Parse(json); levelName = d.RootElement.GetProperty("levelName").GetString() ?? ""; x1 = d.RootElement.GetProperty("x1").GetDouble(); y1 = d.RootElement.GetProperty("y1").GetDouble(); x2 = d.RootElement.GetProperty("x2").GetDouble(); y2 = d.RootElement.GetProperty("y2").GetDouble(); if (d.RootElement.TryGetProperty("wallTypeName", out var w) && w.ValueKind == JsonValueKind.String) wallTypeName = w.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                bool confirmed = await bridge.RunAsync(uiApp =>
+                {
+                    var td = new TaskDialog("Revit AI POC") { MainInstruction = $"Create wall on {levelName} from ({x1},{y1}) to ({x2},{y2}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!confirmed) return "Cancelled by user.";
+                var result = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
+                        if (level == null) return $"Level '{levelName}' not found.";
+                        ElementId wallTypeId = ElementId.InvalidElementId;
+                        if (!string.IsNullOrWhiteSpace(wallTypeName))
+                        {
+                            var wt = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().FirstOrDefault(t => t.Name.Equals(wallTypeName, StringComparison.OrdinalIgnoreCase));
+                            if (wt == null) return $"Wall type '{wallTypeName}' not found.";
+                            wallTypeId = wt.Id;
+                        }
+                        else
+                        {
+                            var wt = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().FirstOrDefault();
+                            if (wt == null) return "No wall types found.";
+                            wallTypeId = wt.Id;
+                        }
+                        var p1 = new XYZ(x1, y1, 0); var p2 = new XYZ(x2, y2, 0);
+                        var line = Line.CreateBound(p1, p2);
+                        using var tx = new Transaction(doc, "Revit AI POC: create wall");
+                        tx.Start();
+                        var wall = Wall.Create(doc, line, wallTypeId, level.Id, 10, 0, false, false);
+                        tx.Commit();
+                        return $"Created wall {wall.Id} on {levelName} from ({x1},{y1}) to ({x2},{y2}) type {wallTypeId}.";
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+                return result;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateCreateFamilyInstance(RevitBridge bridge)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "create_family_instance",
+                    Description = "Place a family instance by symbol name at a point (feet) on a level.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            symbolName = new { type = "string", description = "Family symbol name, e.g. 'Single-Flush'" },
+                            familyName = new { type = "string", description = "Family name, e.g. 'Door'" },
+                            levelName = new { type = "string", description = "Level name" },
+                            x = new { type = "number" }, y = new { type = "number" }, z = new { type = "number", description = "Optional Z, default 0" }
+                        },
+                        required = new[] { "symbolName", "x", "y" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string symbolName = "", familyName = "", levelName = ""; double x = 0, y = 0, z = 0;
+                try { using var d = JsonDocument.Parse(json); symbolName = d.RootElement.GetProperty("symbolName").GetString() ?? ""; if (d.RootElement.TryGetProperty("familyName", out var fn) && fn.ValueKind == JsonValueKind.String) familyName = fn.GetString() ?? ""; if (d.RootElement.TryGetProperty("levelName", out var ln) && ln.ValueKind == JsonValueKind.String) levelName = ln.GetString() ?? ""; x = d.RootElement.GetProperty("x").GetDouble(); y = d.RootElement.GetProperty("y").GetDouble(); if (d.RootElement.TryGetProperty("z", out var zz) && zz.ValueKind == JsonValueKind.Number) z = zz.GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                bool confirmed = await bridge.RunAsync(uiApp =>
+                {
+                    var td = new TaskDialog("Revit AI POC") { MainInstruction = $"Place '{symbolName}' at ({x},{y},{z})?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!confirmed) return "Cancelled by user.";
+                var result = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        var symbols = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
+                        FamilySymbol? sym = null;
+                        if (!string.IsNullOrWhiteSpace(familyName)) sym = symbols.FirstOrDefault(s => s.FamilyName.Equals(familyName, StringComparison.OrdinalIgnoreCase) && s.Name.Equals(symbolName, StringComparison.OrdinalIgnoreCase));
+                        sym ??= symbols.FirstOrDefault(s => s.Name.Equals(symbolName, StringComparison.OrdinalIgnoreCase));
+                        if (sym == null) return $"Symbol '{symbolName}' not found. Available: {string.Join(", ", symbols.Take(10).Select(s => s.Name))}";
+                        Level? lvl = null;
+                        if (!string.IsNullOrWhiteSpace(levelName)) lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
+                        if (lvl == null) lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault();
+                        if (lvl == null) return "No levels found.";
+                        if (!sym.IsActive) sym.Activate();
+                        var pt = new XYZ(x, y, z);
+                        using var tx = new Transaction(doc, "Revit AI POC: create instance");
+                        tx.Start();
+                        var inst = doc.Create.NewFamilyInstance(pt, sym, lvl, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                        tx.Commit();
+                        return $"Created instance {inst.Id} '{symbolName}' at ({x},{y},{z}) on {lvl.Name}.";
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+                return result;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateDuplicateElement(RevitBridge bridge)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "duplicate_element",
+                    Description = "Duplicate a view/sheet/element by Id.",
+                    Parameters = new { type = "object", properties = new { elementId = new { type = "string" } }, required = new[] { "elementId" } }
+                }
+            },
+            Handler = async json =>
+            {
+                string eidStr = "";
+                try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                bool confirmed = await bridge.RunAsync(uiApp =>
+                {
+                    var td = new TaskDialog("Revit AI POC") { MainInstruction = $"Duplicate element {eidStr}?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!confirmed) return "Cancelled by user.";
+                var result = await bridge.RunAsync(uiApp =>
+                {
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        var eid = AllTools.ParseEid(eidStr);
+                        var el = doc.GetElement(eid);
+                        if (el == null) return $"Element {eidStr} not found.";
+                        using var tx = new Transaction(doc, "Revit AI POC: duplicate");
+                        tx.Start();
+                        ICollection<ElementId> newIds;
+                        if (el is View v) { var nid = v.Duplicate(ViewDuplicateOption.Duplicate); newIds = new[] { nid }; }
+                        else { newIds = ElementTransformUtils.CopyElement(doc, eid, XYZ.Zero); }
+                        tx.Commit();
+                        return $"Duplicated {eidStr} -> {string.Join(", ", newIds.Select(id => id.ToString()))}";
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+                return result;
+            }
+        };
+    }
+
+}

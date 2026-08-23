@@ -52,7 +52,6 @@ internal sealed class ChatCompletionRequest
     [JsonPropertyName("stream")] public bool? Stream { get; set; }
 }
 
-// Streaming delta structures (subset of OpenAI spec)
 internal sealed class ChatCompletionChunk
 {
     [JsonPropertyName("choices")] public List<ChunkChoice>? Choices { get; set; }
@@ -61,18 +60,6 @@ internal sealed class ChunkChoice
 {
     [JsonPropertyName("delta")] public ChatMessage? Delta { get; set; }
     [JsonPropertyName("finish_reason")] public string? FinishReason { get; set; }
-}
-internal sealed class DeltaToolCall
-{
-    [JsonPropertyName("index")] public int Index { get; set; }
-    [JsonPropertyName("id")] public string? Id { get; set; }
-    [JsonPropertyName("type")] public string? Type { get; set; }
-    [JsonPropertyName("function")] public DeltaFunction? Function { get; set; }
-}
-internal sealed class DeltaFunction
-{
-    [JsonPropertyName("name")] public string? Name { get; set; }
-    [JsonPropertyName("arguments")] public string? Arguments { get; set; }
 }
 
 public sealed class ChatCompletionResponse
@@ -100,7 +87,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
     public OpenAiCompatibleClient()
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+        _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     public async Task<ChatCompletionResponse> ChatAsync(
@@ -120,22 +107,35 @@ public sealed class OpenAiCompatibleClient : IDisposable
         if (string.IsNullOrWhiteSpace(provider.ApiKey))
             throw new InvalidOperationException($"Provider '{provider.Name}' has no API key. Please add it in settings.");
 
-        // Try streaming first if caller wants deltas
         if (onDelta != null)
         {
-            try { return await ChatStreamAsync(provider, messages, tools, onDelta, ct); }
-            catch (OperationCanceledException) { throw; }
-            catch
+            var streamed = false;
+            try
             {
-                // fallback to non-stream on any stream failure (provider doesn't support stream, etc.)
+                return await ChatStreamAsync(provider, messages, tools, chunk =>
+                {
+                    streamed = true;
+                    onDelta(chunk);
+                }, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch when (!streamed)
+            {
             }
         }
 
-        var baseUrl = provider.BaseUrl.Trim().TrimEnd('/');
-        var url = baseUrl.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl
-            : baseUrl + "/chat/completions";
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
+        return await ChatOnceAsync(provider, messages, tools, timeoutCts.Token);
+    }
 
+    private async Task<ChatCompletionResponse> ChatOnceAsync(
+        ProviderConfig provider,
+        List<ChatMessage> messages,
+        List<ToolDefinition>? tools,
+        CancellationToken ct)
+    {
+        var url = BuildUrl(provider.BaseUrl);
         var req = new ChatCompletionRequest
         {
             Model = provider.Model,
@@ -145,12 +145,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
             Stream = null
         };
 
-        var json = JsonSerializer.Serialize(req, new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
-
+        var json = JsonSerializer.Serialize(req, LlmJson.Options);
         using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -170,7 +165,6 @@ public sealed class OpenAiCompatibleClient : IDisposable
                     err = parsed.Error.Message!;
             }
             catch { }
-            // Friendly 401
             if ((int)resp.StatusCode == 401) throw new HttpRequestException($"Provider '{provider.Name}' key invalid or expired (401): {err}. Open Settings and check your API key.");
             throw new HttpRequestException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {err}");
         }
@@ -188,11 +182,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         Action<string> onDelta,
         CancellationToken ct)
     {
-        var baseUrl = provider.BaseUrl.Trim().TrimEnd('/');
-        var url = baseUrl.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl
-            : baseUrl + "/chat/completions";
-
+        var url = BuildUrl(provider.BaseUrl);
         var req = new ChatCompletionRequest
         {
             Model = provider.Model,
@@ -202,12 +192,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
             Stream = true
         };
 
-        var json = JsonSerializer.Serialize(req, new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        });
-
+        var json = JsonSerializer.Serialize(req, LlmJson.Options);
         using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -229,9 +214,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
             throw new HttpRequestException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {err}");
         }
 
-        // Accumulate streaming deltas
         var contentSb = new StringBuilder();
-        var toolCallsAccum = new Dictionary<int, ToolCall>();
+        var toolCallsAccum = new StreamToolCallAccumulator();
         string? finishReason = null;
         string? role = "assistant";
 
@@ -244,7 +228,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
             var line = await reader.ReadLineAsync(ct);
             if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
-            if (line.StartsWith(":")) continue; // comment
+            if (line.StartsWith(":")) continue;
             if (!line.StartsWith("data:")) continue;
             var data = line["data:".Length..].Trim();
             if (data == "[DONE]") break;
@@ -259,62 +243,19 @@ public sealed class OpenAiCompatibleClient : IDisposable
             if (delta == null) continue;
             if (!string.IsNullOrEmpty(delta.Role)) role = delta.Role;
 
-            // Content delta
-            var deltaContent = GetContentString(delta.Content);
+            var deltaContent = LlmJson.GetContentString(delta.Content);
             if (!string.IsNullOrEmpty(deltaContent))
             {
                 contentSb.Append(deltaContent);
                 try { onDelta(deltaContent); } catch { }
             }
 
-            // Tool call deltas — need to parse raw JSON for tool_calls array since ChatMessage.ToolCalls is typed as List<ToolCall>
-            // We re-parse delta's raw JSON for tool_calls incremental fragments
-            try
-            {
-                using var doc = JsonDocument.Parse(data);
-                if (doc.RootElement.TryGetProperty("choices", out var choicesEl) && choicesEl.GetArrayLength() > 0)
-                {
-                    var ch0 = choicesEl[0];
-                    if (ch0.TryGetProperty("delta", out var deltaEl) && deltaEl.TryGetProperty("tool_calls", out var tcsEl) && tcsEl.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var tcEl in tcsEl.EnumerateArray())
-                        {
-                            int idx;
-                            if (tcEl.TryGetProperty("index", out var idxEl) && idxEl.ValueKind == JsonValueKind.Number) idx = idxEl.GetInt32();
-                            else
-                            {
-                                // provider omitted index (e.g. some OpenAI compatibles) — allocate new index if this chunk starts a new tool (has name), else append to last
-                                bool hasName = tcEl.TryGetProperty("function", out var _fe) && _fe.TryGetProperty("name", out var _ne) && _ne.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(_ne.GetString());
-                                if (hasName) idx = toolCallsAccum.Count;
-                                else idx = toolCallsAccum.Count > 0 ? toolCallsAccum.Keys.Max() : 0;
-                            }
-                            if (!toolCallsAccum.TryGetValue(idx, out var existing))
-                            {
-                                existing = new ToolCall { Id = "", Function = new ToolCallFunction() };
-                                toolCallsAccum[idx] = existing;
-                            }
-                            if (tcEl.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String) existing.Id = (existing.Id ?? "") + idEl.GetString();
-                            if (tcEl.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String) existing.Type = typeEl.GetString() ?? "function";
-                            if (tcEl.TryGetProperty("function", out var funcEl))
-                            {
-                                if (funcEl.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String) existing.Function.Name += nEl.GetString();
-                                if (funcEl.TryGetProperty("arguments", out var aEl) && aEl.ValueKind == JsonValueKind.String) existing.Function.Arguments += aEl.GetString();
-                            }
-                        }
-                    }
-                }
-            }
-            catch { }
+            try { toolCallsAccum.ApplyChunk(data); } catch { }
         }
 
-        // Build final message from accumulators
         var finalMsg = new ChatMessage { Role = role ?? "assistant", Content = contentSb.ToString() };
-        if (toolCallsAccum.Count > 0)
-        {
-            finalMsg.ToolCalls = toolCallsAccum.OrderBy(k => k.Key).Select(k => k.Value).ToList();
-            // Ensure ids present
-            foreach (var tc in finalMsg.ToolCalls) if (string.IsNullOrEmpty(tc.Id)) tc.Id = "call_" + Guid.NewGuid().ToString("N")[..8];
-        }
+        if (toolCallsAccum.Calls.Count > 0)
+            finalMsg.ToolCalls = toolCallsAccum.ToList();
 
         return new ChatCompletionResponse
         {
@@ -322,17 +263,12 @@ public sealed class OpenAiCompatibleClient : IDisposable
         };
     }
 
-    private static string GetContentString(object? c)
+    private static string BuildUrl(string baseUrl)
     {
-        if (c == null) return "";
-        if (c is string s) return s;
-        if (c is JsonElement je)
-        {
-            if (je.ValueKind == JsonValueKind.String) return je.GetString() ?? "";
-            if (je.ValueKind == JsonValueKind.Null) return "";
-            return je.GetRawText();
-        }
-        return c.ToString() ?? "";
+        var url = baseUrl.Trim().TrimEnd('/');
+        return url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
+            ? url
+            : url + "/chat/completions";
     }
 
     public void Dispose() => _http.Dispose();

@@ -25,7 +25,10 @@ public class App : IExternalApplication
             btnData.LongDescription = "Chat with LLM and run tools on the active model.";
             panel.AddItem(btnData);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            HostLog.Write($"ribbon failed: {ex}");
+        }
 
         // Dockable pane
         try
@@ -47,13 +50,6 @@ public class App : IExternalApplication
         Bridge = null;
         RevitContext.Clear();
         return Result.Succeeded;
-    }
-
-    private static UIApplication? GetUiApp(UIControlledApplication app)
-    {
-        // UIControlledApplication doesn't directly give UIApplication at startup; store via reflection fallback
-        // We will set it later when first command runs if needed.
-        return null;
     }
 }
 

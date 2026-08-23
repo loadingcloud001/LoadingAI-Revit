@@ -9,10 +9,14 @@ public sealed class QueryCache
 
     public bool TryGet<T>(string key, out T value)
     {
-        if (_store.TryGetValue(key, out var entry) && DateTime.UtcNow < entry.Expires && entry.Value is T t)
+        if (_store.TryGetValue(key, out var entry))
         {
-            value = t;
-            return true;
+            if (DateTime.UtcNow < entry.Expires && entry.Value is T t)
+            {
+                value = t;
+                return true;
+            }
+            _store.TryRemove(key, out _);
         }
         value = default!;
         return false;

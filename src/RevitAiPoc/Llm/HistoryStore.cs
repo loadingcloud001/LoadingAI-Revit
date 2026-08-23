@@ -5,6 +5,9 @@ namespace RevitAiPoc.Llm;
 
 public static class HistoryStore
 {
+    private static readonly object Gate = new();
+    private static int _appendsSinceTrim;
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "RevitAiPoc", "history.jsonl");
@@ -16,23 +19,34 @@ public static class HistoryStore
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             var entry = new { timestamp = DateTime.UtcNow.ToString("o"), role, text = text.Length > 2000 ? text[..2000] + "..." : text };
             var line = JsonSerializer.Serialize(entry);
-            File.AppendAllText(FilePath, line + Environment.NewLine);
+            lock (Gate)
+            {
+                File.AppendAllText(FilePath, line + Environment.NewLine);
+                _appendsSinceTrim++;
+                if (_appendsSinceTrim >= 50)
+                {
+                    _appendsSinceTrim = 0;
+                    TrimUnlocked(200);
+                }
+            }
         }
         catch { }
     }
 
-    // Keep last N lines trimmed on each append to avoid unbounded growth
     public static void Trim(int keep = 200)
     {
         try
         {
-            if (!File.Exists(FilePath)) return;
-            var lines = File.ReadAllLines(FilePath);
-            if (lines.Length > keep)
-            {
-                File.WriteAllLines(FilePath, lines[^keep..]);
-            }
+            lock (Gate) TrimUnlocked(keep);
         }
         catch { }
+    }
+
+    private static void TrimUnlocked(int keep)
+    {
+        if (!File.Exists(FilePath)) return;
+        var lines = File.ReadAllLines(FilePath);
+        if (lines.Length > keep)
+            File.WriteAllLines(FilePath, lines[^keep..]);
     }
 }

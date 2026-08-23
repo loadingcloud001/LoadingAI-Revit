@@ -36,7 +36,7 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\RevitAiPoc.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2027\" SkipUnchangedFiles="false" />
     <!-- copy all runtime deps (Toolkit etc) -->
     <ItemGroup>
-      <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll" />
+      <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)RevitAPI.dll;$(TargetDir)RevitAPIUI.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_Deps)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
     <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\2027\" Importance="high" />

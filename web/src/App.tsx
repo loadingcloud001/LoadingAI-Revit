@@ -18,7 +18,8 @@ function normalizeSettings(raw: any): AppSettings | null {
     model: p.model ?? p.Model ?? '',
     apiKey: p.apiKey ?? p.ApiKey ?? '',
   }));
-  return { activeProviderId: active, providers };
+  const plugins = raw.plugins ?? raw.Plugins ?? undefined;
+  return { activeProviderId: active, providers, plugins };
 }
 
 export default function App() {
@@ -45,6 +46,8 @@ export default function App() {
   // streaming flag to dedupe final assistant after deltas
   const streamedRef = useRef(false);
   const pendingDeltaRef = useRef<string>('');
+  const idRef = useRef(0);
+  const nextId = () => `m${++idRef.current}`;
 
   useEffect(() => {
     const handler = (msg: any) => {
@@ -65,44 +68,38 @@ export default function App() {
         } else if ((msg as any).type === 'plugins') {
           setPlugins(((msg as any).plugins as PluginInfo[]) ?? []);
         } else if (msg.type === 'trace') {
-          setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'trace', text: String(msg.text ?? '') }]);
+          setMessages(m => [...m, { id: nextId(), role: 'trace', text: String(msg.text ?? '') }]);
         } else if (msg.type === 'tool_call') {
-          setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'tool_call', text: String(msg.text ?? '') }]);
+          streamedRef.current = false;
+          pendingDeltaRef.current = '';
+          setMessages(m => [...m, { id: nextId(), role: 'tool_call', text: String(msg.text ?? '') }]);
         } else if (msg.type === 'tool_result') {
-          setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'tool_result', text: String(msg.text ?? '') }]);
+          setMessages(m => [...m, { id: nextId(), role: 'tool_result', text: String(msg.text ?? '') }]);
         } else if (msg.type === 'assistant') {
           const incoming = String(msg.text ?? '');
           setMessages(m => {
             const last = m[m.length - 1];
-            // If we streamed, last assistant already contains the content via deltas. Avoid duplicate.
             if (last && last.role === 'assistant' && streamedRef.current) {
-              if (last.text === incoming) return m;
-              // If streamed content is prefix of incoming or vice versa, replace to ensure completeness
-              if (incoming.startsWith(last.text) || last.text.startsWith(incoming)) {
-                return [...m.slice(0, -1), { ...last, text: incoming }];
+              streamedRef.current = false;
+              pendingDeltaRef.current = '';
+              if (!incoming || last.text === incoming || incoming.startsWith(last.text) || last.text.startsWith(incoming)) {
+                return incoming && last.text !== incoming
+                  ? [...m.slice(0, -1), { ...last, text: incoming.length >= last.text.length ? incoming : last.text }]
+                  : m;
               }
-              // Otherwise streamed already done but final is new answer after tool loop
-              // Keep streamed as is and append new? Actually tool loop final after delta streaming already via delta, but if we got tool_result then new assistant, last is tool_result not assistant, so we append.
-              // If last is assistant but different content (e.g. second assistant after tool), replace is safer than duplicate?
-              // For safety, append as new if different
-              if (last.text !== incoming) {
-                // If last was just deltas and incoming is final same, we already handled. If different, treat as update
-                // Check pendingDeltaRef: if we already have pendingDelta, reset
-                streamedRef.current = false;
-                pendingDeltaRef.current = '';
-                return [...m.slice(0, -1), { ...last, text: incoming }];
-              }
+              return [...m.slice(0, -1), { ...last, text: incoming }];
             }
             streamedRef.current = false;
             pendingDeltaRef.current = '';
-            return [...m, { id: Math.random().toString(36).slice(2), role: 'assistant', text: incoming }];
+            if (!incoming) return m;
+            return [...m, { id: nextId(), role: 'assistant', text: incoming }];
           });
           setIsRunning(false);
           const cur = settingsRef.current;
           const active = cur?.providers.find(p => p.id === cur.activeProviderId) ?? cur?.providers[0];
           setStatus(active ? `Active: ${active.name}` : 'Ready');
         } else if (msg.type === 'error') {
-          setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'system', text: `Error: ${String(msg.text ?? '')}` }]);
+          setMessages(m => [...m, { id: nextId(), role: 'system', text: `Error: ${String(msg.text ?? '')}` }]);
           setIsRunning(false);
           streamedRef.current = false;
           pendingDeltaRef.current = '';
@@ -112,31 +109,28 @@ export default function App() {
         } else if (msg.type === 'delta') {
           const chunk = String(msg.text ?? '');
           if (!chunk) return;
+          const starting = !streamedRef.current;
           streamedRef.current = true;
           pendingDeltaRef.current += chunk;
           setMessages(m => {
             const last = m[m.length - 1];
-            if (last && last.role === 'assistant' && streamedRef.current) {
-              // if last is assistant and we are streaming, append
-              // But need to ensure last was created by delta, not by previous complete assistant
-              // Check if pendingDeltaRef length tracks: if we already have pending, just append
+            if (last && last.role === 'assistant' && !starting) {
               return [...m.slice(0, -1), { ...last, text: last.text + chunk }];
             }
-            // If last is trace/tool_result, create new assistant for streaming
-            return [...m, { id: Math.random().toString(36).slice(2), role: 'assistant', text: chunk }];
+            return [...m, { id: nextId(), role: 'assistant', text: chunk }];
           });
           setIsRunning(true);
         }
       } catch (e: any) {
-        setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'system', text: `UI error: ${e?.message ?? String(e)}` }]);
+        setMessages(m => [...m, { id: nextId(), role: 'system', text: `UI error: ${e?.message ?? String(e)}` }]);
       }
     };
 
-    onHostMessage(handler as any);
+    const off = onHostMessage(handler as any);
     postToHost({ type: 'requestSettings' });
     postToHost({ type: 'listPlugins' } as any);
     const t = setTimeout(() => { postToHost({ type: 'requestSettings' }); postToHost({ type: 'listPlugins' } as any); }, 800);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); off(); };
   }, []);
 
   useEffect(() => {
@@ -149,12 +143,12 @@ export default function App() {
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
     if (!cur || !active) {
-      setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'system', text: 'No provider configured. Open Settings to add one.' }]);
+      setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open Settings to add one.' }]);
       setShowSettings(true);
       return;
     }
     if (!active.apiKey) {
-      setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'system', text: `Provider '${active.name}' has no API key. Open Settings and paste your key.` }]);
+      setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key. Open Settings and paste your key.` }]);
       setShowSettings(true);
       return;
     }
@@ -165,7 +159,7 @@ export default function App() {
       settingsRef.current = newSettings;
       postToHost({ type: 'saveSettings', settings: newSettings });
     }
-    setMessages(m => [...m, { id: Math.random().toString(36).slice(2), role: 'you', text }]);
+    setMessages(m => [...m, { id: nextId(), role: 'you', text }]);
     setInput('');
     setIsRunning(true);
     streamedRef.current = false;
@@ -176,8 +170,7 @@ export default function App() {
 
   const handleStop = () => {
     postToHost({ type: 'cancel' });
-    setIsRunning(false);
-    setStatus('Cancelled');
+    setStatus('Cancelling...');
     streamedRef.current = false;
   };
 

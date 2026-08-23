@@ -9,6 +9,7 @@ export type ProviderConfig = {
 export type AppSettings = {
   activeProviderId: string;
   providers: ProviderConfig[];
+  plugins?: Record<string, boolean>;
 };
 
 export type PluginToolInfo = {
@@ -98,20 +99,21 @@ export function postToHost(msg: ToHost) {
   }
 }
 
-export function onHostMessage(handler: (msg: FromHost) => void) {
+export function onHostMessage(handler: (msg: FromHost) => void): () => void {
   if (window.chrome?.webview) {
-    window.chrome.webview.addEventListener('message', (e: { data: unknown }) => {
+    const listener = (e: { data: unknown }) => {
       let data: any = (e as any).data;
-      // PostWebMessageAsJson may arrive as string or object
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch {}
       }
       handler(data as FromHost);
-    });
-  } else {
-    window.addEventListener('host-message' as any, (e: Event) => {
-      const ce = e as CustomEvent;
-      handler(ce.detail as FromHost);
-    });
+    };
+    window.chrome.webview.addEventListener('message', listener);
+    return () => {
+      try { (window.chrome!.webview as any).removeEventListener?.('message', listener); } catch {}
+    };
   }
+  const fn = (e: Event) => handler((e as CustomEvent).detail as FromHost);
+  window.addEventListener('host-message' as any, fn);
+  return () => window.removeEventListener('host-message' as any, fn);
 }

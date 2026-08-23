@@ -25,6 +25,7 @@ public static class SheetDocTools
     private static ToolEntry CreateSheet(RevitBridge bridge) => new()
     {
         Tier=ToolTier.L3,
+        RequiresWriteConfirm=true,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="create_sheet", Description="Create sheet (pyRevit: Create Sheets). Params: sheetNumber, sheetName, titleBlockName optional.", Parameters=new{type="object",properties=new{sheetNumber=new{type="string"},sheetName=new{type="string"},titleBlockName=new{type="string"}},required=new[]{"sheetNumber","sheetName"}}}},
         Handler=async json=>{
             string num="",name="",tb=""; try{using var d=JsonDocument.Parse(json); num=d.RootElement.GetProperty("sheetNumber").GetString()??""; name=d.RootElement.GetProperty("sheetName").GetString()??""; if(d.RootElement.TryGetProperty("titleBlockName",out var t)&&t.ValueKind==JsonValueKind.String) tb=t.GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
@@ -173,7 +174,14 @@ public static class SheetDocTools
                     int tagged=0;
                     using var tx=new Transaction(doc, $"Revit AI POC: tag {cat}"); tx.Start();
                     foreach(var el in elems){
-                        try{ var tag=IndependentTag.Create(doc, view.Id, new Reference(el), false, TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, el.Location is LocationPoint lp? lp.Point : new XYZ(0,0,0)); if(tag!=null) tagged++; }catch{}
+                        try{
+                            XYZ pt;
+                            if (el.Location is LocationPoint lp) pt = lp.Point;
+                            else if (el.get_BoundingBox(view) is { } bb) pt = (bb.Min + bb.Max) / 2;
+                            else continue;
+                            var tag=IndependentTag.Create(doc, view.Id, new Reference(el), false, TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, pt);
+                            if(tag!=null) tagged++;
+                        }catch{}
                     }
                     tx.Commit();
                     return $"Tagged {tagged}/{elems.Count} {cat} in {view.Name}";
@@ -192,16 +200,13 @@ public static class SheetDocTools
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
-                    var sheets= string.IsNullOrWhiteSpace(capFolder)? Path.GetTempPath() : capFolder;
-                    Directory.CreateDirectory(sheets);
+                    var sheets = ExportPaths.ResolveDirectory(capFolder);
                     var allSheets=new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
                     ICollection<ElementId> toExport;
                     if(capIds!=null&&capIds.Count>0) toExport=capIds.Select(AllTools.ParseEid).ToList();
                     else toExport=allSheets.Select(s=>s.Id).ToList();
                     if(toExport.Count==0) return "No sheets to export.";
-                    var opts=new PDFExportOptions(){ FileName=doc.Title };
-                    // use simple print: rely on doc.Export if available, fallback message
-                    return $"Ready to export {toExport.Count} sheets to {sheets} (use Revit Print API; for POC returning list: {string.Join(",", toExport.Take(5).Select(id=>id.ToString()))})";
+                    return $"export_pdf is not implemented (would export {toExport.Count} sheets to {sheets}).";
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }
@@ -217,13 +222,9 @@ public static class SheetDocTools
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
-                    var f=string.IsNullOrWhiteSpace(capFolder)? Path.GetTempPath() : capFolder;
-                    Directory.CreateDirectory(f);
+                    var f = ExportPaths.ResolveDirectory(capFolder);
                     var views= capIds!=null&&capIds.Count>0? capIds.Select(AllTools.ParseEid).ToList() : new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(v=>!v.IsTemplate).Take(5).Select(v=>v.Id).ToList();
-                    // DWGExportOptions
-                    var opts=new DWGExportOptions(); opts.MergedViews=true;
-                    // doc.Export(f, doc.Title, views, opts); // may require transaction? Export is not transaction
-                    return $"Ready to export {views.Count} views to DWG at {f} (POC: list {string.Join(",", views.Select(id=>id.ToString()))})";
+                    return $"export_dwg is not implemented (would export {views.Count} views to {f}).";
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }

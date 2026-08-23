@@ -2,13 +2,11 @@ using Autodesk.Revit.UI;
 
 namespace RevitAiPoc.Revit;
 
-/// <summary>
-/// Marshals all Revit API calls through ExternalEvent.
-/// </summary>
 public sealed class RevitBridge : IDisposable
 {
     private readonly ExternalEvent _externalEvent;
     private readonly BridgeHandler _handler;
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
 
     public RevitBridge()
     {
@@ -16,11 +14,12 @@ public sealed class RevitBridge : IDisposable
         _externalEvent = ExternalEvent.Create(_handler);
     }
 
-    public Task<T> RunAsync<T>(Func<UIApplication, T> func, CancellationToken ct = default)
+    public async Task<T> RunAsync<T>(Func<UIApplication, T> func, CancellationToken ct = default)
     {
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        IDisposable? reg = null;
         if (ct.CanBeCanceled)
-            ct.Register(() => tcs.TrySetCanceled(ct));
+            reg = ct.Register(() => tcs.TrySetCanceled(ct));
 
         _handler.Enqueue(app =>
         {
@@ -35,8 +34,19 @@ public sealed class RevitBridge : IDisposable
             }
         });
 
-        _externalEvent.Raise();
-        return tcs.Task;
+        var raise = _externalEvent.Raise();
+        if (raise == ExternalEventRequest.Denied || raise == ExternalEventRequest.TimedOut)
+        {
+            reg?.Dispose();
+            throw new InvalidOperationException($"Revit ExternalEvent not accepted ({raise}). Close any open dialog and retry.");
+        }
+
+        using var timeoutCts = new CancellationTokenSource(DefaultTimeout);
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(DefaultTimeout, timeoutCts.Token));
+        reg?.Dispose();
+        if (completed != tcs.Task)
+            throw new TimeoutException("Revit did not process the request in time. Close modal dialogs and retry.");
+        return await tcs.Task;
     }
 
     public Task RunAsync(Action<UIApplication> action, CancellationToken ct = default)
@@ -59,7 +69,6 @@ public sealed class RevitBridge : IDisposable
 
         public void Execute(UIApplication app)
         {
-            // Ensure RevitContext is set when we have a UIApplication
             RevitContext.Set(app);
 
             Queue<Action<UIApplication>> local;
@@ -72,7 +81,7 @@ public sealed class RevitBridge : IDisposable
             {
                 var a = local.Dequeue();
                 try { a(app); }
-                catch { /* per-item exception handled via TCS */ }
+                catch { }
             }
         }
 

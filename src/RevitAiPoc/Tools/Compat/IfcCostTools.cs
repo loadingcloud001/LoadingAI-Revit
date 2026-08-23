@@ -25,13 +25,9 @@ public static class IfcCostTools
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
-                    var dir=string.IsNullOrWhiteSpace(capFolder)? Path.GetTempPath() : capFolder;
-                    Directory.CreateDirectory(dir);
+                    var dir = ExportPaths.ResolveDirectory(capFolder);
                     var fname=string.IsNullOrWhiteSpace(capName)? doc.Title : capName;
-                    // Use built-in IFC export options if available
-                    var opts=new IFCExportOptions();
-                    // doc.Export(dir, fname, opts); // may need transaction? No
-                    return $"Ready to export IFC \"{fname}\" to {dir} (POC: doc.Export with IFCExportOptions). Use IFCExportOptions for config.";
+                    return $"export_ifc is not implemented (would write \"{fname}\" to {dir}).";
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }
@@ -59,8 +55,8 @@ public static class IfcCostTools
                         var lvl=doc.GetElement(el.LevelId) as Level;
                         sb.AppendLine($"{el.Id},\"{el.Name}\",\"{lvl?.Name}\",{a:F2},{v:F2},{l:F2}");
                     }
-                    string path=fp?? Path.Combine(Path.GetTempPath(), $"takeoff_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
-                    File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                     string path=ExportPaths.ResolveWrite(fp, $"takeoff_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                     File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
                     return $"{cat} takeoff: {elems.Count} instances Area {totalArea:F2} sqft Vol {totalVol:F2} cuft Len {totalLen:F2} ft\nCSV: {path}\nPreview:\n"+string.Join("\n", sb.ToString().Split('\n').Take(6));
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });

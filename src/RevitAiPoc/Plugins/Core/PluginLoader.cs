@@ -14,6 +14,9 @@ public sealed class DiscoveredPlugin
 
 public static class PluginLoader
 {
+    private static readonly List<PluginLoadContext> _contexts = new();
+    private static readonly object _ctxLock = new();
+
     public static string RuntimePluginsDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RevitAiPoc", "Plugins");
 
@@ -25,12 +28,12 @@ public static class PluginLoader
 
     public static List<DiscoveredPlugin> Discover(RevitBridge bridge, QueryCache cache)
     {
+        UnloadContexts();
         var result = new List<DiscoveredPlugin>();
-        // 1) Core built-in
         try
         {
             var core = new CorePlugin();
-            var tools = core.CreateTools(bridge, cache).ToList();
+            var tools = ToolGuards.ApplyAll(core.CreateTools(bridge, cache), bridge).ToList();
             var meta = new PluginMeta
             {
                 Id = core.Id,
@@ -52,7 +55,6 @@ public static class PluginLoader
         }
         catch (Exception ex) { Log($"core failed: {ex}"); }
 
-        // 2) Scan runtime plugins dir + dev dir
         foreach (var dir in new[] { RuntimePluginsDir, DevPluginsDir })
         {
             if (!Directory.Exists(dir)) continue;
@@ -61,7 +63,6 @@ public static class PluginLoader
                 try { var dp = LoadOne(pluginFolder, bridge, cache); if (dp != null) result.Add(dp); }
                 catch (Exception ex) { Log($"{pluginFolder} failed: {ex.Message}"); }
             }
-            // also handle loose manifest files directly under Plugins/
             foreach (var manifest in Directory.GetFiles(dir, "plugin.json"))
             {
                 try
@@ -74,11 +75,40 @@ public static class PluginLoader
             }
         }
 
-        // Deduplicate by tool name: core wins
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in result) foreach (var t in p.Tools) seen.Add(t.Definition.Function.Name);
+        foreach (var p in result)
+        {
+            var kept = new List<ToolEntry>();
+            foreach (var t in p.Tools)
+            {
+                var name = t.Definition.Function.Name;
+                if (!seen.Add(name))
+                {
+                    Log($"skip duplicate tool '{name}' from {p.Meta.Id} (core wins)");
+                    continue;
+                }
+                kept.Add(t);
+            }
+            p.Tools.Clear();
+            p.Tools.AddRange(kept);
+            p.Meta.Tools = p.Meta.Tools.Where(m => seen.Contains(m.Name) && p.Tools.Any(t => t.Definition.Function.Name.Equals(m.Name, StringComparison.OrdinalIgnoreCase))).ToList();
+        }
 
         return result;
+    }
+
+    private static void UnloadContexts()
+    {
+        lock (_ctxLock)
+        {
+            foreach (var ctx in _contexts)
+            {
+                try { ctx.Unload(); } catch { }
+            }
+            _contexts.Clear();
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
     }
 
     private static DiscoveredPlugin? LoadOne(string folder, RevitBridge bridge, QueryCache cache)
@@ -94,7 +124,6 @@ public static class PluginLoader
             }
             catch (Exception ex) { Log($"bad manifest {manifestPath}: {ex.Message}"); }
         }
-        // Find dll
         string? dll = null;
         if (meta != null && !string.IsNullOrWhiteSpace(meta.EntryAssembly))
             dll = Path.Combine(folder, meta.EntryAssembly);
@@ -104,24 +133,44 @@ public static class PluginLoader
 
         meta ??= new PluginMeta { Id = Path.GetFileName(folder), Name = Path.GetFileName(folder), Verified = false, FolderPath = folder };
         meta.FolderPath = folder;
+        meta.Verified = false;
         if (string.IsNullOrWhiteSpace(meta.EntryAssembly)) meta.EntryAssembly = Path.GetFileName(dll);
 
-        var asm = Assembly.LoadFrom(dll);
-        var pluginTypes = asm.GetTypes().Where(t => typeof(IRevitToolPlugin).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface).ToList();
+        Assembly asm;
+        try
+        {
+            var alc = new PluginLoadContext(dll);
+            lock (_ctxLock) _contexts.Add(alc);
+            asm = alc.LoadFromAssemblyPath(Path.GetFullPath(dll));
+        }
+        catch (Exception ex)
+        {
+            Log($"ALC load failed {dll}: {ex.Message}; fallback LoadFrom");
+            asm = Assembly.LoadFrom(dll);
+        }
+
+        Type[] types;
+        try { types = asm.GetTypes(); }
+        catch (ReflectionTypeLoadException ex)
+        {
+            types = ex.Types.Where(t => t != null).Cast<Type>().ToArray();
+            Log($"partial type load {dll}: {ex.Message}");
+        }
+
+        var pluginTypes = types.Where(t => typeof(IRevitToolPlugin).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface).ToList();
         var tools = new List<ToolEntry>();
         foreach (var pt in pluginTypes)
         {
             try
             {
                 var inst = (IRevitToolPlugin)Activator.CreateInstance(pt)!;
-                var ts = inst.CreateTools(bridge, cache).ToList();
+                var ts = ToolGuards.ApplyAll(inst.CreateTools(bridge, cache), bridge).ToList();
                 tools.AddRange(ts);
-                // If manifest tools empty, populate from reflection
                 if (meta.Tools.Count == 0)
                 {
-                    foreach (var te in ts) meta.Tools.Add(new PluginToolMeta { Name = te.Definition.Function.Name, Tier = te.Tier.ToString(), Description = te.Definition.Function.Description ?? "", EnabledByDefault = te.Tier != ToolTier.L3 });
+                    foreach (var te in ts)
+                        meta.Tools.Add(new PluginToolMeta { Name = te.Definition.Function.Name, Tier = te.Tier.ToString(), Description = te.Definition.Function.Description ?? "", EnabledByDefault = te.Tier != ToolTier.L3 });
                 }
-                // override meta with plugin instance id/name if manifest missing
                 if (string.IsNullOrWhiteSpace(meta.Id) || meta.Id == Path.GetFileName(folder)) { meta.Id = inst.Id; meta.Name = inst.Name; meta.Version = inst.Version; }
             }
             catch (Exception ex) { Log($"plugin {folder} type {pt.Name} failed: {ex.Message}"); }
