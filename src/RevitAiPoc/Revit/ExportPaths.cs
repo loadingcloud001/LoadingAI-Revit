@@ -59,4 +59,15 @@ public static class ExportPaths
         if (target.Equals(Path.GetFullPath(Root), StringComparison.OrdinalIgnoreCase)) return true;
         return target.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
+
+    public static string SanitizeFileName(string? name, string fallback = "export")
+    {
+        var raw = string.IsNullOrWhiteSpace(name) ? fallback : name.Trim();
+        if (raw.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
+            raw = raw[..^4];
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(raw.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray());
+        cleaned = cleaned.Trim(' ', '.');
+        return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
+    }
 }

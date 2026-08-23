@@ -24,4 +24,12 @@ public class ExportPathsTests
         var path = ExportPaths.ResolveWrite("nested\\a.csv", "x.csv");
         Assert.True(ExportPaths.IsUnderRoot(path));
     }
+
+    [Fact]
+    public void SanitizeFileName_StripsRvtAndInvalidChars()
+    {
+        Assert.Equal("My_Model", ExportPaths.SanitizeFileName("My:Model.rvt"));
+        Assert.Equal("export", ExportPaths.SanitizeFileName("   ", "export"));
+        Assert.Equal("ok-name", ExportPaths.SanitizeFileName("ok-name"));
+    }
 }

@@ -38,4 +38,7 @@ src/RevitAiPoc/
   Plugins/Core/*             loader (ALC) + contract
 src/RevitAiPoc.Tests/        xunit
 Plugins/example.hello/       sample plugin
+Plugins/export-tools/        real PDF/DWG/IFC export + purge
+Plugins/view-tools/          schedules, floor/3D/section views, path of travel
+Plugins/modeling-tools/       load family, place instance, change type, set param, topography, phases
 ```

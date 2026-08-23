@@ -11,27 +11,8 @@ public static class IfcCostTools
 {
     public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
     {
-        yield return CreateExportIfc(bridge);
         yield return CreateQuantityTakeoff(bridge);
     }
-
-    private static ToolEntry CreateExportIfc(RevitBridge bridge) => new()
-    {
-        Tier=ToolTier.L1,
-        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="export_ifc", Description="Export IFC to folder (BIM Interoperability). Params: folder, name optional.", Parameters=new{type="object",properties=new{folder=new{type="string"},name=new{type="string"}},required=Array.Empty<string>()}}},
-        Handler=async json=>{
-            string? folder=null, name=null; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("folder",out var f)&&f.ValueKind==JsonValueKind.String) folder=f.GetString(); if(d.RootElement.TryGetProperty("name",out var n)&&n.ValueKind==JsonValueKind.String) name=n.GetString();}catch{}
-            var capFolder=folder; var capName=name;
-            return await bridge.RunAsync(uiApp=>{
-                var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
-                try{
-                    var dir = ExportPaths.ResolveDirectory(capFolder);
-                    var fname=string.IsNullOrWhiteSpace(capName)? doc.Title : capName;
-                    return $"export_ifc is not implemented (would write \"{fname}\" to {dir}).";
-                }catch(Exception ex){return $"Failed: {ex.Message}";}
-            });
-        }
-    };
 
     private static ToolEntry CreateQuantityTakeoff(RevitBridge bridge) => new()
     {

@@ -27,6 +27,26 @@
     <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\2027\RevitAiPoc\</RevitAddinDir>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\export-tools\ExportToolsPlugin.csproj">
+      <Dll>$(AppData)\RevitAiPoc\Plugins\export-tools\RevitAiPoc.Plugins.ExportTools.dll</Dll>
+    </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\view-tools\ViewToolsPlugin.csproj">
+      <Dll>$(AppData)\RevitAiPoc\Plugins\view-tools\RevitAiPoc.Plugins.ViewTools.dll</Dll>
+    </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\modeling-tools\ModelingToolsPlugin.csproj">
+      <Dll>$(AppData)\RevitAiPoc\Plugins\modeling-tools\RevitAiPoc.Plugins.ModelingTools.dll</Dll>
+    </ShippedPlugin>
+  </ItemGroup>
+
+  <Target Name="BuildShippedPlugins" AfterTargets="Build" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
+    <MSBuild Projects="@(ShippedPlugin)" Targets="Build" Properties="Configuration=$(Configuration);SkipHostPluginBuild=true" />
+    <ItemGroup>
+      <_MissingPlugin Include="@(ShippedPlugin)" Condition="!Exists('%(ShippedPlugin.Dll)')" />
+    </ItemGroup>
+    <Error Condition="'@(_MissingPlugin)' != ''" Text="Shipped plugin was not deployed: @(_MissingPlugin->'%(Dll)')" />
+  </Target>
+
   <Target Name="CopyAddin" AfterTargets="Build">
     <MakeDir Directories="$(RevitAddinDir)" />
     <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\2027\" />

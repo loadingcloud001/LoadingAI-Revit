@@ -1,4 +1,3 @@
-using System.IO;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -18,8 +17,6 @@ public static class SheetDocTools
         yield return SetCropBox(bridge);
         yield return CreateDimension(bridge);
         yield return TagAll(bridge);
-        yield return ExportPdf(bridge);
-        yield return ExportDwg(bridge);
     }
 
     private static ToolEntry CreateSheet(RevitBridge bridge) => new()
@@ -185,46 +182,6 @@ public static class SheetDocTools
                     }
                     tx.Commit();
                     return $"Tagged {tagged}/{elems.Count} {cat} in {view.Name}";
-                }catch(Exception ex){return $"Failed: {ex.Message}";}
-            });
-        }
-    };
-
-    private static ToolEntry ExportPdf(RevitBridge bridge) => new()
-    {
-        Tier=ToolTier.L1,
-        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="export_pdf", Description="Export sheets/views to PDF (DiRoots). Params: sheetIds array optional (else all sheets), filePath folder.", Parameters=new{type="object",properties=new{sheetIds=new{type="array",items=new{type="string"}},folder=new{type="string"}},required=Array.Empty<string>()}}},
-        Handler=async json=>{
-            List<string>? ids=null; string? folder=null; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("sheetIds",out var a)&&a.ValueKind==JsonValueKind.Array) ids=a.EnumerateArray().Where(v=>v.ValueKind==JsonValueKind.String).Select(v=>v.GetString()!).ToList(); if(d.RootElement.TryGetProperty("folder",out var f)&&f.ValueKind==JsonValueKind.String) folder=f.GetString();}catch{}
-            var capIds=ids; var capFolder=folder;
-            return await bridge.RunAsync(uiApp=>{
-                var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
-                try{
-                    var sheets = ExportPaths.ResolveDirectory(capFolder);
-                    var allSheets=new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
-                    ICollection<ElementId> toExport;
-                    if(capIds!=null&&capIds.Count>0) toExport=capIds.Select(AllTools.ParseEid).ToList();
-                    else toExport=allSheets.Select(s=>s.Id).ToList();
-                    if(toExport.Count==0) return "No sheets to export.";
-                    return $"export_pdf is not implemented (would export {toExport.Count} sheets to {sheets}).";
-                }catch(Exception ex){return $"Failed: {ex.Message}";}
-            });
-        }
-    };
-
-    private static ToolEntry ExportDwg(RevitBridge bridge) => new()
-    {
-        Tier=ToolTier.L1,
-        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="export_dwg", Description="Export views/sheets to DWG (pyRevit). Params: viewIds array, folder.", Parameters=new{type="object",properties=new{viewIds=new{type="array",items=new{type="string"}},folder=new{type="string"}},required=Array.Empty<string>()}}},
-        Handler=async json=>{
-            List<string>? ids=null; string? folder=null; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("viewIds",out var a)&&a.ValueKind==JsonValueKind.Array) ids=a.EnumerateArray().Where(v=>v.ValueKind==JsonValueKind.String).Select(v=>v.GetString()!).ToList(); if(d.RootElement.TryGetProperty("folder",out var f)&&f.ValueKind==JsonValueKind.String) folder=f.GetString();}catch{}
-            var capIds=ids; var capFolder=folder;
-            return await bridge.RunAsync(uiApp=>{
-                var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
-                try{
-                    var f = ExportPaths.ResolveDirectory(capFolder);
-                    var views= capIds!=null&&capIds.Count>0? capIds.Select(AllTools.ParseEid).ToList() : new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(v=>!v.IsTemplate).Take(5).Select(v=>v.Id).ToList();
-                    return $"export_dwg is not implemented (would export {views.Count} views to {f}).";
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }

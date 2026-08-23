@@ -1,0 +1,35 @@
+{
+  "id": "export-tools",
+  "name": "Export Tools",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "Revit AI POC",
+  "entryAssembly": "RevitAiPoc.Plugins.ExportTools.dll",
+  "tools": [
+    {
+      "name": "export_pdf",
+      "tier": "L1",
+      "description": "Export sheets/views to PDF via PDFExportOptions. Params: sheetIds array optional (else all sheets), folder, name, combine.",
+      "enabledByDefault": true
+    },
+    {
+      "name": "export_dwg",
+      "tier": "L1",
+      "description": "Export views/sheets to DWG via Document.Export. Params: viewIds array optional (else active view), folder, name.",
+      "enabledByDefault": true
+    },
+    {
+      "name": "export_ifc",
+      "tier": "L1",
+      "description": "Export model to IFC via IFCExportOptions. Params: folder, name, version optional.",
+      "enabledByDefault": true
+    },
+    {
+      "name": "purge_unused",
+      "tier": "L3",
+      "description": "Purge unused elements via Document.GetUnusedElements. Params: preview bool (default true).",
+      "enabledByDefault": false
+    }
+  ],
+  "verified": false
+}

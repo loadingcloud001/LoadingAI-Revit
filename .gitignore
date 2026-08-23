@@ -12,3 +12,15 @@ src/RevitAiPoc.Tests/bin/
 src/RevitAiPoc.Tests/obj/
 web/node_modules/
 web/dist/
+Add-In Manager/
+Macro Samples/
+Revit Server SDK/
+Revit Structure/
+Samples/
+Steel Connections SDK/
+Structural Analysis SDK/
+*.chm
+*.docx
+*.doc
+*.pdf
+*.rtf

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using RevitAiPoc.Llm;
 using RevitAiPoc.Revit;
 
@@ -13,7 +12,6 @@ public static class WorksharingTools
         yield return CreateReloadLinks(bridge);
         yield return CreateWorksetAssign(bridge);
         yield return CreateSyncInfo(bridge);
-        yield return CreatePurgeUnused(bridge);
         yield return CreateAuditWarningsFix(bridge);
     }
 
@@ -71,29 +69,6 @@ public static class WorksharingTools
                 return $"Workshared: {isWS}\nCentral: {central}\nTitle: {doc.Title}\nPath: {doc.PathName}";
             }catch(Exception ex){return $"Failed: {ex.Message}";}
         })
-    };
-
-    private static ToolEntry CreatePurgeUnused(RevitBridge bridge) => new()
-    {
-        Tier=ToolTier.L3,
-        RequiresWriteConfirm=true,
-        Definition=new ToolDefinition{ Function=new ToolFunction{ Name="purge_unused", Description="Purge unused families/types (pyRevit: Purge). Params: preview bool.", Parameters=new{type="object",properties=new{preview=new{type="boolean"}},required=Array.Empty<string>()}}},
-        Handler=async json=>{
-            bool preview=true; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("preview",out var p)&&p.ValueKind is JsonValueKind.True or JsonValueKind.False) preview=p.GetBoolean();}catch{}
-            var countRes=await bridge.RunAsync(uiApp=>{
-                var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return (err:"Please open a model first.", cnt:0);
-                try{
-                    var families=new FilteredElementCollector(doc).OfClass(typeof(Family)).Cast<Family>().Count(f=>f.GetFamilySymbolIds().Count==0);
-                    return (err:"", cnt:families);
-                }catch(Exception ex){return (err:ex.Message,cnt:0);}
-            });
-            if(!string.IsNullOrEmpty(countRes.err)) return countRes.err;
-            if(preview) return $"Purge preview: ~{countRes.cnt} unused families/types. Run with preview:false to execute (requires confirm).";
-            bool ok=await bridge.RunAsync(uiApp=>{
-                var td=new TaskDialog("Revit AI POC"){MainInstruction=$"Purge {countRes.cnt} unused?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
-            }); if(!ok) return "Cancelled by user.";
-            return "purge_unused is not implemented. Use Revit Manage > Purge Unused. Preview count: " + countRes.cnt;
-        }
     };
 
     private static ToolEntry CreateAuditWarningsFix(RevitBridge bridge) => new()
