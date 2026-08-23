@@ -431,7 +431,14 @@ public partial class HostPage : Page
     private async Task<string> ExecuteToolAsync(string name, string argsJson)
     {
         if (!_registry.TryGet(name, out var entry))
-            return $"Unknown tool '{name}'.";
+        {
+            var hint = ToolDiagnostics.DescribeMissing(
+                name,
+                _registry.GetToolDefinitions().Select(d => d.Function.Name).ToList(),
+                _discovered.SelectMany(p => p.Tools.Select(t => (p.Meta.Id, t.Definition.Function.Name))).ToList());
+            try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_result", text = hint })); } catch { }
+            return hint;
+        }
 
         // Dispatch trace for tool call
         try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
