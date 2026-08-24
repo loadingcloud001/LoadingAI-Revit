@@ -92,7 +92,7 @@ internal sealed class ChatCompletionRequest
     [JsonPropertyName("model")] public string Model { get; set; } = "";
     [JsonPropertyName("messages")] public List<ChatMessage> Messages { get; set; } = new();
     [JsonPropertyName("tools")] public List<ToolDefinition>? Tools { get; set; }
-    [JsonPropertyName("tool_choice")] public string ToolChoice { get; set; } = "auto";
+    [JsonPropertyName("tool_choice")] public string? ToolChoice { get; set; }
     [JsonPropertyName("temperature")] public double Temperature { get; set; } = 0.2;
     [JsonPropertyName("stream")] public bool? Stream { get; set; }
 }
@@ -102,7 +102,7 @@ internal sealed class ResponsesRequest
     [JsonPropertyName("model")] public string Model { get; set; } = "";
     [JsonPropertyName("input")] public List<object> Input { get; set; } = new();
     [JsonPropertyName("tools")] public List<ResponsesTool>? Tools { get; set; }
-    [JsonPropertyName("tool_choice")] public string ToolChoice { get; set; } = "auto";
+    [JsonPropertyName("tool_choice")] public string? ToolChoice { get; set; }
     [JsonPropertyName("temperature")] public double Temperature { get; set; } = 0.2;
     [JsonPropertyName("stream")] public bool? Stream { get; set; }
 }
@@ -348,8 +348,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Model = provider.Model,
             Messages = messages,
-            Tools = tools,
-            ToolChoice = "auto",
+            Tools = tools is { Count: > 0 } ? tools : null,
+            ToolChoice = tools is { Count: > 0 } ? "auto" : null,
             Stream = null
         };
 
@@ -392,18 +392,20 @@ public sealed class OpenAiCompatibleClient : IDisposable
     {
         var url = BuildResponsesUrl(provider.BaseUrl);
         var input = BuildResponsesInput(messages);
-        var respTools = tools?.Select(t => new ResponsesTool
-        {
-            Name = t.Function.Name,
-            Description = t.Function.Description,
-            Parameters = t.Function.Parameters
-        }).ToList();
+        var respTools = tools is { Count: > 0 }
+            ? tools.Select(t => new ResponsesTool
+            {
+                Name = t.Function.Name,
+                Description = t.Function.Description,
+                Parameters = t.Function.Parameters
+            }).ToList()
+            : null;
         var req = new ResponsesRequest
         {
             Model = provider.Model,
             Input = input,
             Tools = respTools,
-            ToolChoice = "auto",
+            ToolChoice = respTools != null ? "auto" : null,
             Stream = null
         };
 
@@ -570,8 +572,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Model = provider.Model,
             Messages = messages,
-            Tools = tools,
-            ToolChoice = "auto",
+            Tools = tools is { Count: > 0 } ? tools : null,
+            ToolChoice = tools is { Count: > 0 } ? "auto" : null,
             Stream = true
         };
 

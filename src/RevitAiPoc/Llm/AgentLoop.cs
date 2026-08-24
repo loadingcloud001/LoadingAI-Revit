@@ -4,12 +4,16 @@ using RevitAiPoc.Tools;
 
 namespace RevitAiPoc.Llm;
 
+public sealed record TodoItem(string Id, string Title, string? Tool, string Status, string? Error = null);
+
 public sealed class AgentLoop
 {
     private readonly OpenAiCompatibleClient _client;
     private readonly ToolRegistry _registry;
     private readonly List<ChatMessage> _history = new();
     private readonly object _historyLock = new();
+    private readonly List<TodoItem> _todos = new();
+    private readonly object _todoLock = new();
 
     public const string BaseSystemPrompt =
         "You are a Revit BIM assistant. Use only the tools listed below. " +
@@ -36,6 +40,20 @@ public sealed class AgentLoop
         {
             _history.Clear();
             _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+        }
+        lock (_todoLock) _todos.Clear();
+    }
+
+    public IReadOnlyList<TodoItem> GetTodos() { lock (_todoLock) return _todos.ToList(); }
+
+    public void RestoreHistory(List<ChatMessage> messages)
+    {
+        lock (_historyLock)
+        {
+            _history.Clear();
+            _history.AddRange(messages);
+            if (_history.Count == 0 || _history[0].Role != "system")
+                _history.Insert(0, new ChatMessage { Role = "system", Content = BaseSystemPrompt });
         }
     }
 
@@ -64,6 +82,17 @@ public sealed class AgentLoop
         Action<string> onTrace,
         Action<string>? onDelta,
         CancellationToken ct = default)
+        => await RunAsync(provider, userMsg, mode, toolExecutor, onTrace, onDelta, null, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        Action<IReadOnlyList<TodoItem>>? onTodo,
+        CancellationToken ct = default)
     {
         lock (_historyLock)
         {
@@ -74,22 +103,22 @@ public sealed class AgentLoop
         try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
         var allTools = _registry.GetToolDefinitions();
-        // Mode filtering: ask=null tools, plan=L1 only, build/auto= all
-        if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
-            allTools = new List<ToolDefinition>();
-        else if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            // filter to L1 only via registry entries tier
-            var l1Names = _registry.Entries.Where(e => e.Tier == ToolTier.L1).Select(e => e.Definition.Function.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var l1Names = _registry.Entries
+                .Where(e => e.Tier == ToolTier.L1)
+                .Select(e => e.Definition.Function.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             allTools = allTools.Where(t => l1Names.Contains(t.Function.Name)).ToList();
         }
-        var tools = ToolSelector.Select(allTools, userTextForSelect);
-        var sys = BuildSystemPrompt(tools);
-        // Mode-specific system prompt augment (Kil -inspired)
+        var selected = ToolSelector.Select(allTools, userTextForSelect);
+        var tools = selected.Count == 0 ? null : selected;
+        var sys = BuildSystemPrompt(selected);
         if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
-            sys = "PLAN MODE — read-only: use only L1 tools to survey the model. Do NOT modify the model; output a numbered plan with steps and which tools would be used. Ask for confirmation before act.\n" + sys;
+            sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
         else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
-            sys = "ASK MODE — answer questions without using tools unless needed to inspect. Be concise and cite sources.\n" + sys;
+            sys = "ASK MODE — read-only: you may use L1 inspect tools to answer. Do not modify the model. Be concise.\n" + sys;
         else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
             sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
         lock (_historyLock)
@@ -115,7 +144,6 @@ public sealed class AgentLoop
             {
                 var cancelMsg = "Cancelled.";
                 lock (_historyLock) _history.Add(new ChatMessage { Role = "assistant", Content = cancelMsg });
-                onTrace(cancelMsg);
                 return cancelMsg;
             }
             catch (Exception ex)
@@ -144,6 +172,22 @@ public sealed class AgentLoop
                     tc.Function.Arguments = LlmJson.NormalizeToolArguments(tc.Function.Arguments);
                 }
                 msgOut.Content ??= "";
+                // create todos for these tool calls
+                lock (_todoLock)
+                {
+                    foreach (var tc in msgOut.ToolCalls)
+                    {
+                        var existing = _todos.FirstOrDefault(t => t.Id == tc.Id);
+                        if (existing == null)
+                            _todos.Add(new TodoItem(tc.Id, tc.Function.Name, tc.Function.Name, "running"));
+                        else
+                        {
+                            var idx = _todos.IndexOf(existing);
+                            _todos[idx] = existing with { Status = "running", Tool = tc.Function.Name };
+                        }
+                    }
+                    try { onTodo?.Invoke(_todos.ToList()); } catch { }
+                }
             }
 
             lock (_historyLock)
@@ -161,7 +205,21 @@ public sealed class AgentLoop
                 var text = LlmJson.GetContentString(msgOut.Content);
                 if (string.IsNullOrWhiteSpace(text) && choice?.FinishReason == "tool_calls")
                     text = "";
-                onTrace(text);
+                // if plan mode, try to create todos from text
+                if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+                {
+                    var draft = PlanParser.TryParse(text);
+                    if (draft != null)
+                    {
+                        lock (_todoLock)
+                        {
+                            _todos.Clear();
+                            foreach (var s in draft.Steps)
+                                _todos.Add(new TodoItem(Guid.NewGuid().ToString("N")[..6], s.Title, null, "pending"));
+                            try { onTodo?.Invoke(_todos.ToList()); } catch { }
+                        }
+                    }
+                }
                 return text;
             }
 
@@ -179,18 +237,33 @@ public sealed class AgentLoop
 
             foreach (var tc in msgOut.ToolCalls)
             {
-                onTrace($"Tool {tc.Function.Name}: {tc.Function.Arguments}");
                 string toolResult;
+                bool isError = false;
                 try
                 {
                     toolResult = await toolExecutor(tc.Function.Name, tc.Function.Arguments);
+                    // heuristic error detection
+                    if (toolResult.StartsWith("Tool error", StringComparison.OrdinalIgnoreCase) || toolResult.Contains("Failed", StringComparison.OrdinalIgnoreCase) && toolResult.Length < 500)
+                    {
+                        // keep but not mark error unless explicit
+                    }
                 }
                 catch (Exception ex)
                 {
                     toolResult = $"Tool error: {ex.Message}";
+                    isError = true;
                 }
 
-                onTrace($"Tool {tc.Function.Name} result: {Truncate(toolResult, 400)}");
+                lock (_todoLock)
+                {
+                    var existing = _todos.FirstOrDefault(t => t.Id == tc.Id);
+                    if (existing != null)
+                    {
+                        var idx = _todos.IndexOf(existing);
+                        _todos[idx] = existing with { Status = isError ? "error" : "done", Error = isError ? toolResult : null };
+                        try { onTodo?.Invoke(_todos.ToList()); } catch { }
+                    }
+                }
 
                 lock (_historyLock)
                 {
@@ -223,8 +296,6 @@ public sealed class AgentLoop
         });
         return BaseSystemPrompt + "\n# Tools\n" + string.Join("\n", lines);
     }
-
-    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "...";
 
     private static bool IsJsonObjectOrArray(string? raw)
     {

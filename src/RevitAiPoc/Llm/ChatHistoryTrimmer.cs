@@ -18,6 +18,22 @@ public static class ChatHistoryTrimmer
                 msg.Content = text[..MaxToolResultChars] + "\n[omitted]";
         }
 
+        var lastMulti = -1;
+        for (int i = history.Count - 1; i >= 0; i--)
+        {
+            if (history[i].Role == "user" && LlmJson.IsMultimodal(history[i].Content))
+            {
+                lastMulti = i;
+                break;
+            }
+        }
+        for (int i = 0; i < history.Count; i++)
+        {
+            if (i == lastMulti) continue;
+            if (LlmJson.IsMultimodal(history[i].Content))
+                history[i].Content = LlmJson.StripImages(history[i].Content);
+        }
+
         if (history.Count <= KeepMessages + 1) return;
 
         int keepFrom = history.Count - KeepMessages;

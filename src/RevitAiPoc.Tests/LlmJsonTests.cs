@@ -17,4 +17,29 @@ public class LlmJsonTests
     {
         Assert.Equal(expected, LlmJson.NormalizeToolArguments(raw));
     }
+
+    [Fact]
+    public void GetContentString_JoinsTextParts()
+    {
+        var parts = new List<ChatContentPart>
+        {
+            new() { Type = "text", Text = "hello" },
+            new() { Type = "image_url", ImageUrl = new ChatImageUrl { Url = "data:image/png;base64,xx" } },
+            new() { Type = "text", Text = "world" }
+        };
+        Assert.Equal("hello\nworld", LlmJson.GetContentString(parts));
+    }
+
+    [Fact]
+    public void StripImages_ReplacesImageParts()
+    {
+        var parts = new List<ChatContentPart>
+        {
+            new() { Type = "text", Text = "see this" },
+            new() { Type = "image_url", ImageUrl = new ChatImageUrl { Url = "data:image/png;base64,xx" } }
+        };
+        var stripped = LlmJson.StripImages(parts);
+        Assert.Equal("see this\n[1 image(s) omitted]", LlmJson.GetContentString(stripped));
+        Assert.False(LlmJson.IsMultimodal(stripped));
+    }
 }

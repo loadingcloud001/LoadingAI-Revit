@@ -28,6 +28,8 @@ public partial class HostPage : Page
     private bool _isRunning;
     private CancellationTokenSource? _cts;
     private string _lastUserText = "";
+    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingApprovals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _approvalLock = new();
 
     public HostPage()
     {
@@ -94,7 +96,7 @@ public partial class HostPage : Page
             return;
         }
         LoadingText.Visibility = Visibility.Collapsed;
-        PostToWeb(new { type = "settings", settings = _settings });
+        PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
         PostToWeb(new { type = "status", text = GetStatusText() });
         try { PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() }); } catch { }
     }
@@ -395,7 +397,34 @@ public partial class HostPage : Page
                     {
                         var toolCallId = doc.RootElement.TryGetProperty("toolCallId", out var tc) ? tc.GetString() ?? "" : "";
                         var approved = doc.RootElement.TryGetProperty("approved", out var ap) && ap.ValueKind == JsonValueKind.True;
+                        lock (_approvalLock)
+                        {
+                            if (_pendingApprovals.TryGetValue(toolCallId, out var tcs))
+                            {
+                                _pendingApprovals.Remove(toolCallId);
+                                try { tcs.TrySetResult(approved); } catch { }
+                            }
+                        }
                         PostToWeb(new { type = "status", text = approved ? $"Approved {toolCallId}" : $"Denied {toolCallId}" });
+                        break;
+                    }
+
+                case "listCheckpoints":
+                    {
+                        var cps = CheckpointStore.List();
+                        PostToWeb(new { type = "checkpoints", checkpoints = cps.Select(c => new { id = c.Id, createdAt = c.CreatedAt, mode = c.Mode, preview = c.Preview, messageCount = c.MessageCount }).ToList() });
+                        break;
+                    }
+
+                case "resumeCheckpoint":
+                    {
+                        var id = doc.RootElement.TryGetProperty("id", out var ide) ? ide.GetString() ?? "" : "";
+                        if (string.IsNullOrWhiteSpace(id)) { PostToWeb(new { type = "error", text = "Checkpoint id required." }); break; }
+                        var msgs = CheckpointStore.Load(id);
+                        if (msgs == null) { PostToWeb(new { type = "error", text = $"Checkpoint {id} not found." }); break; }
+                        _agent?.RestoreHistory(msgs);
+                        PostToWeb(new { type = "status", text = $"Resumed checkpoint {id} ({msgs.Count} messages)" });
+                        PostToWeb(new { type = "history", messages = msgs.Select(m => new { role = m.Role, text = LlmJson.GetContentString(m.Content) }).ToList() });
                         break;
                     }
 
@@ -413,6 +442,41 @@ public partial class HostPage : Page
                     {
                         var text = doc.RootElement.TryGetProperty("text", out var tEl) ? tEl.GetString() ?? "" : "";
                         var mode = doc.RootElement.TryGetProperty("mode", out var mEl) ? mEl.GetString() ?? "auto" : "auto";
+                        var slash = doc.RootElement.TryGetProperty("slash", out var sl) ? sl.GetString() ?? "" : "";
+                        var mentions = new List<string>();
+                        if (doc.RootElement.TryGetProperty("mentions", out var men) && men.ValueKind == JsonValueKind.Array)
+                            foreach (var el in men.EnumerateArray())
+                                if (el.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(el.GetString()))
+                                    mentions.Add(el.GetString()!.ToLowerInvariant());
+                        // slash overrides mode
+                        if (!string.IsNullOrWhiteSpace(slash))
+                        {
+                            if (slash.Equals("plan", StringComparison.OrdinalIgnoreCase)) mode = "plan";
+                            else if (slash.Equals("ask", StringComparison.OrdinalIgnoreCase)) mode = "ask";
+                            else if (slash.Equals("build", StringComparison.OrdinalIgnoreCase)) mode = "build";
+                            else if (slash.Equals("clear", StringComparison.OrdinalIgnoreCase)) { _cts?.Cancel(); _agent?.ClearHistory(); try { HistoryStore.Append("system", "Cleared."); } catch { } PostToWeb(new { type = "status", text = "Cleared." }); break; }
+                            else if (slash.Equals("help", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var help = "Commands: /plan <目標> 只讀規劃 | /build <目標> 可寫執行 | /ask <問題> 只讀問答 | /clear 清空 | /help 幫助 | /export ifc/dwg/pdf | /isolate 隔離選中 | /hide 隱藏選中 | /resume 恢復 | /checkpoints 列檢查點\nMentions: @selection @activeView @visible @warnings @levels @sheets";
+                                PostToWeb(new { type = "assistant", text = help }); break;
+                            }
+                            else if (slash.Equals("checkpoints", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var cps = CheckpointStore.List();
+                                var txt = cps.Count == 0 ? "No checkpoints." : string.Join("\n", cps.Select(c => $"{c.Id} {c.CreatedAt:MM-dd HH:mm} {c.Mode} {c.Preview} ({c.MessageCount} msgs)"));
+                                PostToWeb(new { type = "checkpoints", checkpoints = cps.Select(c => new { id = c.Id, createdAt = c.CreatedAt, mode = c.Mode, preview = c.Preview, messageCount = c.MessageCount }).ToList() });
+                                PostToWeb(new { type = "assistant", text = txt }); break;
+                            }
+                            else if (slash.Equals("resume", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var cps2 = CheckpointStore.List();
+                                var last = cps2.FirstOrDefault();
+                                if (last == null) { PostToWeb(new { type = "error", text = "No checkpoints to resume." }); break; }
+                                var msgs2 = CheckpointStore.Load(last.Id);
+                                if (msgs2 != null) { _agent?.RestoreHistory(msgs2); PostToWeb(new { type = "status", text = $"Resumed {last.Id}" }); PostToWeb(new { type = "history", messages = msgs2.Select(m => new { role = m.Role, text = LlmJson.GetContentString(m.Content) }).ToList() }); }
+                                break;
+                            }
+                        }
                         // parse attachments
                         var attachments = new List<AttachmentDto>();
                         if (doc.RootElement.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
@@ -466,14 +530,31 @@ public partial class HostPage : Page
                         var ct = _cts.Token;
                         var agent = _agent;
                         PostToWeb(new { type = "status", text = mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..." });
-                        // Mode-aware plan trace
-                        if (mode == "plan") PostToWeb(new { type = "plan", plan = new { title = "Plan", description = "Read-only analysis", steps = new[] { new { title = "Survey model", description = "Use L1 tools to inspect", tool = "get_model_summary", status = "pending" } }, isStreaming = false } });
+                        // auto context injection
+                        ContextSnapshot? ctxSnap = null;
+                        try
+                        {
+                            if (App.Bridge != null)
+                            {
+                                ctxSnap = await ContextCollector.CollectAsync(App.Bridge, ct);
+                                Dispatcher.Invoke(() =>
+                                {
+                                    try { PostToWeb(new { type = "context", context = new { selectionCount = ctxSnap.SelectionCount, selectionPreview = ctxSnap.SelectionPreview, activeView = ctxSnap.ActiveViewName, visibleCount = ctxSnap.VisibleCount, warningCount = ctxSnap.WarningCount, warningPreview = ctxSnap.WarningPreview } }); } catch { }
+                                });
+                            }
+                        }
+                        catch { }
 
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                var userMsg = attachments.Count > 0 ? ChatMessage.FromMultimodal("user", text, attachments) : ChatMessage.FromText("user", text);
+                                var enrichedText = text;
+                                if (ctxSnap != null && mentions.Count > 0)
+                                    enrichedText = text + "\n\n" + ctxSnap.ToPromptString(mentions);
+                                else if (ctxSnap != null && (mode == "plan" || mode == "build"))
+                                    enrichedText = text + "\n\n" + ctxSnap.ToPromptString(new[] { "selection", "activeView", "warnings" });
+                                var userMsg = attachments.Count > 0 ? ChatMessage.FromMultimodal("user", enrichedText, attachments) : ChatMessage.FromText("user", enrichedText);
                                 var effectiveMode = mode == "auto" ? null : mode;
                                 string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                                     ExecuteToolAsync,
@@ -485,18 +566,36 @@ public partial class HostPage : Page
                                     {
                                         try { Dispatcher.Invoke(() => PostToWeb(new { type = "delta", text = delta })); } catch { }
                                     },
+                                    todos =>
+                                    {
+                                        try { Dispatcher.Invoke(() => PostToWeb(new { type = "todo", todos = todos.Select(t => new { id = t.Id, title = t.Title, tool = t.Tool, status = t.Status, error = t.Error }).ToList() })); } catch { }
+                                    },
                                     ct);
 
                                 Dispatcher.Invoke(() =>
                                 {
-                                    // If we streamed, the web already has incremental deltas. Avoid duplicate if result equals streamed content.
-                                    // For tool-call final answers, deltas may be empty, so post assistant.
                                     if (!string.IsNullOrWhiteSpace(result))
                                     {
-                                        // If streamed and result was already streamed, posting again would duplicate.
-                                        // We check streamed flag and result length > 0; if streamed, web will dedupe.
                                         PostToWeb(new { type = "assistant", text = result });
                                         try { HistoryStore.Append("assistant", result); HistoryStore.Trim(); } catch { }
+                                        try { CheckpointStore.Save(agent.History, mode); } catch { }
+                                        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            var draft = PlanParser.TryParse(result);
+                                            if (draft != null)
+                                            {
+                                                PostToWeb(new
+                                                {
+                                                    type = "plan",
+                                                    plan = new
+                                                    {
+                                                        title = draft.Title,
+                                                        steps = draft.Steps.Select(s => new { title = s.Title, status = "pending" }).ToList(),
+                                                        isStreaming = false
+                                                    }
+                                                });
+                                            }
+                                        }
                                     }
                                     PostToWeb(new { type = "status", text = GetStatusText() });
                                 });
@@ -544,13 +643,38 @@ public partial class HostPage : Page
             return hint;
         }
 
-        // Dispatch trace for tool call
-        try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
+        // For L3, require UI approval before executing (in addition to TaskDialog inside handler)
+        if (entry.Tier == ToolTier.L3)
+        {
+            var callId = Guid.NewGuid().ToString("N")[..8];
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_approvalLock) _pendingApprovals[callId] = tcs;
+            try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_approval", approval = new { toolCallId = callId, toolName = name, tier = entry.Tier.ToString(), args = argsJson, description = entry.Definition.Function.Description } })); } catch { }
+            try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson} (awaiting approval {callId})" })); } catch { }
+            var timeout = Task.Delay(TimeSpan.FromSeconds(180));
+            var completed = await Task.WhenAny(tcs.Task, timeout);
+            bool approved = false;
+            if (completed == tcs.Task) approved = await tcs.Task;
+            else
+            {
+                lock (_approvalLock) _pendingApprovals.Remove(callId);
+                try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_result", text = $"{name} timed out waiting for approval (180s)" })); } catch { }
+                return "Cancelled: approval timeout (180s).";
+            }
+            if (!approved)
+            {
+                try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_result", text = $"{name} denied by user" })); } catch { }
+                return "Cancelled by user (denied).";
+            }
+        }
+        else
+        {
+            try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
+        }
 
         string result;
         try
         {
-            // Invalidate cache for write tiers before execution? After write we invalidate.
             result = await entry.Handler(argsJson);
         }
         catch (Exception ex) { result = $"Tool {name} failed: {ex.Message}"; }

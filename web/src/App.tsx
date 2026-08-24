@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PluginInfo, ProviderConfig, ProviderPreset, onHostMessage, postToHost } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PluginInfo, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, onHostMessage, postToHost } from './bridge';
 import { PluginShelf } from './plugins/PluginShelf';
-import { Search, ChevronDown, Check, Settings2, Trash2, Play, Copy, ExternalLink, Sparkles, Cloud, Cpu, Globe, Wrench, Loader2, PlugZap, Database, ShieldCheck, Lightbulb, ClipboardList, ShieldAlert, Zap, Image as ImageIcon, X, Paperclip, SendHorizontal, Eye, FileSearch, Hammer, MessageCircleQuestion, ChevronRight, ChevronUp, Brain, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Terminal } from './components/Terminal';
+import { parseInput } from './cli/inputParser';
+import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
+import { filterMentions } from './cli/mentions';
+import { Search, ChevronDown, Check, Settings2, Trash2, Play, Copy, ExternalLink, Sparkles, Cloud, Cpu, Globe, Wrench, Loader2, PlugZap, Database, ShieldCheck, Lightbulb, ClipboardList, ShieldAlert, Zap, Image as ImageIcon, X, Paperclip, SendHorizontal, Eye, FileSearch, Hammer, MessageCircleQuestion, ChevronRight, ChevronUp, Brain, ThumbsUp, ThumbsDown, Terminal as TerminalIcon, History, RotateCcw } from 'lucide-react';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -54,7 +58,7 @@ function ProviderIcon({ group, icon, size = 14 }: { group?: string; icon?: strin
   return <IconComp size={size} style={{ color: GROUP_META[g]?.color ?? '#6b7280' }} />;
 }
 
-async function compressImage(file: File, maxSide = 1536, maxBytes = 4 * 1024 * 1024): Promise<Attachment> {
+async function compressImage(file: File, maxSide = 1280, maxBytes = 2.5 * 1024 * 1024): Promise<Attachment> {
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
   if (Math.max(width, height) > maxSide) {
@@ -99,8 +103,13 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [reasoning, setReasoning] = useState<{ text: string; isStreaming?: boolean } | null>(null);
   const [currentPlan, setCurrentPlan] = useState<PlanPayload | null>(null);
+  const [todos, setTodos] = useState<TodoPayload[]>([]);
   const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [context, setContext] = useState<ContextPayload | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([
     { id: 'welcome', role: 'system', text: 'AI Chat ready. Plan · Ask · Build 模式已啟用，支援截圖/圖片多模態。選擇提供商並輸入 API Key 後即可開始，例如 “這個模型有多少牆？” 或直接貼上截圖提問。' }
@@ -113,8 +122,23 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // CLI slash/@ state
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const inputHistoryRef = useRef<string[]>([]);
+  const historyIdxRef = useRef(-1);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  const modeRef = useRef<ChatMode>('build');
+  const editingRef = useRef<ProviderConfig | null>(null);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
   const streamedRef = useRef(false);
   const pendingDeltaRef = useRef<string>('');
   const idRef = useRef(0);
@@ -158,8 +182,9 @@ export default function App() {
           setSettings(norm); settingsRef.current = norm; setSelectedProviderId(norm.activeProviderId);
           const active = norm.providers.find(p => p.id === norm.activeProviderId) ?? norm.providers[0];
           if (active) setStatus(`Active: ${active.name} · ${active.model}`);
-          if (editing) {
-            const upd = norm.providers.find(p => p.id === editing.id);
+          const ed = editingRef.current;
+          if (ed) {
+            const upd = norm.providers.find(p => p.id === ed.id);
             if (upd) { setEditing(upd); setEditForm({ name: upd.name, baseUrl: upd.baseUrl, model: upd.model, apiKey: upd.apiKey, apiKind: upd.apiKind ?? 'openai', group: upd.group ?? 'custom', icon: upd.icon ?? '＋' }); }
           }
         } else if (msg.type === 'catalog') { setCatalog(normalizePresets(msg.presets)); }
@@ -174,7 +199,22 @@ export default function App() {
         } else if (msg.type === 'plan') {
           const plan: PlanPayload = msg.plan;
           setCurrentPlan(plan);
-          setMessages(m => [...m, { id: nextId(), role: 'plan', text: plan.title ?? 'Plan', plan, isStreaming: !!plan.isStreaming }]);
+          if (plan.steps?.length) {
+            const mapped: TodoPayload[] = plan.steps.map((s, i) => ({ id: `plan-${i}`, title: s.title, tool: s.tool, status: (s.status as any) ?? 'pending' }));
+            setTodos(mapped);
+          }
+        } else if (msg.type === 'todo') {
+          const t = (msg as any).todos as TodoPayload[];
+          setTodos(Array.isArray(t) ? t : []);
+          if (Array.isArray(t) && t.length) setTerminalLogs(l => [...l, `todo: ${t.map(x => `${x.title}[${x.status}]`).join(' | ')}`].slice(-300));
+        } else if (msg.type === 'context') {
+          setContext((msg as any).context as ContextPayload);
+        } else if (msg.type === 'checkpoints') {
+          setCheckpoints(((msg as any).checkpoints as CheckpointInfo[]) ?? []);
+        } else if ((msg as any).type === 'history') {
+          const hist = ((msg as any).messages as { role: string; text: string }[]) ?? [];
+          setMessages([{ id: 'resumed', role: 'system', text: `已恢復 ${hist.length} 條歷史` }, ...hist.map((h, i) => ({ id: `h${i}`, role: h.role === 'user' ? 'you' as const : h.role === 'assistant' ? 'assistant' as const : 'system' as const, text: h.text }))]);
+          setIsRunning(false);
         } else if (msg.type === 'tool_approval') {
           setPendingApproval(msg.approval);
           setMessages(m => [...m, { id: nextId(), role: 'approval', text: `Approval: ${msg.approval.toolName}`, approval: msg.approval }]);
@@ -188,18 +228,15 @@ export default function App() {
         else if (msg.type === 'trace') { setMessages(m => [...m, { id: nextId(), role: 'trace', text: String(msg.text ?? '') }]); }
         else if (msg.type === 'tool_call') {
           streamedRef.current = false; pendingDeltaRef.current = '';
-          // Detect L3 tier via plugins for approval UI (reuse Tier info)
-          const toolName = String(msg.text ?? '').split(':')[0].replace('Tool', '').trim();
-          const tierInfo = plugins.flatMap(p => p.tools).find(t => t.name === toolName);
-          if (tierInfo && tierInfo.tier === 'L3') {
-            const fake: ApprovalPayload = { toolCallId: `call_${Date.now()}`, toolName, tier: 'L3', args: String(msg.text ?? ''), description: tierInfo.description };
-            setPendingApproval(fake);
-            setMessages(m => [...m, { id: nextId(), role: 'approval', text: `需要確認: ${toolName}`, approval: fake }]);
-          } else {
-            setMessages(m => [...m, { id: nextId(), role: 'tool_call', text: String(msg.text ?? '') }]);
-          }
+          const txt = String(msg.text ?? '');
+          setMessages(m => [...m, { id: nextId(), role: 'tool_call', text: txt }]);
+          setTerminalLogs(l => [...l, `▶ ${txt}`].slice(-300));
         }
-        else if (msg.type === 'tool_result') { setMessages(m => [...m, { id: nextId(), role: 'tool_result', text: String(msg.text ?? '') }]); setPendingApproval(null); }
+        else if (msg.type === 'tool_result') {
+          const txt = String(msg.text ?? '');
+          setMessages(m => [...m, { id: nextId(), role: 'tool_result', text: txt }]); setPendingApproval(null);
+          setTerminalLogs(l => [...l, `◀ ${txt}`].slice(-300));
+        }
         else if (msg.type === 'assistant') {
           const incoming = String(msg.text ?? '');
           setSuggestions([]); setReasoning(null);
@@ -218,8 +255,9 @@ export default function App() {
           });
           setIsRunning(false);
           // Heuristic suggestions after assistant
-          if (incoming && !msg.text?.includes('Error')) {
-            setSuggestions(mode === 'plan' ? ['批准執行', '調整方案', '先匯出報告'] : mode === 'ask' ? ['解釋更多', '匯出為表格'] : ['繼續', '撤銷', '匯出 IFC']);
+          if (incoming && !String(msg.text ?? '').includes('Error')) {
+            const md = modeRef.current;
+            setSuggestions(md === 'plan' ? ['按剛才的計劃執行', '調整方案', '先匯出報告'] : md === 'ask' ? ['解釋更多', '匯出為表格'] : ['繼續', '撤銷', '匯出 IFC']);
           }
           const cur = settingsRef.current; const active = cur?.providers.find(p => p.id === cur.activeProviderId) ?? cur?.providers[0];
           setStatus(active ? `Active: ${active.name}` : 'Ready');
@@ -246,7 +284,7 @@ export default function App() {
     postToHost({ type: 'listPlugins' } as any);
     const t = setTimeout(() => { postToHost({ type: 'requestSettings' }); postToHost({ type: 'getCatalog' } as any); postToHost({ type: 'listPlugins' } as any); }, 800);
     return () => { clearTimeout(t); off(); };
-  }, [editing?.id, plugins, mode]);
+  }, []);
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, isRunning, currentPlan, pendingApproval, reasoning]);
 
@@ -262,9 +300,26 @@ export default function App() {
     return order.filter(g => groups[g]?.length).map(g => ({ group: g, items: groups[g] }));
   }, [providers, providerSearch]);
 
-  const handleSend = () => {
-    const text = input.trim();
-    if ((!text && attachments.length === 0) || isRunning) return;
+  const handleSend = (overrideText?: string) => {
+    const raw = (typeof overrideText === 'string' ? overrideText : input);
+    const parsed = parseInput(raw);
+    const text = parsed.cleanText.trim();
+    const atts = [...attachments];
+    // empty check allowing slash commands that don't need text
+    const isLocalSlash = parsed.slash && ['clear', 'help', 'checkpoints', 'resume'].includes(parsed.slash.name);
+    if ((!text && atts.length === 0 && !isLocalSlash) || isRunning) {
+      // still need to handle local slash like /help even if text empty? Already handled via parsed but we send to host for those too
+      if (!isLocalSlash) return;
+    }
+    // handle local slash without LLM
+    if (parsed.slash) {
+      if (parsed.slash.name === 'clear') { handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
+      if (parsed.slash.name === 'help') {
+        setMessages(m => [...m, { id: nextId(), role: 'system', text: `可用命令：${SLASH_COMMANDS.map(c => `${c.label} ${c.argsHint ?? ''} — ${c.description}`).join('\n')}\n\n@提及：@selection @activeView @visible @warnings @levels @sheets` }]);
+        setInput(''); setSlashOpen(false); return;
+      }
+      if (parsed.slash.name === 'checkpoints') { postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); setTerminalOpen(true); setTerminalLogs(l => [...l, `$ ${raw}`]); return; }
+    }
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
     if (!cur || !active) { setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open Providers to add one.' }]); setShowSettings(true); return; }
@@ -273,12 +328,17 @@ export default function App() {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
       setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: ns });
     }
-    const atts = [...attachments];
-    setMessages(m => [...m, { id: nextId(), role: 'you', text: text || (atts.length ? '（圖片）' : ''), attachments: atts.length ? atts : undefined }]);
-    setInput(''); setAttachments([]); setSuggestions([]); setReasoning(null);
+    // determine effective mode from slash
+    let effMode = mode;
+    if (parsed.effectiveMode) effMode = parsed.effectiveMode;
+    // push history for up arrow
+    if (raw.trim()) { inputHistoryRef.current = [raw.trim(), ...inputHistoryRef.current.filter(x => x !== raw.trim())].slice(0, 50); historyIdxRef.current = -1; }
+    setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '（圖片）' : ''), attachments: atts.length ? atts : undefined }]);
+    setInput(''); setAttachments([]); setSuggestions([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
     setIsRunning(true); streamedRef.current = false; pendingDeltaRef.current = '';
-    setStatus(mode === 'plan' ? 'Planning...' : mode === 'ask' ? 'Thinking...' : 'Working...');
-    postToHost({ type: 'send', text, attachments: atts.length ? atts : undefined, mode } as any);
+    setStatus(effMode === 'plan' ? 'Planning...' : effMode === 'ask' ? 'Thinking...' : 'Working...');
+    setTerminalLogs(l => [...l, `$ ${raw.trim()} [${effMode}]`].slice(-300));
+    postToHost({ type: 'send', text: text || raw.trim(), attachments: atts.length ? atts : undefined, mode: effMode, slash: parsed.slash?.name, mentions: parsed.mentions } as any);
   };
   const handleApprove = (approved: boolean) => {
     if (!pendingApproval) return;
@@ -286,9 +346,99 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `已批准 ${pendingApproval.toolName}` : `已拒絕 ${pendingApproval.toolName}` }]);
     setPendingApproval(null);
   };
-  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); streamedRef.current = false; };
-  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setPendingApproval(null); setSuggestions([]); setReasoning(null); postToHost({ type: 'clear' }); };
-  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
+  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); streamedRef.current = false; setTerminalLogs(l => [...l, '— cancelled —'].slice(-300)); };
+  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setPendingApproval(null); setSuggestions([]); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); setTerminalLogs(l => [...l, '— cleared —'].slice(-300)); };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setInput(v);
+    const cursor = e.target.selectionStart ?? v.length;
+    const before = v.slice(0, cursor);
+    // slash detection: at start or after space, starts with /
+    const slashMatch = before.match(/(^|\n|\s)\/([a-z]*)$/);
+    if (slashMatch) {
+      setSlashQuery(slashMatch[2] ?? '');
+      setSlashOpen(true);
+      setSlashIndex(0);
+      setMentionOpen(false);
+    } else {
+      setSlashOpen(false);
+      // mention detection
+      const mentionMatch = before.match(/@([a-zA-Z_]*)$/);
+      if (mentionMatch) {
+        setMentionQuery(mentionMatch[1] ?? '');
+        setMentionOpen(true);
+        setMentionIndex(0);
+        setMentionStart(cursor - mentionMatch[0].length);
+      } else {
+        setMentionOpen(false);
+      }
+    }
+  };
+
+  const commitSlash = (name: string) => {
+    const cur = input;
+    const cursor = inputRef.current?.selectionStart ?? cur.length;
+    const before = cur.slice(0, cursor);
+    const after = cur.slice(cursor);
+    const replaced = before.replace(/(^|\n|\s)\/[a-z]*$/, `$1/${name} `) + after;
+    setInput(replaced);
+    setSlashOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const commitMention = (id: string) => {
+    if (mentionStart == null) return;
+    const cur = input;
+    const before = cur.slice(0, mentionStart);
+    const after = cur.slice(inputRef.current?.selectionStart ?? cur.length);
+    const replaced = before + `@${id} ` + after;
+    setInput(replaced);
+    setMentionOpen(false);
+    setMentionStart(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (slashOpen) {
+      const list = filterCommands(slashQuery);
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % list.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + list.length) % list.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (list[slashIndex]) { e.preventDefault(); commitSlash(list[slashIndex].name); return; }
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setSlashOpen(false); return; }
+    }
+    if (mentionOpen) {
+      const list = filterMentions(mentionQuery);
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % list.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + list.length) % list.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (list[mentionIndex]) { e.preventDefault(); commitMention(list[mentionIndex].id); return; }
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false); return; }
+    }
+    if (e.key === 'ArrowUp' && !e.shiftKey && input.trim() === '') {
+      // history
+      const hist = inputHistoryRef.current;
+      if (hist.length) {
+        const next = Math.min(historyIdxRef.current + 1, hist.length - 1);
+        historyIdxRef.current = next;
+        setInput(hist[next]);
+        e.preventDefault();
+        return;
+      }
+    }
+    if (e.key === 'ArrowDown' && !e.shiftKey && historyIdxRef.current >= 0) {
+      const hist = inputHistoryRef.current;
+      const next = historyIdxRef.current - 1;
+      if (next < 0) { historyIdxRef.current = -1; setInput(''); }
+      else { historyIdxRef.current = next; setInput(hist[next]); }
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
 
   const selectForEdit = (p: ProviderConfig) => { setEditing(p); setEditForm({ name: p.name, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey, apiKind: p.apiKind ?? 'openai', group: p.group ?? 'custom', icon: p.icon ?? '＋' }); setTestState(null); };
   const handleAddFromPreset = (preset: ProviderPreset) => {
@@ -421,6 +571,8 @@ export default function App() {
               </div>
             )}
           </div>
+          <button onClick={() => setTerminalOpen(v => !v)} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold ${terminalOpen ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-muted'}`} title="Terminal (xterm)"><TerminalIcon size={14} />{terminalOpen ? '隱藏' : '終端'}</button>
+          <button onClick={() => { postToHost({ type: 'listCheckpoints' } as any); setTerminalOpen(true); }} className="flex items-center gap-1 px-2 py-1.5 rounded-xl border bg-white text-xs hover:bg-muted" title="Checkpoints"><History size={12} />恢復</button>
           <button onClick={() => setShowSettings(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap ${showSettings ? 'bg-foreground text-background border-foreground' : 'bg-white hover:bg-muted'}`}><Settings2 size={14} />{showSettings ? '收起' : '管理'}</button>
           <button onClick={handleClear} className="px-3 py-1.5 rounded-xl border bg-white text-xs text-muted-foreground hover:text-foreground">清除</button>
         </div>
@@ -446,6 +598,44 @@ export default function App() {
         </div>
       </div>
 
+      {/* Context Bar — auto injected */}
+      {context && (
+        <div className="mx-2 mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border text-xs">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="truncate">已選 {context.selectionCount}{context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 60)}` : ''} | {context.activeView} 可見 {context.visibleCount ?? 0} | 警告 {context.warningCount ?? 0}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground hidden sm:inline">Auto Context · @提及可精確引用</span>
+        </div>
+      )}
+      {/* Todo bar */}
+      {todos.length > 0 && (
+        <div className="mx-2 mt-2 rounded-xl border bg-white shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/50 border-b text-xs font-semibold">
+            <ClipboardList size={12} /> Todo · {todos.filter(t => t.status === 'done').length}/{todos.length}
+            <span className="ml-auto text-[10px] flex gap-1">
+              {todos.map(t => <span key={t.id} className={`w-1.5 h-1.5 rounded-full ${t.status === 'done' ? 'bg-emerald-500' : t.status === 'running' ? 'bg-blue-500 animate-pulse' : t.status === 'error' ? 'bg-red-500' : 'bg-gray-300'}`} title={t.title} />)}
+            </span>
+          </div>
+          <div className="max-h-28 overflow-auto p-1 flex flex-col gap-1">
+            {todos.map(t => (
+              <div key={t.id} className={`flex items-center gap-2 px-2 py-1 rounded-lg border text-xs ${t.status === 'done' ? 'bg-emerald-50 border-emerald-200' : t.status === 'running' ? 'bg-blue-50 border-blue-200' : t.status === 'error' ? 'bg-red-50 border-red-200' : 'bg-muted/20'}`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border bg-white`}>{t.status === 'done' ? '✓' : t.status === 'running' ? '●' : t.status === 'error' ? '✗' : '·'}</span>
+                <span className="flex-1 truncate">{t.title}</span>
+                {t.tool && <span className="text-[10px] font-mono bg-white border rounded px-1">{t.tool}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Checkpoints quick */}
+      {checkpoints.length > 0 && !isRunning && (
+        <div className="mx-2 mt-2 flex items-center gap-2 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-xs">
+          <History size={12} className="text-blue-600" />
+          <span>{checkpoints.length} checkpoints</span>
+          <span className="flex-1 truncate text-muted-foreground">{checkpoints[0]?.preview?.slice(0, 40)}</span>
+          <button onClick={() => postToHost({ type: 'resumeCheckpoint', id: checkpoints[0].id } as any)} className="px-2 py-0.5 rounded bg-white border text-xs flex items-center gap-1"><RotateCcw size={10} />恢復最新</button>
+        </div>
+      )}
+
       {/* Mode banner */}
       {mode === 'plan' && (
         <div className="mx-2 mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
@@ -457,7 +647,7 @@ export default function App() {
       {mode === 'ask' && (
         <div className="mx-2 mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs">
           <MessageCircleQuestion size={14} className="text-blue-600" />
-          <span><b>Ask 模式</b> — 僅問答，不調用修改工具</span>
+          <span><b>Ask 模式</b> — 只讀查詢（L1），可檢查模型但不修改</span>
         </div>
       )}
 
@@ -623,7 +813,7 @@ export default function App() {
                   ))}
                 </div>
                 <div className="px-3 py-2 border-t bg-muted/20 flex gap-2">
-                  <button onClick={() => { setMode('build'); setStatus('已切換至 Build 模式'); }} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"><Hammer size={12} /> 批准並執行</button>
+                  <button onClick={() => { setMode('build'); setCurrentPlan(null); handleSend('按剛才的計劃執行。'); }} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"><Hammer size={12} /> 批准並執行</button>
                   <button onClick={() => setCurrentPlan(null)} className="px-3 py-1.5 rounded-lg border bg-white text-xs">調整</button>
                 </div>
               </div>
@@ -699,13 +889,14 @@ export default function App() {
             {suggestions.length > 0 && !isRunning && (
               <div className="flex flex-wrap gap-1.5">
                 {suggestions.map(s => (
-                  <button key={s} onClick={() => { setInput(s); setTimeout(() => handleSend(), 0); }} className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border shadow-sm text-xs hover:border-primary/30 hover:bg-primary/5">
+                  <button key={s} onClick={() => handleSend(s)} className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border shadow-sm text-xs hover:border-primary/30 hover:bg-primary/5">
                     <Lightbulb size={11} className="text-amber-500" />{s}
                   </button>
                 ))}
               </div>
             )}
           </div>
+          <Terminal open={terminalOpen} logs={terminalLogs} onClose={() => setTerminalOpen(false)} onSend={txt => { setInput(txt); setTimeout(() => handleSend(txt), 0); }} />
 
           {/* Composer with multimodal — assistant-ui attachment pattern */}
           <div ref={composerRef} onDragOver={e => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} onPaste={handlePaste} className={`p-2 border-t bg-white relative ${isDragging ? 'bg-primary/5' : ''}`}>
@@ -724,11 +915,40 @@ export default function App() {
             )}
             <div className="flex gap-2 items-end">
               <div className="flex-1 relative">
+                {slashOpen && (
+                  <div className="absolute bottom-[calc(100%+6px)] left-0 right-0 bg-white border rounded-xl shadow-lg z-20 overflow-hidden max-h-48">
+                    <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground bg-muted/30 border-b">/ 命令 · {filterCommands(slashQuery).length} 匹配</div>
+                    <div className="overflow-auto max-h-40">
+                      {filterCommands(slashQuery).map((c, idx) => (
+                        <button key={c.name} onClick={() => commitSlash(c.name)} className={`w-full text-left px-2 py-1.5 flex items-center gap-2 border-b border-muted/20 ${idx === slashIndex ? 'bg-primary/10' : 'bg-white hover:bg-muted/30'}`}>
+                          <span className="font-mono text-xs font-bold">{c.label}</span>
+                          <span className="text-xs text-muted-foreground truncate">{c.description}</span>
+                          {c.argsHint && <span className="ml-auto text-[10px] bg-muted rounded px-1">{c.argsHint}</span>}
+                        </button>
+                      ))}
+                      {filterCommands(slashQuery).length === 0 && <div className="p-2 text-xs text-muted-foreground">無匹配，輸入 /help 查看全部</div>}
+                    </div>
+                  </div>
+                )}
+                {mentionOpen && (
+                  <div className="absolute bottom-[calc(100%+6px)] left-0 right-0 bg-white border rounded-xl shadow-lg z-20 overflow-hidden max-h-48">
+                    <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground bg-muted/30 border-b">@ 提及 · {filterMentions(mentionQuery).length} 匹配</div>
+                    <div className="overflow-auto max-h-40">
+                      {filterMentions(mentionQuery).map((m, idx) => (
+                        <button key={m.id} onClick={() => commitMention(m.id)} className={`w-full text-left px-2 py-1.5 flex items-center gap-2 border-b border-muted/20 ${idx === mentionIndex ? 'bg-primary/10' : 'bg-white hover:bg-muted/30'}`}>
+                          <span className="font-mono text-xs font-bold">{m.label}</span>
+                          <span className="text-xs text-muted-foreground">{m.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <textarea
+                  ref={inputRef}
                   value={input}
-                  onChange={e => setInput(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={modeMeta[mode].placeholder + (activeProvider?.model?.toLowerCase().includes('vision') || activeProvider?.model?.toLowerCase().includes('gpt-4o') || activeProvider?.model?.toLowerCase().includes('claude') || activeProvider?.model?.toLowerCase().includes('gemini') ? ' · 支援貼圖 (Ctrl+V)' : ' · 支援圖片時請切換到 gpt-4o/claude/gemini')}
+                  placeholder={modeMeta[mode].placeholder + ' · 輸入 / 查看命令，@ 引用上下文 (↑ 歷史)'}
                   rows={2}
                   className="w-full px-3 py-2 pr-10 rounded-xl border bg-white resize-none outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-xs"
                   disabled={isRunning}
@@ -746,7 +966,7 @@ export default function App() {
             <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1"><Eye size={10} /> 多模態：截圖後 Ctrl+V 貼上</span>
               <span className="flex-1" />
-              <span className="flex items-center gap-1"><FileSearch size={10} /> {mode === 'plan' ? 'Plan 不寫模型' : mode === 'ask' ? 'Ask 不調工具' : 'Build 可寫'} · {providers.length} 提供商</span>
+              <span className="flex items-center gap-1"><FileSearch size={10} /> {mode === 'plan' ? 'Plan 只讀規劃' : mode === 'ask' ? 'Ask 只讀查詢' : 'Build 可寫'} · {providers.length} 提供商</span>
             </div>
             {/* Quick suggestion chips in composer when idle */}
             {!isRunning && !input && attachments.length === 0 && (

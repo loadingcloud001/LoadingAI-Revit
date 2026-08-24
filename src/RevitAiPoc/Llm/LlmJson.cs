@@ -36,6 +36,33 @@ public static class LlmJson
 
     public static bool IsMultimodal(object? c) => c is List<ChatContentPart> || (c is JsonElement je && je.ValueKind == JsonValueKind.Array);
 
+    public static object? StripImages(object? c)
+    {
+        if (c is List<ChatContentPart> parts)
+        {
+            var texts = parts.Where(p => p.Type == "text").Select(p => p.Text ?? "").ToList();
+            var imgs = parts.Count(p => p.Type != "text");
+            if (imgs > 0) texts.Add($"[{imgs} image(s) omitted]");
+            return string.Join("\n", texts);
+        }
+        if (c is JsonElement je && je.ValueKind == JsonValueKind.Array)
+        {
+            var texts = new List<string>();
+            var imgs = 0;
+            foreach (var el in je.EnumerateArray())
+            {
+                var typ = el.TryGetProperty("type", out var t) ? t.GetString() : null;
+                if (typ == "text" && el.TryGetProperty("text", out var tx))
+                    texts.Add(tx.GetString() ?? "");
+                else if (typ is "image_url" or "input_image")
+                    imgs++;
+            }
+            if (imgs > 0) texts.Add($"[{imgs} image(s) omitted]");
+            return string.Join("\n", texts);
+        }
+        return c;
+    }
+
     /// <summary>
     /// Providers require tool-call arguments to be a JSON object/array string.
     /// Stream merges can produce "" or concatenated objects like {}{}{}{}.

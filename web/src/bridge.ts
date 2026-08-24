@@ -58,7 +58,7 @@ export type Attachment = {
 export type ChatMode = 'ask' | 'plan' | 'build' | 'auto';
 
 export type ToHost =
-  | { type: 'send'; text: string; attachments?: Attachment[]; mode?: ChatMode }
+  | { type: 'send'; text: string; attachments?: Attachment[]; mode?: ChatMode; slash?: string; mentions?: string[] }
   | { type: 'clear' }
   | { type: 'cancel' }
   | { type: 'saveSettings'; settings: AppSettings }
@@ -71,7 +71,9 @@ export type ToHost =
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
   | { type: 'removePlugin'; pluginId: string }
-  | { type: 'reloadPlugins' };
+  | { type: 'reloadPlugins' }
+  | { type: 'listCheckpoints' }
+  | { type: 'resumeCheckpoint'; id: string };
 
 export type PlanPayload = {
   title: string;
@@ -79,6 +81,25 @@ export type PlanPayload = {
   steps: { title: string; description?: string; tool?: string; status?: 'pending' | 'running' | 'done' | 'error' }[];
   isStreaming?: boolean;
 };
+
+export type TodoPayload = {
+  id: string;
+  title: string;
+  tool?: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  error?: string;
+};
+
+export type ContextPayload = {
+  selectionCount: number;
+  selectionPreview?: string;
+  activeView?: string;
+  visibleCount?: number;
+  warningCount?: number;
+  warningPreview?: string;
+};
+
+export type CheckpointInfo = { id: string; createdAt: string; mode?: string; preview: string; messageCount: number };
 
 export type ApprovalPayload = {
   toolCallId: string;
@@ -95,6 +116,9 @@ export type FromHost =
   | { type: 'tool_result'; text: string }
   | { type: 'tool_approval'; approval: ApprovalPayload }
   | { type: 'plan'; plan: PlanPayload }
+  | { type: 'todo'; todos: TodoPayload[] }
+  | { type: 'context'; context: ContextPayload }
+  | { type: 'checkpoints'; checkpoints: CheckpointInfo[] }
   | { type: 'reasoning'; text: string; isStreaming?: boolean }
   | { type: 'suggestions'; suggestions: string[] }
   | { type: 'assistant'; text: string; attachments?: Attachment[] }
