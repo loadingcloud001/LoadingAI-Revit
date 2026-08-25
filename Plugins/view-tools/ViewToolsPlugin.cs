@@ -2,30 +2,32 @@ using System.Text;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Analysis;
+using Autodesk.Revit.UI;
 using LoadingAI.Llm;
+using LoadingAI.Plugins;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.ViewTools;
 
-public sealed class ViewToolsPlugin : IRevitToolPlugin
+public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "view-tools";
     public string Name => "View & Schedule Tools";
     public string Version => "1.0.0";
 
-    public IEnumerable<ToolEntry> CreateTools(RevitBridge bridge, QueryCache cache)
+    public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
-        yield return CreateSchedule(bridge);
-        yield return GetScheduleData(bridge);
-        yield return CreateFloorPlan(bridge);
-        yield return Create3dView(bridge);
-        yield return CreateSectionView(bridge);
-        yield return PathOfTravelTool(bridge);
+        yield return CreateSchedule(context);
+        yield return GetScheduleData(context);
+        yield return CreateFloorPlan(context);
+        yield return Create3dView(context);
+        yield return CreateSectionView(context);
+        yield return PathOfTravelTool(context);
     }
 
-    private static ToolEntry CreateSchedule(RevitBridge bridge) => new()
+    private static ToolEntry CreateSchedule(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -54,9 +56,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             var name = args.Str("name");
             var fields = args.Strings("fields");
             if (string.IsNullOrWhiteSpace(cat)) return "category is required.";
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 var bic = AllTools.ParseCategory(cat);
                 if (bic == null) return $"Unknown category {cat}";
@@ -75,7 +77,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry GetScheduleData(RevitBridge bridge) => new()
+    private static ToolEntry GetScheduleData(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition
@@ -103,9 +105,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             var sid = args.Str("scheduleId");
             var name = args.Str("name");
             var limit = Math.Min(40, Math.Max(1, args.Int("rowLimit", 25)));
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -130,7 +132,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry CreateFloorPlan(RevitBridge bridge) => new()
+    private static ToolEntry CreateFloorPlan(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -158,9 +160,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             var levelId = args.Str("levelId");
             var levelName = args.Str("levelName");
             var name = args.Str("name");
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -180,7 +182,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry Create3dView(RevitBridge bridge) => new()
+    private static ToolEntry Create3dView(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -200,9 +202,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         Handler = async json =>
         {
             var name = Args.Parse(json).Str("name");
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -220,7 +222,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry CreateSectionView(RevitBridge bridge) => new()
+    private static ToolEntry CreateSectionView(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -255,9 +257,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             var name = args.Str("name");
             var height = args.Dbl("height", 10);
             var depth = args.Dbl("depth", 8);
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -295,7 +297,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry PathOfTravelTool(RevitBridge bridge) => new()
+    private static ToolEntry PathOfTravelTool(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -325,9 +327,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         {
             var args = Args.Parse(json);
             var viewId = args.Str("viewId");
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {

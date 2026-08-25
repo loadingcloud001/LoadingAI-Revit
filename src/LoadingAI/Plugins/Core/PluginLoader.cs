@@ -1,6 +1,8 @@
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
+using LoadingAI.Plugins;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -18,6 +20,9 @@ public static class PluginLoader
     private static readonly List<PluginLoadContext> _contexts = new();
     private static readonly object _ctxLock = new();
 #endif
+    // Track live cooperative plugin instances for the reload gate.
+    private static readonly List<IPluginLifecycle> _live = new();
+    private static readonly object _lifeLock = new();
 
     public static string RuntimePluginsDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "Plugins");
@@ -28,14 +33,16 @@ public static class PluginLoader
     private static string LogPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "plugins.log");
 
-    public static List<DiscoveredPlugin> Discover(RevitBridge bridge, QueryCache cache)
+    public static List<DiscoveredPlugin> Discover(RevitBridge bridge, IPluginContextFactory factory)
     {
         UnloadContexts();
         var result = new List<DiscoveredPlugin>();
         try
         {
             var core = new CorePlugin();
-            var tools = ToolGuards.ApplyAll(core.CreateTools(bridge, cache), bridge).ToList();
+            var coreCtx = factory.Create("builtin", requestFullAccess: true);
+            var tools = ToolGuards.ApplyAll(core.CreateTools(coreCtx), bridge).ToList();
+            JoinLifecycle(coreCtx);
             var meta = new PluginMeta
             {
                 Id = core.Id,
@@ -62,7 +69,7 @@ public static class PluginLoader
             if (!Directory.Exists(dir)) continue;
             foreach (var pluginFolder in Directory.GetDirectories(dir))
             {
-                try { var dp = LoadOne(pluginFolder, bridge, cache); if (dp != null) result.Add(dp); }
+                try { var dp = LoadOne(pluginFolder, bridge, factory); if (dp != null) result.Add(dp); }
                 catch (Exception ex) { Log($"{pluginFolder} failed: {ex.Message}"); }
             }
             foreach (var manifest in Directory.GetFiles(dir, "plugin.json"))
@@ -70,7 +77,7 @@ public static class PluginLoader
                 try
                 {
                     var folder = Path.GetDirectoryName(manifest)!;
-                    var dp = LoadOne(folder, bridge, cache);
+                    var dp = LoadOne(folder, bridge, factory);
                     if (dp != null && !result.Any(r => r.Meta.Id == dp.Meta.Id)) result.Add(dp);
                 }
                 catch { }
@@ -99,14 +106,18 @@ public static class PluginLoader
         return result;
     }
 
+    /// <summary>
+    /// Cooperative reload gate: waits for live cooperative plugins to report
+    /// idle before their assemblies are discarded. On .NET Framework (Revit
+    /// 2024) there is no unloadable ALC, so unloading is a no-op.
+    /// </summary>
     private static void UnloadContexts()
     {
 #if NETFRAMEWORK
-        // .NET Framework (Revit 2024) has no collectible AssemblyLoadContext, so
-        // plugin binaries cannot be unloaded/reloaded at runtime. Loading fresh is
-        // a no-op here; hot reload on 2024 requires an addin/Revit restart
-        // (RestartPluginHost fallback).
+        // No collectible AssemblyLoadContext on net48 — see plugin fallback.
+        ClearLifecycle();
 #else
+        WaitForIdle();
         lock (_ctxLock)
         {
             foreach (var ctx in _contexts)
@@ -115,12 +126,39 @@ public static class PluginLoader
             }
             _contexts.Clear();
         }
+        ClearLifecycle();
         GC.Collect();
         GC.WaitForPendingFinalizers();
 #endif
     }
 
-    private static DiscoveredPlugin? LoadOne(string folder, RevitBridge bridge, QueryCache cache)
+    private static void JoinLifecycle(IPluginContext ctx)
+    {
+        if (ctx is IPluginLifecycle lc)
+            lock (_lifeLock) _live.Add(lc);
+    }
+
+    private static void ClearLifecycle()
+    {
+        lock (_lifeLock) _live.Clear();
+    }
+
+    /// <summary>Waits (up to each plugin's MaxReloadWaitMs) for cooperative plugins to become idle.</summary>
+    private static void WaitForIdle()
+    {
+        List<IPluginLifecycle> snap;
+        lock (_lifeLock) snap = new List<IPluginLifecycle>(_live);
+        foreach (var lc in snap)
+        {
+            var wait = lc.MaxReloadWaitMs > 0 ? lc.MaxReloadWaitMs : PluginLifecycleDefaults.MaxReloadWaitMs;
+            var deadline = DateTime.UtcNow.AddMilliseconds(wait);
+            while (lc.IsBusy && DateTime.UtcNow < deadline)
+                Thread.Sleep(25);
+            if (lc.IsBusy) Log("reload gate: plugin still busy; unloading anyway");
+        }
+    }
+
+    private static DiscoveredPlugin? LoadOne(string folder, RevitBridge bridge, IPluginContextFactory factory)
     {
         var manifestPath = Path.Combine(folder, "plugin.json");
         PluginMeta? meta = null;
@@ -178,7 +216,9 @@ public static class PluginLoader
             try
             {
                 var inst = (IRevitToolPlugin)Activator.CreateInstance(pt)!;
-                var ts = ToolGuards.ApplyAll(inst.CreateTools(bridge, cache), bridge).ToList();
+                var requestFull = typeof(IRevitFullAccess).IsAssignableFrom(pt);
+                var ctx = factory.Create(folder, requestFull);
+                var ts = ToolGuards.ApplyAll(inst.CreateTools(ctx), bridge).ToList();
                 tools.AddRange(ts);
                 if (meta.Tools.Count == 0)
                 {
@@ -186,6 +226,7 @@ public static class PluginLoader
                         meta.Tools.Add(new PluginToolMeta { Name = te.Definition.Function.Name, Tier = te.Tier.ToString(), Description = te.Definition.Function.Description ?? "", EnabledByDefault = te.Tier != ToolTier.L3 });
                 }
                 if (string.IsNullOrWhiteSpace(meta.Id) || meta.Id == Path.GetFileName(folder)) { meta.Id = inst.Id; meta.Name = inst.Name; meta.Version = inst.Version; }
+                JoinLifecycle(ctx);
             }
             catch (Exception ex) { Log($"plugin {folder} type {pt.Name} failed: {ex.Message}"); }
         }

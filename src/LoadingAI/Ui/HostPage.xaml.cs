@@ -126,7 +126,7 @@ public partial class HostPage : Page
             _agent = null;
             return;
         }
-        _discovered = PluginLoader.Discover(bridge, _cache);
+        _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge, _cache));
         RebuildRegistry();
     }
 
@@ -385,7 +385,7 @@ public partial class HostPage : Page
                         var bridge = App.Bridge;
                         if (bridge != null)
                         {
-                            _discovered = PluginLoader.Discover(bridge, _cache);
+                            _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge, _cache));
                             RebuildRegistry();
                             PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                             PostToWeb(new { type = "status", text = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled." });

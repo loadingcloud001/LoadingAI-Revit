@@ -3,30 +3,32 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Structure;
+using Autodesk.Revit.UI;
 using LoadingAI.Llm;
+using LoadingAI.Plugins;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.ModelingTools;
 
-public sealed class ModelingToolsPlugin : IRevitToolPlugin
+public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "modeling-tools";
     public string Name => "Family & Element Modeling Tools";
     public string Version => "1.0.0";
 
-    public IEnumerable<ToolEntry> CreateTools(RevitBridge bridge, QueryCache cache)
+    public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
-        yield return LoadFamily(bridge);
-        yield return PlaceFamilyInstance(bridge);
-        yield return ChangeElementType(bridge);
-        yield return SetParameter(bridge);
-        yield return CreateTopography(bridge);
-        yield return ListPhases(bridge);
+        yield return LoadFamily(context);
+        yield return PlaceFamilyInstance(context);
+        yield return ChangeElementType(context);
+        yield return SetParameter(context);
+        yield return CreateTopography(context);
+        yield return ListPhases(context);
     }
 
-    private static ToolEntry LoadFamily(RevitBridge bridge) => new()
+    private static ToolEntry LoadFamily(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -48,9 +50,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             var path = Args.Parse(json).Str("path");
             if (string.IsNullOrWhiteSpace(path)) return "path is required.";
             if (!System.IO.File.Exists(path)) return $"File not found: {path}";
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -70,7 +72,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry PlaceFamilyInstance(RevitBridge bridge) => new()
+    private static ToolEntry PlaceFamilyInstance(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -104,9 +106,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             var x = args.Dbl("x", 0);
             var y = args.Dbl("y", 0);
             var z = args.Dbl("z", 0);
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -126,7 +128,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry ChangeElementType(RevitBridge bridge) => new()
+    private static ToolEntry ChangeElementType(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -155,9 +157,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             var typeName = args.Str("typeName");
             var typeId = args.Str("typeId");
             if (string.IsNullOrWhiteSpace(eid)) return "elementId is required.";
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -188,7 +190,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry SetParameter(RevitBridge bridge) => new()
+    private static ToolEntry SetParameter(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -219,9 +221,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             if (string.IsNullOrWhiteSpace(paramName) || value == null) return "paramName and value are required.";
             var ids = args.Ids("elementId", "elementIds");
             if (ids.Count == 0) return "Pass elementId or elementIds.";
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -245,7 +247,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry CreateTopography(RevitBridge bridge) => new()
+    private static ToolEntry CreateTopography(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -272,9 +274,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             var args = Args.Parse(json);
             var pts = args.Points("points");
             if (pts.Count < 3) return "Provide at least 3 points [x,y,z].";
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -293,7 +295,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry ListPhases(RevitBridge bridge) => new()
+    private static ToolEntry ListPhases(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition
@@ -305,9 +307,9 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
             }
         },
-        Handler = async json => await bridge.RunAsync(uiApp =>
+        Handler = async json => await context.FullAccess!.RunRevitAsync(session =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
+            var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
             if (doc == null) return "Please open a model first.";
             try
             {

@@ -1,28 +1,30 @@
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 using LoadingAI.Llm;
+using LoadingAI.Plugins;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.ExportTools;
 
-public sealed class ExportToolsPlugin : IRevitToolPlugin
+public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "export-tools";
     public string Name => "Export Tools";
     public string Version => "1.0.0";
     private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
 
-    public IEnumerable<ToolEntry> CreateTools(RevitBridge bridge, QueryCache cache)
+    public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
-        yield return ExportPdf(bridge);
-        yield return ExportDwg(bridge);
-        yield return ExportIfc(bridge);
-        yield return PurgeUnused(bridge);
+        yield return ExportPdf(context);
+        yield return ExportDwg(context);
+        yield return ExportIfc(context);
+        yield return PurgeUnused(context);
     }
 
-    private static ToolEntry ExportPdf(RevitBridge bridge) => new()
+    private static ToolEntry ExportPdf(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition
@@ -52,9 +54,9 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             var folder = args.Str("folder");
             var name = args.Str("name");
             var combine = args.Bool("combine", true);
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -78,7 +80,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry ExportDwg(RevitBridge bridge) => new()
+    private static ToolEntry ExportDwg(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition
@@ -106,9 +108,9 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             var ids = args.Strings("viewIds");
             var folder = args.Str("folder");
             var name = args.Str("name");
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -126,7 +128,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry ExportIfc(RevitBridge bridge) => new()
+    private static ToolEntry ExportIfc(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition
@@ -154,9 +156,9 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             var folder = args.Str("folder");
             var name = args.Str("name");
             var version = args.Str("version");
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
@@ -186,7 +188,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
         }
     };
 
-    private static ToolEntry PurgeUnused(RevitBridge bridge) => new()
+    private static ToolEntry PurgeUnused(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         Definition = new ToolDefinition
@@ -206,9 +208,9 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
         Handler = async json =>
         {
             var preview = Args.Parse(json).Bool("preview", true);
-            return await bridge.RunAsync(uiApp =>
+            return await context.FullAccess!.RunRevitAsync(session =>
             {
-                var doc = uiApp.ActiveUIDocument?.Document;
+                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
                 try
                 {
