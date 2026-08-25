@@ -1,0 +1,58 @@
+<Project>
+
+  <!--
+    LoadingAI for Revit — multi-version build matrix.
+    One codebase, four Revit targets (2024-2027).
+
+    Build a specific version with:
+        dotnet build /p:RevitVersion=2024
+        dotnet build /p:RevitVersion=2025
+        dotnet build /p:RevitVersion=2026
+        dotnet build /p:RevitVersion=2027   (default anchor)
+
+    The rough dependency is documented in the repo README; the mapping here
+    follows the Revit release -> .NET TFM -> Nice3point package version table:
+
+        Revit   TFM              RevitAPI/Toolkit package
+        2024    net48           2024.*
+        2025    net8.0-windows  2025.*
+        2026    net8.0-windows  2026.*
+        2027    net10.0-windows 2027.*   (anchor)
+  -->
+
+  <PropertyGroup>
+    <!-- Anchor version used when none is passed on the command line. -->
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2024'">
+    <TargetFramework>net48</TargetFramework>
+    <RevitApiVersion>2024.*</RevitApiVersion>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2025'">
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RevitApiVersion>2025.*</RevitApiVersion>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2026'">
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RevitApiVersion>2026.*</RevitApiVersion>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2027'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RevitApiVersion>2027.*</RevitApiVersion>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+
+  <!-- Allow a per-project override but refuse unknown versions early. -->
+  <Target Name="ValidateRevitVersion" BeforeTargets="PrepareForBuild;Restore">
+    <Error Condition="'$(RevitVersion)' != '2024' And '$(RevitVersion)' != '2025' And '$(RevitVersion)' != '2026' And '$(RevitVersion)' != '2027'"
+           Text="Unsupported RevitVersion '$(RevitVersion)'. Use 2024, 2025, 2026 or 2027." />
+  </Target>
+
+</Project>

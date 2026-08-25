@@ -1,12 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>false</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>12</LangVersion>
     <AssemblyName>LoadingAI</AssemblyName>
     <RootNamespace>LoadingAI</RootNamespace>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -20,15 +18,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.2.0" />
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.2.0" />
-    <PackageReference Include="Nice3point.Revit.Toolkit" Version="2027.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" />
+    <PackageReference Include="Nice3point.Revit.Toolkit" Version="$(RevitApiVersion)" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
   </ItemGroup>
 
   <PropertyGroup>
-    <!-- Post-build copy for POC: copy to %AppData%\Autodesk\Revit\Addins\2027\LoadingAI\ -->
-    <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\2027\LoadingAI\</RevitAddinDir>
+    <!-- Post-build copy for addin: copy to %AppData%\Autodesk\Revit\Addins\$(RevitVersion)\LoadingAI\ -->
+    <RevitAddinDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\LoadingAI\</RevitAddinDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -53,17 +51,17 @@
 
   <Target Name="CopyAddin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(RevitAddinDir)" />
-    <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\2027\" />
+    <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).deps.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).deps.json')" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\LoadingAI.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2027\" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\LoadingAI.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" SkipUnchangedFiles="false" />
     <!-- copy all runtime deps (Toolkit etc) -->
     <ItemGroup>
       <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)RevitAPI.dll;$(TargetDir)RevitAPIUI.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_Deps)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
-    <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\2027\" Importance="high" />
+    <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\$(RevitVersion)\" Importance="high" />
   </Target>
 
   <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">
