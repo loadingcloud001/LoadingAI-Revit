@@ -64,7 +64,7 @@ public static class ExportPaths
     {
         var raw = string.IsNullOrWhiteSpace(name) ? fallback : name.Trim();
         if (raw.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
-            raw = raw[..^4];
+            raw = raw.Substring(0, raw.Length - 4);
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(raw.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray());
         cleaned = cleaned.Trim(' ', '.');

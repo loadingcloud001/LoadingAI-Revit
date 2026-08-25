@@ -1,4 +1,5 @@
 using Autodesk.Revit.UI;
+using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Ui;
 
@@ -11,6 +12,8 @@ public class App : IExternalApplication
 
     public Result OnStartup(UIControlledApplication application)
     {
+        ProviderSettings.KeyProtector = WinKeyProtector.Instance;
+
         // UIApplication not available at UIControlledApplication stage; it will be set
         // on first ExternalEvent execution or command via RevitContext.Set
         Bridge = new RevitBridge();

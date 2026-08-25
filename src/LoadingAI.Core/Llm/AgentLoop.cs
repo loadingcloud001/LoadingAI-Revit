@@ -106,10 +106,9 @@ public sealed class AgentLoop
         if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            var l1Names = _registry.Entries
+            var l1Names = new HashSet<string>(_registry.Entries
                 .Where(e => e.Tier == ToolTier.L1)
-                .Select(e => e.Definition.Function.Name)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                .Select(e => e.Definition.Function.Name), StringComparer.OrdinalIgnoreCase);
             allTools = allTools.Where(t => l1Names.Contains(t.Function.Name)).ToList();
         }
         var selected = ToolSelector.Select(allTools, userTextForSelect);
@@ -168,7 +167,7 @@ public sealed class AgentLoop
                 foreach (var tc in msgOut.ToolCalls)
                 {
                     if (string.IsNullOrWhiteSpace(tc.Id))
-                        tc.Id = "call_" + Guid.NewGuid().ToString("N")[..8];
+                        tc.Id = "call_" + Guid.NewGuid().ToString("N").Substring(0, 8);
                     tc.Function.Arguments = LlmJson.NormalizeToolArguments(tc.Function.Arguments);
                 }
                 msgOut.Content ??= "";
@@ -215,7 +214,7 @@ public sealed class AgentLoop
                         {
                             _todos.Clear();
                             foreach (var s in draft.Steps)
-                                _todos.Add(new TodoItem(Guid.NewGuid().ToString("N")[..6], s.Title, null, "pending"));
+                                _todos.Add(new TodoItem(Guid.NewGuid().ToString("N").Substring(0, 6), s.Title, null, "pending"));
                             try { onTodo?.Invoke(_todos.ToList()); } catch { }
                         }
                     }
@@ -290,8 +289,8 @@ public sealed class AgentLoop
         {
             var desc = t.Function.Description ?? "";
             var cut = desc.IndexOf('.');
-            if (cut > 0 && cut < 160) desc = desc[..(cut + 1)];
-            else if (desc.Length > 160) desc = desc[..157] + "...";
+            if (cut > 0 && cut < 160) desc = desc.Substring(0, cut + 1);
+            else if (desc.Length > 160) desc = desc.Substring(0, 157) + "...";
             return $"- {t.Function.Name}: {desc}";
         });
         return BaseSystemPrompt + "\n# Tools\n" + string.Join("\n", lines);

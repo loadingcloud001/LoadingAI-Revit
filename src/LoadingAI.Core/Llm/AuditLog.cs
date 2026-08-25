@@ -30,5 +30,5 @@ public static class AuditLog
         catch { }
     }
 
-    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "...";
+    private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n) + "...";
 }

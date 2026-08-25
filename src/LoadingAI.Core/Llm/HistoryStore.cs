@@ -17,7 +17,7 @@ public static class HistoryStore
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            var entry = new { timestamp = DateTime.UtcNow.ToString("o"), role, text = text.Length > 2000 ? text[..2000] + "..." : text };
+            var entry = new { timestamp = DateTime.UtcNow.ToString("o"), role, text = text.Length > 2000 ? text.Substring(0, 2000) + "..." : text };
             var line = JsonSerializer.Serialize(entry);
             lock (Gate)
             {
@@ -47,6 +47,6 @@ public static class HistoryStore
         if (!File.Exists(FilePath)) return;
         var lines = File.ReadAllLines(FilePath);
         if (lines.Length > keep)
-            File.WriteAllLines(FilePath, lines[^keep..]);
+            File.WriteAllLines(FilePath, lines.Skip(lines.Length - keep).ToArray());
     }
 }

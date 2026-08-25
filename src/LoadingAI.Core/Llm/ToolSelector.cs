@@ -34,7 +34,7 @@ public static class ToolSelector
         int score = 0;
         if (AlwaysKeep.Contains(n)) score += 100;
         if (!string.IsNullOrEmpty(lowerUser) && lowerUser.Contains(n)) score += 80;
-        var tokens = n.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        var tokens = n.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (var tok in tokens)
         {
             if (tok.Length < 3) continue;

@@ -211,7 +211,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(15));
         using var resp = await _http.SendAsync(req, cts.Token);
-        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        var body = await resp.Content.ReadAsStringAsync();
         if (!resp.IsSuccessStatusCode)
         {
             string err = body;
@@ -361,7 +361,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
 
         using var resp = await _http.SendAsync(httpReq, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
+        var body = await resp.Content.ReadAsStringAsync();
 
         if (!resp.IsSuccessStatusCode)
         {
@@ -419,7 +419,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
         using var resp = await _http.SendAsync(httpReq, timeoutCts.Token);
-        var body = await resp.Content.ReadAsStringAsync(timeoutCts.Token);
+        var body = await resp.Content.ReadAsStringAsync();
 
         if (!resp.IsSuccessStatusCode)
         {
@@ -474,7 +474,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
                     catch { args = "{}"; }
                     toolCalls.Add(new ToolCall
                     {
-                        Id = string.IsNullOrWhiteSpace(item.CallId) ? "call_" + Guid.NewGuid().ToString("N")[..8] : item.CallId!,
+                        Id = string.IsNullOrWhiteSpace(item.CallId) ? "call_" + Guid.NewGuid().ToString("N").Substring(0, 8) : item.CallId!,
                         Type = "function",
                         Function = new ToolCallFunction { Name = item.Name ?? "", Arguments = args }
                     });
@@ -588,7 +588,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         using var resp = await _http.SendAsync(httpReq, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!resp.IsSuccessStatusCode)
         {
-            var body = await resp.Content.ReadAsStringAsync(ct);
+            var body = await resp.Content.ReadAsStringAsync();
             string err = body;
             try
             {
@@ -605,18 +605,18 @@ public sealed class OpenAiCompatibleClient : IDisposable
         string? finishReason = null;
         string? role = "assistant";
 
-        using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var stream = await resp.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(ct);
+            var line = await reader.ReadLineAsync();
             if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
             if (line.StartsWith(":")) continue;
             if (!line.StartsWith("data:")) continue;
-            var data = line["data:".Length..].Trim();
+            var data = line.Substring("data:".Length).Trim();
             if (data == "[DONE]") break;
             if (string.IsNullOrWhiteSpace(data)) continue;
 
@@ -675,7 +675,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
                         }
                     }
                     catch { }
-                    return new { tc.Id, tc.Function.Name, argsLen = raw.Length, argsPreview = raw.Length > 80 ? raw[..80] : raw, argsValidJson = valid };
+                    return new { tc.Id, tc.Function.Name, argsLen = raw.Length, argsPreview = raw.Length > 80 ? raw.Substring(0, 80) : raw, argsValidJson = valid };
                 }).ToList();
                 var isMulti = LlmJson.IsMultimodal(m.Content);
                 return new
@@ -684,7 +684,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
                     contentNull = m.Content == null,
                     isMultimodal = isMulti,
                     contentLen = isMulti ? -1 : LlmJson.GetContentString(m.Content).Length,
-                    contentPreview = isMulti ? "[multimodal]" : (LlmJson.GetContentString(m.Content).Length > 120 ? LlmJson.GetContentString(m.Content)[..120] : LlmJson.GetContentString(m.Content)),
+                    contentPreview = isMulti ? "[multimodal]" : (LlmJson.GetContentString(m.Content).Length > 120 ? LlmJson.GetContentString(m.Content).Substring(0, 120) : LlmJson.GetContentString(m.Content)),
                     toolCallId = m.ToolCallId,
                     toolName = m.Name,
                     toolCalls = args
@@ -699,7 +699,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
                 toolCount = tools?.Count ?? 0,
                 messageCount = messages.Count,
                 messages = msgSummaries,
-                bodyPreview = body.Length > 500 ? body[..500] : body
+                bodyPreview = body.Length > 500 ? body.Substring(0, 500) : body
             });
         }
         catch { }
@@ -721,9 +721,9 @@ public sealed class OpenAiCompatibleClient : IDisposable
         if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
             return url;
         if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
-            return url[..^"/chat/completions".Length] + "/responses";
+            return url.Substring(0, url.Length - "/chat/completions".Length) + "/responses";
         if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
-            return url[..^"/messages".Length] + "/responses";
+            return url.Substring(0, url.Length - "/messages".Length) + "/responses";
         return url + "/responses";
     }
 
@@ -731,11 +731,11 @@ public sealed class OpenAiCompatibleClient : IDisposable
     {
         var url = baseUrl.Trim().TrimEnd('/');
         if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
-            url = url[..^"/chat/completions".Length];
+            url = url.Substring(0, url.Length - "/chat/completions".Length);
         else if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
-            url = url[..^"/responses".Length];
+            url = url.Substring(0, url.Length - "/responses".Length);
         else if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
-            url = url[..^"/messages".Length];
+            url = url.Substring(0, url.Length - "/messages".Length);
         return url + "/models";
     }
 

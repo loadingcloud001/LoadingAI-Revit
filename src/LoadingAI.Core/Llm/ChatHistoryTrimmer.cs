@@ -15,7 +15,7 @@ public static class ChatHistoryTrimmer
             if (msg.Role != "tool") continue;
             var text = LlmJson.GetContentString(msg.Content);
             if (text.Length > MaxToolResultChars)
-                msg.Content = text[..MaxToolResultChars] + "\n[omitted]";
+                msg.Content = text.Substring(0, MaxToolResultChars) + "\n[omitted]";
         }
 
         var lastMulti = -1;

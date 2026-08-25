@@ -1,5 +1,4 @@
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -8,7 +7,7 @@ namespace LoadingAI.Llm;
 
 public sealed class ProviderConfig
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string Id { get; set; } = Guid.NewGuid().ToString("N").Substring(0, 8);
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
     public string Model { get; set; } = "";
@@ -274,27 +273,28 @@ public static class ProviderSettings
         return merged;
     }
 
+    public static IKeyProtector KeyProtector { get; set; } = new NoOpKeyProtector();
+
     public static string ProtectKey(string? key)
     {
         if (string.IsNullOrEmpty(key)) return "";
         if (key.StartsWith(EncPrefix, StringComparison.Ordinal)) return key;
-        var bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes("LoadingAI"), DataProtectionScope.CurrentUser);
-        return EncPrefix + Convert.ToBase64String(bytes);
+        return KeyProtector.ProtectKey(key);
     }
 
     public static string UnprotectKey(string? stored)
     {
         if (string.IsNullOrEmpty(stored)) return "";
         if (!stored.StartsWith(EncPrefix, StringComparison.Ordinal)) return stored;
-        try
-        {
-            var bytes = ProtectedData.Unprotect(Convert.FromBase64String(stored[EncPrefix.Length..]), Encoding.UTF8.GetBytes("LoadingAI"), DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(bytes);
-        }
-        catch
-        {
-            return "";
-        }
+        return KeyProtector.UnprotectKey(stored);
+    }
+
+    private sealed class NoOpKeyProtector : IKeyProtector
+    {
+        public string ProtectKey(string? key) => EncPrefix + Convert.ToBase64String(Encoding.UTF8.GetBytes(key ?? ""));
+        public string UnprotectKey(string? stored) => stored.StartsWith(EncPrefix, StringComparison.Ordinal)
+            ? Encoding.UTF8.GetString(Convert.FromBase64String(stored.Substring(EncPrefix.Length)))
+            : stored ?? "";
     }
 
     private static AppSettings EncryptCopy(AppSettings s)

@@ -15,9 +15,9 @@ public static class CheckpointStore
         try
         {
             Directory.CreateDirectory(Dir);
-            var id = DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "_" + Guid.NewGuid().ToString("N")[..4];
+            var id = DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "_" + Guid.NewGuid().ToString("N").Substring(0, 4);
             var preview = history.LastOrDefault(m => m.Role == "user") is { } last ? LlmJson.GetContentString(last.Content) : (history.LastOrDefault()?.Content?.ToString() ?? "");
-            if (preview.Length > 80) preview = preview[..80];
+            if (preview.Length > 80) preview = preview.Substring(0, 80);
             var payload = new { id, createdAt = DateTime.UtcNow, mode, preview, messages = history };
             var json = JsonSerializer.Serialize(payload, Opts);
             var path = Path.Combine(Dir, id + ".json");
