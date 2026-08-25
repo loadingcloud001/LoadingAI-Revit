@@ -17,6 +17,12 @@
     <ProjectReference Include="..\LoadingAI.Core\LoadingAI.Core.csproj" />
   </ItemGroup>
 
+  <!-- net48 (Revit 2024) backports: System.Range/Index + DPAPI are missing from .NET Framework -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" />
@@ -42,7 +48,7 @@
   </ItemGroup>
 
   <Target Name="BuildShippedPlugins" AfterTargets="Build" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
-    <MSBuild Projects="@(ShippedPlugin)" Targets="Build" Properties="Configuration=$(Configuration);SkipHostPluginBuild=true" />
+    <MSBuild Projects="@(ShippedPlugin)" Targets="Restore;Build" Properties="Configuration=$(Configuration);RevitVersion=$(RevitVersion);SkipHostPluginBuild=true" />
     <ItemGroup>
       <_MissingPlugin Include="@(ShippedPlugin)" Condition="!Exists('%(ShippedPlugin.Dll)')" />
     </ItemGroup>

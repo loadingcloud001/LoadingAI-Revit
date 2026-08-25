@@ -77,7 +77,7 @@ public static class WorksharingTools
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="audit_warnings_fix", Description="List warnings with suggested fix (pyRevit: Audit). Params: limit.", Parameters=new{type="object",properties=new{limit=new{type="integer"}},required=Array.Empty<string>()}}},
         Handler=async json=>{
             int lim=10; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch{}
-            lim=Math.Clamp(lim,1,50);
+            lim=Polyfills.Clamp(lim,1,50);
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{

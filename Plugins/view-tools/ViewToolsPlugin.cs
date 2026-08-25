@@ -102,7 +102,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             var args = Args.Parse(json);
             var sid = args.Str("scheduleId");
             var name = args.Str("name");
-            var limit = Math.Clamp(args.Int("rowLimit", 25), 1, 40);
+            var limit = Math.Min(40, Math.Max(1, args.Int("rowLimit", 25)));
             return await bridge.RunAsync(uiApp =>
             {
                 var doc = uiApp.ActiveUIDocument?.Document;

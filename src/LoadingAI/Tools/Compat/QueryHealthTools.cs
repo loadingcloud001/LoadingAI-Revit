@@ -91,7 +91,7 @@ public static class QueryHealthTools
                     var syms=new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
                     if(!string.IsNullOrWhiteSpace(cap)){
                         // filter by family category
-                        syms=syms.Where(s=>s.Category?.Name.Equals(cap,StringComparison.OrdinalIgnoreCase)==true || s.FamilyName.Contains(cap,StringComparison.OrdinalIgnoreCase)).ToList();
+                        syms=syms.Where(s=>s.Category?.Name.Equals(cap,StringComparison.OrdinalIgnoreCase)==true || s.FamilyName.IndexOf(cap,StringComparison.OrdinalIgnoreCase)>=0).ToList();
                     }
                     return $"FamilySymbols ({syms.Count}):\n"+string.Join("\n",syms.Take(20).Select(s=>$"  {s.Id} \"{s.FamilyName}:{s.Name}\" Cat:{s.Category?.Name}"))+(syms.Count>20?"\n...":"");
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
@@ -137,7 +137,7 @@ public static class QueryHealthTools
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="get_clash_by_bb", Description="Find clashing element pairs by bounding box overlap (Navis clash). Params: category1, category2, limit.", Parameters=new{type="object",properties=new{category1=new{type="string"},category2=new{type="string"},limit=new{type="integer"}},required=new[]{"category1","category2"}}}},
         Handler = async json=>{
             string c1="",c2=""; int lim=20; try{using var d=JsonDocument.Parse(json); c1=d.RootElement.GetProperty("category1").GetString()??""; c2=d.RootElement.GetProperty("category2").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            var cap1=c1; var cap2=c2; lim=Math.Clamp(lim,1,100);
+            var cap1=c1; var cap2=c2; lim=Polyfills.Clamp(lim,1,100);
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{

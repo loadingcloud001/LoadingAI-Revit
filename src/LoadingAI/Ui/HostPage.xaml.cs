@@ -237,7 +237,7 @@ public partial class HostPage : Page
                 try { json = e.WebMessageAsJson; } catch { json = null; }
             }
             if (string.IsNullOrEmpty(json)) return;
-            if (json.Length > 2 && json[0] == '"' && json[^1] == '"')
+            if (json.Length > 2 && json[0] == '"' && json[json.Length - 1] == '"')
             {
                 try { json = JsonSerializer.Deserialize<string>(json) ?? json; } catch { }
             }
@@ -489,7 +489,7 @@ public partial class HostPage : Page
                                     if (string.IsNullOrWhiteSpace(dataUrl)) continue;
                                     if (!dataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) continue;
                                     if (dataUrl.Length * 0.75 > 4.5 * 1024 * 1024) { PostToWeb(new { type = "error", text = "Image too large (>4MB) — please compress or crop." }); continue; }
-                                    var id = el.TryGetProperty("id", out var ide) ? ide.GetString() ?? Guid.NewGuid().ToString("N")[..8] : Guid.NewGuid().ToString("N")[..8];
+                                    var id = el.TryGetProperty("id", out var ide) ? ide.GetString() ?? Guid.NewGuid().ToString("N").Substring(0, 8) : Guid.NewGuid().ToString("N").Substring(0, 8);
                                     var name = el.TryGetProperty("name", out var ne) ? ne.GetString() ?? "image.png" : "image.png";
                                     var mt = el.TryGetProperty("mediaType", out var me) ? me.GetString() ?? "image/png" : "image/png";
                                     attachments.Add(new AttachmentDto(id, name, mt, dataUrl));
@@ -512,7 +512,7 @@ public partial class HostPage : Page
                             PostToWeb(new { type = "error", text = "No provider configured." });
                             break;
                         }
-                        if (string.IsNullOrWhiteSpace(provider.ApiKey) && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+                        if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
                         {
                             PostToWeb(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });
                             break;
@@ -646,7 +646,7 @@ public partial class HostPage : Page
         // For L3, require UI approval before executing (in addition to TaskDialog inside handler)
         if (entry.Tier == ToolTier.L3)
         {
-            var callId = Guid.NewGuid().ToString("N")[..8];
+            var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             lock (_approvalLock) _pendingApprovals[callId] = tcs;
             try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_approval", approval = new { toolCallId = callId, toolName = name, tier = entry.Tier.ToString(), args = argsJson, description = entry.Definition.Function.Description } })); } catch { }
@@ -705,5 +705,5 @@ public partial class HostPage : Page
         return result;
     }
 
-    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "...";
+    private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n) + "...";
 }

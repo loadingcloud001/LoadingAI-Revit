@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    name: Build (Revit ${{ matrix.revit }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        revit: [2024, 2025, 2026, 2027]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore LoadingAI.sln -p:RevitVersion=${{ matrix.revit }}
+
+      # Build the whole solution against each Revit API. Skip host plugin
+      # copy/deploy side-effects in CI (they target %AppData%).
+      - name: Build
+        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} --no-restore -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+
+  test:
+    name: Test (Revit 2027 anchor)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Test
+        run: dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:RevitVersion=2027

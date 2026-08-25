@@ -26,13 +26,13 @@ public static class ParamExcelTools
         Handler = async json=>{
             string cat=""; string? paramNames=null; string? filePath=null; int lim=200;
             try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; if(d.RootElement.TryGetProperty("paramNames",out var pn)&&pn.ValueKind==JsonValueKind.String) paramNames=pn.GetString(); if(d.RootElement.TryGetProperty("filePath",out var fp)&&fp.ValueKind==JsonValueKind.String) filePath=fp.GetString(); if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            lim=Math.Clamp(lim,1,1000);
+            lim=Polyfills.Clamp(lim,1,1000);
             var res=await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";
                     var elems=new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().Take(lim).ToList();
-                    string[] cols=string.IsNullOrWhiteSpace(paramNames)? new[]{"Comments","Mark"} : paramNames.Split(',', StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+                    string[] cols=string.IsNullOrWhiteSpace(paramNames)? new[]{"Comments","Mark"} : paramNames.SplitTrim(',');
                     var path=ExportPaths.ResolveWrite(filePath, $"export_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                     var sb=new StringBuilder();
                     sb.AppendLine("Id,"+string.Join(",", cols));
@@ -111,7 +111,7 @@ public static class ParamExcelTools
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="copy_params", Description="Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit.", Parameters=new{type="object",properties=new{category=new{type="string"},sourceParam=new{type="string"},targetParam=new{type="string"},limit=new{type="integer"}},required=new[]{"category","sourceParam","targetParam"}}}},
         Handler = async json=>{
             string cat="",src="",tgt=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; src=d.RootElement.GetProperty("sourceParam").GetString()??""; tgt=d.RootElement.GetProperty("targetParam").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            lim=Math.Clamp(lim,1,1000);
+            lim=Polyfills.Clamp(lim,1,1000);
             bool ok=await bridge.RunAsync(uiApp=>{
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Copy {src} -> {tgt} for {lim} {cat}?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             });
@@ -143,7 +143,7 @@ public static class ParamExcelTools
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="replace_text", Description="Regex replace in parameter (pyRevit: Replace). Params: category, paramName, pattern, replacement, limit.", Parameters=new{type="object",properties=new{category=new{type="string"},paramName=new{type="string"},pattern=new{type="string"},replacement=new{type="string"},limit=new{type="integer"}},required=new[]{"category","paramName","pattern","replacement"}}}},
         Handler = async json=>{
             string cat="",pn="",pat="",rep=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; pn=d.RootElement.GetProperty("paramName").GetString()??""; pat=d.RootElement.GetProperty("pattern").GetString()??""; rep=d.RootElement.GetProperty("replacement").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            lim=Math.Clamp(lim,1,1000);
+            lim=Polyfills.Clamp(lim,1,1000);
             bool ok=await bridge.RunAsync(uiApp=>{
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Replace /{pat}/ -> \"{rep}\" in {pn} for {cat}?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             });

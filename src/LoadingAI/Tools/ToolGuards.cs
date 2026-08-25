@@ -19,7 +19,7 @@ public static class ToolGuards
             RequiresWriteConfirm = true,
             Handler = async json =>
             {
-                var preview = json.Length > 400 ? json[..400] + "..." : json;
+                var preview = json.Length > 400 ? json.Substring(0, 400) + "..." : json;
                 bool ok = await bridge.RunAsync(uiApp =>
                 {
                     var td = new TaskDialog("LoadingAI for Revit")

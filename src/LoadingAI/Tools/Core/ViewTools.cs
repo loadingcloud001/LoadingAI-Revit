@@ -358,7 +358,7 @@ public static class ViewTools
             "yellow" => new Color(255, 255, 0),
             "orange" => new Color(255, 165, 0),
             "purple" => new Color(128, 0, 128),
-            _ when s.StartsWith("#") && s.Length == 7 && int.TryParse(s[1..3], System.Globalization.NumberStyles.HexNumber, null, out var r) && int.TryParse(s[3..5], System.Globalization.NumberStyles.HexNumber, null, out var g) && int.TryParse(s[5..7], System.Globalization.NumberStyles.HexNumber, null, out var b) => new Color((byte)r, (byte)g, (byte)b),
+            _ when s.StartsWith("#") && s.Length == 7 && int.TryParse(s.Substring(1, 2), System.Globalization.NumberStyles.HexNumber, null, out var r) && int.TryParse(s.Substring(3, 2), System.Globalization.NumberStyles.HexNumber, null, out var g) && int.TryParse(s.Substring(5, 2), System.Globalization.NumberStyles.HexNumber, null, out var b) => new Color((byte)r, (byte)g, (byte)b),
             _ => new Color(255, 0, 0)
         };
     }
@@ -404,7 +404,7 @@ public static class ViewTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if (!AllTools.TryParseDate(startDateStr, out var startDate)) return $"Invalid startDate '{startDateStr}'.";
-                interval = Math.Clamp(interval, 1, 365);
+                interval = Polyfills.Clamp(interval, 1, 365);
 
                 var preview = await bridge.RunAsync(uiApp =>
                 {

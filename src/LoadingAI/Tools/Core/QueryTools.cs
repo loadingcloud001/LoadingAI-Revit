@@ -221,7 +221,7 @@ public static class QueryTools
             {
                 int limit = 200;
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32(); } catch { }
-                limit = Math.Clamp(limit, 1, 500);
+                limit = Polyfills.Clamp(limit, 1, 500);
                 var result = await bridge.RunAsync(uiApp =>
                 {
                     var uidoc = uiApp.ActiveUIDocument;
@@ -296,7 +296,7 @@ public static class QueryTools
                     if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
                 }
                 catch { }
-                limit = Math.Clamp(limit, 1, 500);
+                limit = Polyfills.Clamp(limit, 1, 500);
                 var catCapture = cat;
                 var result = await bridge.RunAsync(uiApp =>
                 {
@@ -372,7 +372,7 @@ public static class QueryTools
                     if (d.RootElement.TryGetProperty("offset", out var off) && off.ValueKind == JsonValueKind.Number) offset = off.GetInt32();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                limit = Math.Clamp(limit, 1, 500);
+                limit = Polyfills.Clamp(limit, 1, 500);
                 offset = Math.Max(0, offset);
                 var result = await bridge.RunAsync(uiApp =>
                 {
@@ -495,7 +495,7 @@ public static class QueryTools
             {
                 int limit = 20;
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32(); } catch { }
-                limit = Math.Clamp(limit, 1, 100);
+                limit = Polyfills.Clamp(limit, 1, 100);
                 var result = await bridge.RunAsync(uiApp =>
                 {
                     var doc = uiApp.ActiveUIDocument?.Document;

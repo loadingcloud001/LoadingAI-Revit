@@ -107,7 +107,7 @@ public static class GeometryCreateTools
         Handler=async json=>{
             string sym=""; double sx=0,sy=0,ex=10,ey=0; int cnt=5; string? lvl=null;
             try{using var d=JsonDocument.Parse(json); sym=d.RootElement.GetProperty("symbolName").GetString()??""; sx=d.RootElement.GetProperty("startX").GetDouble(); sy=d.RootElement.GetProperty("startY").GetDouble(); ex=d.RootElement.GetProperty("endX").GetDouble(); ey=d.RootElement.GetProperty("endY").GetDouble(); cnt=d.RootElement.GetProperty("count").GetInt32(); if(d.RootElement.TryGetProperty("levelName",out var l)&&l.ValueKind==JsonValueKind.String) lvl=l.GetString();}catch(Exception ex2){return $"Invalid args: {ex2.Message}";}
-            cnt=Math.Clamp(cnt,1,50);
+            cnt=Polyfills.Clamp(cnt,1,50);
             return await bridge.RunAsync(uiApp=>{
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{

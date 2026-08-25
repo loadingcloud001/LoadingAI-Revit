@@ -82,7 +82,7 @@ public static class ContextCollector
                 {
                     var warns = doc.GetWarnings();
                     warnCount = warns.Count;
-                    warnPreview = string.Join(" | ", warns.Take(2).Select(w => w.GetDescriptionText().Length > 80 ? w.GetDescriptionText()[..80] : w.GetDescriptionText()));
+                    warnPreview = string.Join(" | ", warns.Take(2).Select(w => w.GetDescriptionText().Length > 80 ? w.GetDescriptionText().Substring(0, 80) : w.GetDescriptionText()));
                 }
                 catch { }
 

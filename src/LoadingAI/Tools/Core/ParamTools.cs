@@ -207,7 +207,7 @@ public static class ParamTools
                     if (d.RootElement.TryGetProperty("limit", out var lim) && lim.ValueKind == JsonValueKind.Number) limit = lim.GetInt32();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                limit = Math.Clamp(limit, 1, 1000);
+                limit = Polyfills.Clamp(limit, 1, 1000);
                 var preview = await bridge.RunAsync(uiApp =>
                 {
                     var doc = uiApp.ActiveUIDocument?.Document;
@@ -444,7 +444,7 @@ public static class ParamTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if (!TryParseDate(startDateStr, out var startDate)) return $"Invalid startDate '{startDateStr}'. Use YYYY-MM-DD or YYYYMMDD.";
-                interval = Math.Clamp(interval, 1, 365);
+                interval = Polyfills.Clamp(interval, 1, 365);
 
                 // Preview: get levels
                 var preview = await bridge.RunAsync(uiApp =>

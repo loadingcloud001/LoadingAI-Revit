@@ -14,8 +14,10 @@ public sealed class DiscoveredPlugin
 
 public static class PluginLoader
 {
+#if !NETFRAMEWORK
     private static readonly List<PluginLoadContext> _contexts = new();
     private static readonly object _ctxLock = new();
+#endif
 
     public static string RuntimePluginsDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "Plugins");
@@ -99,6 +101,12 @@ public static class PluginLoader
 
     private static void UnloadContexts()
     {
+#if NETFRAMEWORK
+        // .NET Framework (Revit 2024) has no collectible AssemblyLoadContext, so
+        // plugin binaries cannot be unloaded/reloaded at runtime. Loading fresh is
+        // a no-op here; hot reload on 2024 requires an addin/Revit restart
+        // (RestartPluginHost fallback).
+#else
         lock (_ctxLock)
         {
             foreach (var ctx in _contexts)
@@ -109,6 +117,7 @@ public static class PluginLoader
         }
         GC.Collect();
         GC.WaitForPendingFinalizers();
+#endif
     }
 
     private static DiscoveredPlugin? LoadOne(string folder, RevitBridge bridge, QueryCache cache)
@@ -137,6 +146,10 @@ public static class PluginLoader
         if (string.IsNullOrWhiteSpace(meta.EntryAssembly)) meta.EntryAssembly = Path.GetFileName(dll);
 
         Assembly asm;
+#if NETFRAMEWORK
+        // .NET Framework (Revit 2024): no collectible ALC — load directly.
+        asm = Assembly.LoadFrom(dll);
+#else
         try
         {
             var alc = new PluginLoadContext(dll);
@@ -148,6 +161,7 @@ public static class PluginLoader
             Log($"ALC load failed {dll}: {ex.Message}; fallback LoadFrom");
             asm = Assembly.LoadFrom(dll);
         }
+#endif
 
         Type[] types;
         try { types = asm.GetTypes(); }

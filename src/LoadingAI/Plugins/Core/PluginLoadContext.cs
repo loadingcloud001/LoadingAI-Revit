@@ -1,8 +1,11 @@
 using System.Reflection;
+#if !NETFRAMEWORK
 using System.Runtime.Loader;
+#endif
 
 namespace LoadingAI.Plugins.Core;
 
+#if !NETFRAMEWORK
 public sealed class PluginLoadContext : AssemblyLoadContext
 {
     private readonly AssemblyDependencyResolver _resolver;
@@ -31,3 +34,5 @@ public sealed class PluginLoadContext : AssemblyLoadContext
         return path != null ? LoadUnmanagedDllFromPath(path) : nint.Zero;
     }
 }
+#endif
+
