@@ -1,0 +1,57 @@
+using System.Collections.Generic;
+
+namespace LoadingAI.Revit;
+
+// Revit-free DTOs that cross the bridge boundary into Core / LLM tools.
+// No Autodesk.Revit types here on purpose: Core (netstandard2.0) must stay
+// referenceable from plugins and the LLM layer without a RevitAPI dependency.
+
+public sealed record ModelSummaryDto(
+    string Title,
+    string Path,
+    bool IsSaved,
+    int ViewCount,
+    int WallCount,
+    int DoorCount,
+    int WindowCount);
+
+public sealed record SelectionSummaryDto(
+    int ElementCount,
+    IReadOnlyList<string> CategoryNames,
+    IReadOnlyList<string> ElementIds);
+
+public sealed record ViewInfoDto(
+    string Name,
+    string ViewType,
+    bool IsVisible,
+    int VisibleElementCount);
+
+public sealed record ElementSummaryDto(
+    string Id,
+    string Category,
+    string Family,
+    string Type,
+    string Name);
+
+public sealed record WarningDto(
+    string Description,
+    int Count,
+    string Severity);
+
+public sealed record LevelDto(string Name, double Elevation, string Id);
+
+public sealed record GridDto(string Name, string Id);
+
+public sealed record QuantityDto(
+    string Category,
+    int Count,
+    double TotalArea,
+    double TotalVolume,
+    double TotalLength);
+
+public sealed record SyncInfoDto(
+    string CentralPath,
+    bool IsCentral,
+    bool IsWorkshared,
+    string LastSavedBy,
+    int OpenWorksets);
