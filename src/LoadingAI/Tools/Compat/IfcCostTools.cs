@@ -4,23 +4,26 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
+using Autodesk.Revit.UI;
 
 namespace LoadingAI.Tools.Compat;
 
 public static class IfcCostTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateQuantityTakeoff(bridge);
+        yield return CreateQuantityTakeoff(context);
     }
 
-    private static ToolEntry CreateQuantityTakeoff(RevitBridge bridge) => new()
+    private static ToolEntry CreateQuantityTakeoff(IPluginContext context) => new()
     {
         Tier=ToolTier.L1,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="quantity_takeoff_by_category", Description="Quantity takeoff by category: count, total area, volume, length aggregated to CSV (Dynamo: Quantity Takeoff). Params: category, filePath optional.", Parameters=new{type="object",properties=new{category=new{type="string"},filePath=new{type="string"}},required=new[]{"category"}}}},
         Handler=async json=>{
             string cat=""; string? fp=null; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; if(d.RootElement.TryGetProperty("filePath",out var f)&&f.ValueKind==JsonValueKind.String) fp=f.GetString();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";

@@ -22,8 +22,7 @@ public partial class HostPage : Page
     private AppSettings _settings = ProviderSettings.Load();
     private readonly OpenAiCompatibleClient _client = new();
     private ToolRegistry _registry = new();
-    private readonly QueryCache _cache = new();
-    private List<DiscoveredPlugin> _discovered = new();
+        private List<DiscoveredPlugin> _discovered = new();
     private AgentLoop? _agent;
     private bool _isRunning;
     private CancellationTokenSource? _cts;
@@ -126,7 +125,7 @@ public partial class HostPage : Page
             _agent = null;
             return;
         }
-        _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge, _cache));
+                    _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
         RebuildRegistry();
     }
 
@@ -385,7 +384,7 @@ public partial class HostPage : Page
                         var bridge = App.Bridge;
                         if (bridge != null)
                         {
-                            _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge, _cache));
+                                                    _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
                             RebuildRegistry();
                             PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                             PostToWeb(new { type = "status", text = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled." });
@@ -697,9 +696,7 @@ public partial class HostPage : Page
                 }
                 catch { }
                 AuditLog.Append(name, _lastUserText, ids, result, entry.Tier.ToString());
-                // Invalidate read cache after any write
-                _cache.Invalidate();
-            }
+                            }
             catch { }
         }
         return result;

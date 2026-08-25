@@ -3,21 +3,22 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools;
 
 public static class GeometryTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateMoveElements(bridge);
-        yield return CreateDeleteElements(bridge);
-        yield return CreateCreateWall(bridge);
-        yield return CreateCreateFamilyInstance(bridge);
-        yield return CreateDuplicateElement(bridge);
+        yield return CreateMoveElements(context);
+        yield return CreateDeleteElements(context);
+        yield return CreateCreateWall(context);
+        yield return CreateCreateFamilyInstance(context);
+        yield return CreateDuplicateElement(context);
     }
 
-    internal static ToolEntry CreateMoveElements(RevitBridge bridge)
+    internal static ToolEntry CreateMoveElements(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -47,14 +48,16 @@ public static class GeometryTools
             {
                 List<string> eids = new(); double dx = 0, dy = 0, dz = 0;
                 try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); dx = d.RootElement.GetProperty("dx").GetDouble(); dy = d.RootElement.GetProperty("dy").GetDouble(); dz = d.RootElement.GetProperty("dz").GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Move {eids.Count} element(s) by ({dx},{dy},{dz}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -82,7 +85,7 @@ public static class GeometryTools
         };
     }
 
-    internal static ToolEntry CreateDeleteElements(RevitBridge bridge)
+    internal static ToolEntry CreateDeleteElements(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -107,8 +110,9 @@ public static class GeometryTools
                 List<string> eids = new();
                 try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if (eids.Count == 0) return "Provide elementIds.";
-                var preview = await bridge.RunAsync(uiApp =>
+                var preview = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return (err: "Please open a model first.", s: "");
                     var s = string.Join("\n", eids.Take(5).Select(id => { var el = doc.GetElement(AllTools.ParseEid(id)); return $"{id} {el?.Category?.Name} \"{el?.Name}\""; }));
@@ -116,14 +120,16 @@ public static class GeometryTools
                     return (err: "", s: s);
                 });
                 if (!string.IsNullOrEmpty(preview.err)) return preview.err;
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Delete {eids.Count} element(s)? This cannot be undone except via Undo.", MainContent = preview.s, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -142,7 +148,7 @@ public static class GeometryTools
         };
     }
 
-    internal static ToolEntry CreateCreateWall(RevitBridge bridge)
+    internal static ToolEntry CreateCreateWall(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -171,14 +177,16 @@ public static class GeometryTools
             {
                 string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null;
                 try { using var d = JsonDocument.Parse(json); levelName = d.RootElement.GetProperty("levelName").GetString() ?? ""; x1 = d.RootElement.GetProperty("x1").GetDouble(); y1 = d.RootElement.GetProperty("y1").GetDouble(); x2 = d.RootElement.GetProperty("x2").GetDouble(); y2 = d.RootElement.GetProperty("y2").GetDouble(); if (d.RootElement.TryGetProperty("wallTypeName", out var w) && w.ValueKind == JsonValueKind.String) wallTypeName = w.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Create wall on {levelName} from ({x1},{y1}) to ({x2},{y2}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -213,7 +221,7 @@ public static class GeometryTools
         };
     }
 
-    internal static ToolEntry CreateCreateFamilyInstance(RevitBridge bridge)
+    internal static ToolEntry CreateCreateFamilyInstance(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -243,14 +251,16 @@ public static class GeometryTools
             {
                 string symbolName = "", familyName = "", levelName = ""; double x = 0, y = 0, z = 0;
                 try { using var d = JsonDocument.Parse(json); symbolName = d.RootElement.GetProperty("symbolName").GetString() ?? ""; if (d.RootElement.TryGetProperty("familyName", out var fn) && fn.ValueKind == JsonValueKind.String) familyName = fn.GetString() ?? ""; if (d.RootElement.TryGetProperty("levelName", out var ln) && ln.ValueKind == JsonValueKind.String) levelName = ln.GetString() ?? ""; x = d.RootElement.GetProperty("x").GetDouble(); y = d.RootElement.GetProperty("y").GetDouble(); if (d.RootElement.TryGetProperty("z", out var zz) && zz.ValueKind == JsonValueKind.Number) z = zz.GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Place '{symbolName}' at ({x},{y},{z})?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -279,7 +289,7 @@ public static class GeometryTools
         };
     }
 
-    internal static ToolEntry CreateDuplicateElement(RevitBridge bridge)
+    internal static ToolEntry CreateDuplicateElement(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -298,14 +308,16 @@ public static class GeometryTools
             {
                 string eidStr = "";
                 try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Duplicate element {eidStr}?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try

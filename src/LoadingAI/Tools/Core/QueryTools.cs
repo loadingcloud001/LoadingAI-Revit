@@ -3,27 +3,28 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools;
 
 public static class QueryTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateGetModelSummary(bridge, cache);
-        yield return CreateGetWallMetrics(bridge, cache);
-        yield return CreateGetSelectionSummary(bridge);
-        yield return CreateGetActiveViewInfo(bridge, cache);
-        yield return CreateGetVisibleElementsInView(bridge, cache);
-        yield return CreateFindElementsByFilter(bridge, cache);
-        yield return CreateGetElementDetails(bridge);
-        yield return CreateGetWarnings(bridge, cache);
-        yield return CreateGetLevelsAndGrids(bridge, cache);
-        yield return CreateGetQuantities(bridge);
-        yield return CreateSaveAndSyncInfo(bridge, cache);
+        yield return CreateGetModelSummary(context);
+        yield return CreateGetWallMetrics(context);
+        yield return CreateGetSelectionSummary(context);
+        yield return CreateGetActiveViewInfo(context);
+        yield return CreateGetVisibleElementsInView(context);
+        yield return CreateFindElementsByFilter(context);
+        yield return CreateGetElementDetails(context);
+        yield return CreateGetWarnings(context);
+        yield return CreateGetLevelsAndGrids(context);
+        yield return CreateGetQuantities(context);
+        yield return CreateSaveAndSyncInfo(context);
     }
 
-    internal static ToolEntry CreateGetModelSummary(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetModelSummary(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -39,14 +40,11 @@ public static class QueryTools
             },
             Handler = async _ =>
             {
-                var key = cache.BuildKey("get_model_summary", "");
-                // We cache per doc path dynamically inside RunAsync
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
-                    var cacheKey = cache.BuildKey("get_model_summary", doc.PathName);
-                    if (cache.TryGet<string>(cacheKey, out var cached)) return cached;
                     try
                     {
                         var title = doc.Title;
@@ -56,7 +54,6 @@ public static class QueryTools
                         int doors = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Doors).WhereElementIsNotElementType().ToElementIds().Count;
                         int windows = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Windows).WhereElementIsNotElementType().ToElementIds().Count;
                         var s = $"Model: {title}\nPath: {path}\nViews: {views}\nWalls: {walls}\nDoors: {doors}\nWindows: {windows}";
-                        cache.Set(cacheKey, s);
                         return s;
                     }
                     catch (Exception ex) { return $"Failed to read model: {ex.Message}"; }
@@ -66,7 +63,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetWallMetrics(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetWallMetrics(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -101,12 +98,11 @@ public static class QueryTools
                 }
                 catch { }
 
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
-                    var ck = cache.BuildKey("get_wall_metrics", doc.PathName, levelName ?? "" + limit);
-                    if (cache.TryGet<string>(ck, out var cached)) return cached;
                     try
                     {
                         var collector = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType();
@@ -136,7 +132,6 @@ public static class QueryTools
                         s += $"\nTotal area: {totalArea:F2} sq ft";
                         s += $"\nTotal volume: {totalVol:F2} cu ft";
                         if (count > limit) s += $"\nNote: limited to {limit} walls for performance; totals scaled from sample.";
-                        cache.Set(ck, s);
                         return s;
                     }
                     catch (Exception ex) { return $"Failed: {ex.Message}"; }
@@ -146,7 +141,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetSelectionSummary(RevitBridge bridge)
+    internal static ToolEntry CreateGetSelectionSummary(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -162,8 +157,9 @@ public static class QueryTools
             },
             Handler = async _ =>
             {
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return "Please open a model first.";
                     var ids = uidoc.Selection.GetElementIds();
@@ -195,7 +191,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetActiveViewInfo(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetActiveViewInfo(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -222,15 +218,14 @@ public static class QueryTools
                 int limit = 200;
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32(); } catch { }
                 limit = Polyfills.Clamp(limit, 1, 500);
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return "Please open a model first.";
                     var doc = uidoc.Document;
                     var view = doc.ActiveView;
                     if (view == null) return "No active view.";
-                    var ck = cache.BuildKey("get_active_view_info", doc.PathName + view.Id.ToString(), limit.ToString());
-                    if (cache.TryGet<string>(ck, out var cached)) return cached;
                     try
                     {
                         var name = view.Name;
@@ -252,7 +247,6 @@ public static class QueryTools
                         var sampleIds = all.Take(limit).Select(e => e.Id.ToString()).ToArray();
                         s += $"\nSample Ids (first {Math.Min(limit, all.Count)}): {string.Join(", ", sampleIds)}";
                         if (all.Count > limit) s += $" ... and {all.Count - limit} more.";
-                        cache.Set(ck, s);
                         return s;
                     }
                     catch (Exception ex) { return $"Failed: {ex.Message}"; }
@@ -262,7 +256,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetVisibleElementsInView(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetVisibleElementsInView(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -298,8 +292,9 @@ public static class QueryTools
                 catch { }
                 limit = Polyfills.Clamp(limit, 1, 500);
                 var catCapture = cat;
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return "Please open a model first.";
                     var doc = uidoc.Document;
@@ -329,7 +324,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateFindElementsByFilter(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateFindElementsByFilter(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -374,8 +369,9 @@ public static class QueryTools
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 limit = Polyfills.Clamp(limit, 1, 500);
                 offset = Math.Max(0, offset);
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var bic = AllTools.ParseCategory(category);
@@ -423,7 +419,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetElementDetails(RevitBridge bridge)
+    internal static ToolEntry CreateGetElementDetails(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -446,8 +442,9 @@ public static class QueryTools
             {
                 string eidStr = "";
                 try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -477,7 +474,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetWarnings(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetWarnings(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -496,12 +493,11 @@ public static class QueryTools
                 int limit = 20;
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32(); } catch { }
                 limit = Polyfills.Clamp(limit, 1, 100);
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
-                    var ck = cache.BuildKey("get_warnings", doc.PathName, limit.ToString());
-                    if (cache.TryGet<string>(ck, out var cached)) return cached;
                     try
                     {
                         var warnings = doc.GetWarnings();
@@ -513,7 +509,6 @@ public static class QueryTools
                         }
                         if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more.";
                         if (warnings.Count == 0) s = "No warnings.";
-                        cache.Set(ck, s);
                         return s;
                     }
                     catch (Exception ex) { return $"Failed: {ex.Message}"; }
@@ -523,7 +518,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetLevelsAndGrids(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateGetLevelsAndGrids(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -539,19 +534,17 @@ public static class QueryTools
             },
             Handler = async _ =>
             {
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
-                    var ck = cache.BuildKey("get_levels_and_grids", doc.PathName);
-                    if (cache.TryGet<string>(ck, out var cached)) return cached;
                     try
                     {
                         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
                         var grids = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>().ToList();
                         var s = $"Levels ({levels.Count}):\n" + string.Join("\n", levels.Select(l => $"  {l.Id} \"{l.Name}\" elev {l.Elevation:F2} ft"));
                         s += $"\nGrids ({grids.Count}):\n" + string.Join("\n", grids.Select(g => $"  {g.Id} \"{g.Name}\""));
-                        cache.Set(ck, s);
                         return s;
                     }
                     catch (Exception ex) { return $"Failed: {ex.Message}"; }
@@ -561,7 +554,7 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateGetQuantities(RevitBridge bridge)
+    internal static ToolEntry CreateGetQuantities(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -594,8 +587,9 @@ public static class QueryTools
                 }
                 catch { }
                 var capture = eids;
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return "Please open a model first.";
                     var doc = uidoc.Document;
@@ -631,7 +625,7 @@ public static class QueryTools
     // ---------- L2 view tools ----------
 
 
-    internal static ToolEntry CreateSaveAndSyncInfo(RevitBridge bridge, QueryCache cache)
+    internal static ToolEntry CreateSaveAndSyncInfo(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -659,15 +653,17 @@ public static class QueryTools
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("save", out var s) && s.ValueKind is JsonValueKind.True or JsonValueKind.False) save = s.GetBoolean(); } catch { }
                 if (save)
                 {
-                    bool confirmed = await bridge.RunAsync(uiApp =>
+                    bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                     {
+                        var uiApp = session.As<UIApplication>();
                         var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = "Save the document?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                         return td.Show() == TaskDialogResult.Yes;
                     });
                     if (!confirmed) return "Cancelled by user.";
                 }
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -683,7 +679,6 @@ public static class QueryTools
                             using var tx = new Transaction(doc, "LoadingAI for Revit: save");
                             // Save is not a transaction; just call doc.Save
                             doc.Save();
-                            cache.Invalidate();
                             return $"Saved {title} to {path} ({ws}) central: {central}";
                         }
                         return $"Model: {title}\nPath: {path}\n{ws}\nCentral: {central}";

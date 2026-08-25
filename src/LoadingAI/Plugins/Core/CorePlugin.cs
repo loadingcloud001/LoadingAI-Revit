@@ -10,11 +10,7 @@ public sealed class CorePlugin : IRevitToolPlugin
     public string Version => "0.1.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
-    {
-        // Transitional: the builtin tool layer still drives the raw bridge
-        // directly (migrated to IRevitBridge in p2-tool-migration).
-        var bridge = App.Bridge!;
-        var cache = ((PluginContext)context).Cache;
-        return AllTools.CreateAll(bridge, cache);
-    }
+        {
+            return AllTools.CreateAll(context);
+        }
 }

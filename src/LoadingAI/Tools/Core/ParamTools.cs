@@ -3,21 +3,22 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools;
 
 public static class ParamTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateSetParameterById(bridge);
-        yield return CreateSetCommentsOnSelection(bridge);
-        yield return CreateBatchSetParameter(bridge);
-        yield return CreateRenameElements(bridge);
-        yield return CreateApplyConstructionDates(bridge);
+        yield return CreateSetParameterById(context);
+        yield return CreateSetCommentsOnSelection(context);
+        yield return CreateBatchSetParameter(context);
+        yield return CreateRenameElements(context);
+        yield return CreateApplyConstructionDates(context);
     }
 
-    internal static ToolEntry CreateSetParameterById(RevitBridge bridge)
+    internal static ToolEntry CreateSetParameterById(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -46,8 +47,9 @@ public static class ParamTools
             {
                 string eidStr = "", paramName = "", value = "";
                 try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; paramName = d.RootElement.GetProperty("paramName").GetString() ?? ""; value = d.RootElement.GetProperty("value").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                var pre = await bridge.RunAsync(uiApp =>
+                var pre = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return (err: "Please open a model first.", elName: "");
                     try
@@ -59,14 +61,16 @@ public static class ParamTools
                     catch (Exception ex) { return (err: ex.Message, elName: ""); }
                 });
                 if (!string.IsNullOrEmpty(pre.err)) return pre.err;
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Set {paramName} on element {eidStr}?", MainContent = $"Element: {pre.elName}\n{paramName} = \"{value}\"", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try
@@ -90,7 +94,7 @@ public static class ParamTools
         };
     }
 
-    internal static ToolEntry CreateSetCommentsOnSelection(RevitBridge bridge)
+    internal static ToolEntry CreateSetCommentsOnSelection(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -109,8 +113,9 @@ public static class ParamTools
             {
                 string text;
                 try { using var d = JsonDocument.Parse(json); if (!d.RootElement.TryGetProperty("text", out var p)) return "Missing required parameter 'text'."; text = p.GetString() ?? ""; } catch (Exception ex) { return $"Invalid arguments: {ex.Message}"; }
-                var pre = await bridge.RunAsync(uiApp =>
+                var pre = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return (error: "Please open a model first.", count: 0);
                     var ids = uidoc.Selection.GetElementIds();
@@ -119,14 +124,16 @@ public static class ParamTools
                 });
                 if (!string.IsNullOrEmpty(pre.error)) return pre.error;
                 int count = pre.count;
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Set Comments on {count} selected element(s)?", MainContent = $"New Comments value:\n\"{text}\"\n\nThis will create an undoable transaction.", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var writeResult = await bridge.RunAsync(uiApp =>
+                var writeResult = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     var doc = uidoc?.Document;
                     if (doc == null) return "Please open a model first.";
@@ -161,7 +168,7 @@ public static class ParamTools
         };
     }
 
-    internal static ToolEntry CreateBatchSetParameter(RevitBridge bridge)
+    internal static ToolEntry CreateBatchSetParameter(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -208,8 +215,9 @@ public static class ParamTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 limit = Polyfills.Clamp(limit, 1, 1000);
-                var preview = await bridge.RunAsync(uiApp =>
+                var preview = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return (err: "Please open a model first.", count: 0, sample: Array.Empty<string>());
                     var bic = AllTools.ParseCategory(category);
@@ -249,8 +257,9 @@ public static class ParamTools
                 if (total == 0) return $"No elements matched filter for {category}.";
                 // confirm
                 int toUpdate = Math.Min(total, limit);
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit")
                     {
                         MainInstruction = $"Batch set {targetParam} on {toUpdate} {category} element(s)?",
@@ -261,8 +270,9 @@ public static class ParamTools
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var bic = AllTools.ParseCategory(category);
@@ -313,7 +323,7 @@ public static class ParamTools
         };
     }
 
-    internal static ToolEntry CreateRenameElements(RevitBridge bridge)
+    internal static ToolEntry CreateRenameElements(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -355,8 +365,9 @@ public static class ParamTools
                 if (newNames != null && newNames.Count != eids.Count) return "newNames length must match elementIds.";
                 if (newNames == null && string.IsNullOrWhiteSpace(pattern)) return "Provide newNames or newNamePattern.";
                 var newNamesCapture = newNames; var patternCapture = pattern;
-                var preview = await bridge.RunAsync(uiApp =>
+                var preview = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var s = "";
@@ -368,14 +379,16 @@ public static class ParamTools
                     }
                     return s;
                 });
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Rename {eids.Count} element(s)?", MainContent = preview, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
                     return td.Show() == TaskDialogResult.Yes;
                 });
                 if (!confirmed) return "Cancelled by user.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     int updated = 0;
@@ -405,7 +418,7 @@ public static class ParamTools
     // ---------- geometry / create ----------
 
 
-    internal static ToolEntry CreateApplyConstructionDates(RevitBridge bridge)
+    internal static ToolEntry CreateApplyConstructionDates(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -447,8 +460,9 @@ public static class ParamTools
                 interval = Polyfills.Clamp(interval, 1, 365);
 
                 // Preview: get levels
-                var preview = await bridge.RunAsync(uiApp =>
+                var preview = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return (err: "Please open a model first.", levels: Array.Empty<(string name, double elev)>());
                     try
@@ -462,8 +476,9 @@ public static class ParamTools
                 var levelNames = preview.levels.Select(l => l.name).ToArray();
                 var schedule = levelNames.Select((n, i) => (n, date: startDate.AddDays(i * interval).ToString("yyyy-MM-dd"))).ToArray();
                 var previewText = string.Join("\n", schedule.Select(s => $"{s.n} -> {s.date}"));
-                bool confirmed = await bridge.RunAsync(uiApp =>
+                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var td = new TaskDialog("LoadingAI for Revit")
                     {
                         MainInstruction = $"Apply {targetParam} bottom-up from {startDate:yyyy-MM-dd} (+{interval}d) to {levelNames.Length} levels?",
@@ -475,8 +490,9 @@ public static class ParamTools
                 });
                 if (!confirmed) return "Cancelled by user.";
 
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     try

@@ -3,21 +3,22 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools;
 
 public static class ViewTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateIsolateInView(bridge);
-        yield return CreateHideInView(bridge);
-        yield return CreateResetTemporaryView(bridge);
-        yield return CreateOverrideColorInView(bridge);
-        yield return CreateColorByConstructionSchedule(bridge);
+        yield return CreateIsolateInView(context);
+        yield return CreateHideInView(context);
+        yield return CreateResetTemporaryView(context);
+        yield return CreateOverrideColorInView(context);
+        yield return CreateColorByConstructionSchedule(context);
     }
 
-    internal static ToolEntry CreateIsolateInView(RevitBridge bridge)
+    internal static ToolEntry CreateIsolateInView(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -56,8 +57,9 @@ public static class ViewTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var uidoc = uiApp.ActiveUIDocument;
                     if (uidoc == null) return "Please open a model first.";
                     var doc = uidoc.Document;
@@ -119,7 +121,7 @@ public static class ViewTools
         };
     }
 
-    internal static ToolEntry CreateHideInView(RevitBridge bridge)
+    internal static ToolEntry CreateHideInView(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -148,8 +150,9 @@ public static class ViewTools
                 string? cat = null;
                 try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("elementIds", out var a) && a.ValueKind == JsonValueKind.Array) eids = a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var view = doc.ActiveView;
@@ -200,7 +203,7 @@ public static class ViewTools
         };
     }
 
-    internal static ToolEntry CreateResetTemporaryView(RevitBridge bridge)
+    internal static ToolEntry CreateResetTemporaryView(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -216,8 +219,9 @@ public static class ViewTools
             },
             Handler = async _ =>
             {
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var view = doc.ActiveView;
@@ -249,7 +253,7 @@ public static class ViewTools
         };
     }
 
-    internal static ToolEntry CreateOverrideColorInView(RevitBridge bridge)
+    internal static ToolEntry CreateOverrideColorInView(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -289,8 +293,9 @@ public static class ViewTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var view = doc.ActiveView;
@@ -366,7 +371,7 @@ public static class ViewTools
     // ---------- param ----------
 
 
-    internal static ToolEntry CreateColorByConstructionSchedule(RevitBridge bridge)
+    internal static ToolEntry CreateColorByConstructionSchedule(IPluginContext context)
     {
         return new ToolEntry
         {
@@ -406,8 +411,9 @@ public static class ViewTools
                 if (!AllTools.TryParseDate(startDateStr, out var startDate)) return $"Invalid startDate '{startDateStr}'.";
                 interval = Polyfills.Clamp(interval, 1, 365);
 
-                var preview = await bridge.RunAsync(uiApp =>
+                var preview = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return (err: "Please open a model first.", n: 0);
                     try
@@ -419,8 +425,9 @@ public static class ViewTools
                 });
                 if (!string.IsNullOrEmpty(preview.err)) return preview.err;
 
-                var result = await bridge.RunAsync(uiApp =>
+                var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
+                    var uiApp = session.As<UIApplication>();
                     var doc = uiApp.ActiveUIDocument?.Document;
                     if (doc == null) return "Please open a model first.";
                     var view = doc.ActiveView;

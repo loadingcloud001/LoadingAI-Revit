@@ -5,21 +5,22 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools.Compat;
 
 public static class ParamExcelTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateExportParamsToExcel(bridge);
-        yield return CreateImportExcelToParams(bridge);
-        yield return CreateCopyParams(bridge);
-        yield return CreateReplaceText(bridge);
-        yield return CreateNumberingAuto(bridge);
+        yield return CreateExportParamsToExcel(context);
+        yield return CreateImportExcelToParams(context);
+        yield return CreateCopyParams(context);
+        yield return CreateReplaceText(context);
+        yield return CreateNumberingAuto(context);
     }
 
-    private static ToolEntry CreateExportParamsToExcel(RevitBridge bridge) => new()
+    private static ToolEntry CreateExportParamsToExcel(IPluginContext context) => new()
     {
         Tier = ToolTier.L1,
         Definition = new ToolDefinition{ Function = new ToolFunction{ Name="export_params_to_excel", Description="Export element parameters to CSV (Excel compatible) — pyRevit: Export/DiRoots. Params: category, paramNames (comma), filePath optional, limit.", Parameters=new{type="object",properties=new{category=new{type="string"},paramNames=new{type="string",description="Comma separated e.g. Comments,Mark,Level"},filePath=new{type="string"},limit=new{type="integer"}},required=new[]{"category"}}}},
@@ -27,7 +28,8 @@ public static class ParamExcelTools
             string cat=""; string? paramNames=null; string? filePath=null; int lim=200;
             try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; if(d.RootElement.TryGetProperty("paramNames",out var pn)&&pn.ValueKind==JsonValueKind.String) paramNames=pn.GetString(); if(d.RootElement.TryGetProperty("filePath",out var fp)&&fp.ValueKind==JsonValueKind.String) filePath=fp.GetString(); if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
             lim=Polyfills.Clamp(lim,1,1000);
-            var res=await bridge.RunAsync(uiApp=>{
+            var res=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";
@@ -53,7 +55,7 @@ public static class ParamExcelTools
         }
     };
 
-    private static ToolEntry CreateImportExcelToParams(RevitBridge bridge) => new()
+    private static ToolEntry CreateImportExcelToParams(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
         RequiresWriteConfirm=true,
@@ -72,12 +74,14 @@ public static class ParamExcelTools
                 var parts=SplitCsv(lines[i]); if(parts.Length<2) continue; rows.Add((parts[idIdx].Trim('\"'), parts[valIdx].Trim('\"')));
             }
             if(rows.Count==0) return "No rows parsed";
-            bool ok=await bridge.RunAsync(uiApp=>{
+            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Import {pn} to {rows.Count} elements from {Path.GetFileName(fp)}?", MainContent=string.Join("\n", rows.Take(5).Select(r=>$"{r.id} -> {r.val}"))+(rows.Count>5?"\n...":""), CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No};
                 return td.Show()==TaskDialogResult.Yes;
             });
             if(!ok) return "Cancelled by user.";
-            var res=await bridge.RunAsync(uiApp=>{
+            var res=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 int upd=0,skip=0;
                 using var tx=new Transaction(doc, $"LoadingAI for Revit: import {pn}");
@@ -104,7 +108,7 @@ public static class ParamExcelTools
         res.Add(cur.ToString()); return res.ToArray();
     }
 
-    private static ToolEntry CreateCopyParams(RevitBridge bridge) => new()
+    private static ToolEntry CreateCopyParams(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
         RequiresWriteConfirm=true,
@@ -112,11 +116,13 @@ public static class ParamExcelTools
         Handler = async json=>{
             string cat="",src="",tgt=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; src=d.RootElement.GetProperty("sourceParam").GetString()??""; tgt=d.RootElement.GetProperty("targetParam").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
             lim=Polyfills.Clamp(lim,1,1000);
-            bool ok=await bridge.RunAsync(uiApp=>{
+            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Copy {src} -> {tgt} for {lim} {cat}?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             });
             if(!ok) return "Cancelled by user.";
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";
@@ -136,7 +142,7 @@ public static class ParamExcelTools
         }
     };
 
-    private static ToolEntry CreateReplaceText(RevitBridge bridge) => new()
+    private static ToolEntry CreateReplaceText(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
         RequiresWriteConfirm=true,
@@ -144,11 +150,13 @@ public static class ParamExcelTools
         Handler = async json=>{
             string cat="",pn="",pat="",rep=""; int lim=200; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??""; pn=d.RootElement.GetProperty("paramName").GetString()??""; pat=d.RootElement.GetProperty("pattern").GetString()??""; rep=d.RootElement.GetProperty("replacement").GetString()??""; if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
             lim=Polyfills.Clamp(lim,1,1000);
-            bool ok=await bridge.RunAsync(uiApp=>{
+            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Replace /{pat}/ -> \"{rep}\" in {pn} for {cat}?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             });
             if(!ok) return "Cancelled by user.";
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var bic=AllTools.ParseCategory(cat); if(bic==null) return $"Unknown category {cat}";
@@ -169,7 +177,7 @@ public static class ParamExcelTools
         }
     };
 
-    private static ToolEntry CreateNumberingAuto(RevitBridge bridge) => new()
+    private static ToolEntry CreateNumberingAuto(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
         RequiresWriteConfirm=true,
@@ -178,12 +186,14 @@ public static class ParamExcelTools
             string? cat=null; string pref=""; int start=1,pad=3;
             try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("category",out var c)&&c.ValueKind==JsonValueKind.String) cat=c.GetString(); if(d.RootElement.TryGetProperty("prefix",out var p)&&p.ValueKind==JsonValueKind.String) pref=p.GetString()??""; if(d.RootElement.TryGetProperty("start",out var s)&&s.ValueKind==JsonValueKind.Number) start=s.GetInt32(); if(d.RootElement.TryGetProperty("pad",out var pa)&&pa.ValueKind==JsonValueKind.Number) pad=pa.GetInt32();}catch{}
             var cap=cat;
-            bool ok=await bridge.RunAsync(uiApp=>{
+            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 string msg=string.IsNullOrWhiteSpace(cap)? "selection" : cap;
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Auto number Mark for {msg} start {pref}{start.ToString().PadLeft(pad,'0')}?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             });
             if(!ok) return "Cancelled by user.";
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var uidoc=uiApp.ActiveUIDocument; if(uidoc==null) return "Please open a model first.";
                 var doc=uidoc.Document;
                 try{

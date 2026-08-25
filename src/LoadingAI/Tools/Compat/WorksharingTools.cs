@@ -2,24 +2,27 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
+using Autodesk.Revit.UI;
 
 namespace LoadingAI.Tools.Compat;
 
 public static class WorksharingTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateReloadLinks(bridge);
-        yield return CreateWorksetAssign(bridge);
-        yield return CreateSyncInfo(bridge);
-        yield return CreateAuditWarningsFix(bridge);
+        yield return CreateReloadLinks(context);
+        yield return CreateWorksetAssign(context);
+        yield return CreateSyncInfo(context);
+        yield return CreateAuditWarningsFix(context);
     }
 
-    private static ToolEntry CreateReloadLinks(RevitBridge bridge) => new()
+    private static ToolEntry CreateReloadLinks(IPluginContext context) => new()
     {
         Tier=ToolTier.L2,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="reload_links", Description="Reload all RVT links (pyRevit: Reload Links). No params.", Parameters=new{type="object",properties=new{},required=Array.Empty<string>()}}},
-        Handler=async _ => await bridge.RunAsync(uiApp=>{
+        Handler=async _ => await context.FullAccess!.RunRevitAsync(session=>{
+            var uiApp = session.As<UIApplication>();
             var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
             try{
                 var links=new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>().ToList();
@@ -32,13 +35,14 @@ public static class WorksharingTools
         })
     };
 
-    private static ToolEntry CreateWorksetAssign(RevitBridge bridge) => new()
+    private static ToolEntry CreateWorksetAssign(IPluginContext context) => new()
     {
         Tier=ToolTier.L2,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="workset_assign", Description="Assign elements to workset (BIMOne). Params: elementIds, worksetName.", Parameters=new{type="object",properties=new{elementIds=new{type="array",items=new{type="string"}},worksetName=new{type="string"}},required=new[]{"elementIds","worksetName"}}}},
         Handler=async json=>{
             List<string> ids=new(); string ws=""; try{using var d=JsonDocument.Parse(json); ids=d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v=>v.ValueKind==JsonValueKind.String).Select(v=>v.GetString()!).ToList(); ws=d.RootElement.GetProperty("worksetName").GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 if(!doc.IsWorkshared) return "Document is not workshared.";
                 try{
@@ -57,11 +61,12 @@ public static class WorksharingTools
         }
     };
 
-    private static ToolEntry CreateSyncInfo(RevitBridge bridge) => new()
+    private static ToolEntry CreateSyncInfo(IPluginContext context) => new()
     {
         Tier=ToolTier.L1,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="sync_info", Description="Get worksharing central and sync status (pyRevit). No params.", Parameters=new{type="object",properties=new{},required=Array.Empty<string>()}}},
-        Handler=async _ => await bridge.RunAsync(uiApp=>{
+        Handler=async _ => await context.FullAccess!.RunRevitAsync(session=>{
+            var uiApp = session.As<UIApplication>();
             var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
             try{
                 var isWS=doc.IsWorkshared;
@@ -71,14 +76,15 @@ public static class WorksharingTools
         })
     };
 
-    private static ToolEntry CreateAuditWarningsFix(RevitBridge bridge) => new()
+    private static ToolEntry CreateAuditWarningsFix(IPluginContext context) => new()
     {
         Tier=ToolTier.L1,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="audit_warnings_fix", Description="List warnings with suggested fix (pyRevit: Audit). Params: limit.", Parameters=new{type="object",properties=new{limit=new{type="integer"}},required=Array.Empty<string>()}}},
         Handler=async json=>{
             int lim=10; try{using var d=JsonDocument.Parse(json); if(d.RootElement.TryGetProperty("limit",out var l)&&l.ValueKind==JsonValueKind.Number) lim=l.GetInt32();}catch{}
             lim=Polyfills.Clamp(lim,1,50);
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var warns=doc.GetWarnings().Take(lim).ToList();

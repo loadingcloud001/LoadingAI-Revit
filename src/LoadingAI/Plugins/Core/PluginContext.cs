@@ -16,16 +16,14 @@ namespace LoadingAI.Plugins.Core;
 public sealed class PluginContext : IPluginContext, IRawRevitAccess
 {
     private readonly RevitBridge _raw;
-    private readonly QueryCache _cache;
-    private readonly string _pluginDir;
-    private readonly bool _fullAccessGranted;
-    private readonly CancellationTokenSource _shutdown;
+        private readonly string _pluginDir;
+        private readonly bool _fullAccessGranted;
+        private readonly CancellationTokenSource _shutdown;
 
-    public PluginContext(RevitBridge raw, QueryCache cache, string pluginDir, bool fullAccessGranted)
-    {
-        _raw = raw;
-        _cache = cache;
-        _pluginDir = pluginDir;
+        public PluginContext(RevitBridge raw, string pluginDir, bool fullAccessGranted)
+        {
+            _raw = raw;
+            _pluginDir = pluginDir;
         _fullAccessGranted = fullAccessGranted;
         _shutdown = new CancellationTokenSource();
     }
@@ -51,10 +49,7 @@ public sealed class PluginContext : IPluginContext, IRawRevitAccess
 
     public IRawRevitAccess? FullAccess => _fullAccessGranted ? this : null;
 
-    /// <summary>Transitional: query cache shared by the builtin tool layer (p2-tool-migration will remove).</summary>
-    internal QueryCache Cache => _cache;
-
-    /// <summary>Signals this plugin to wind down before unload (cooperative reload gate).</summary>
+        /// <summary>Signals this plugin to wind down before unload (cooperative reload gate).</summary>
     internal void BeginShutdown() => _shutdown.Cancel();
 
     // IRawRevitAccess

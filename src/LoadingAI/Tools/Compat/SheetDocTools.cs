@@ -3,33 +3,36 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Plugins;
 
 namespace LoadingAI.Tools.Compat;
 
 public static class SheetDocTools
 {
-    public static IEnumerable<ToolEntry> Create(RevitBridge bridge, QueryCache cache)
+    public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateSheet(bridge);
-        yield return PlaceViewOnSheet(bridge);
-        yield return DuplicateViewTool(bridge);
-        yield return SetViewTemplate(bridge);
-        yield return SetCropBox(bridge);
-        yield return CreateDimension(bridge);
-        yield return TagAll(bridge);
+        yield return CreateSheet(context);
+        yield return PlaceViewOnSheet(context);
+        yield return DuplicateViewTool(context);
+        yield return SetViewTemplate(context);
+        yield return SetCropBox(context);
+        yield return CreateDimension(context);
+        yield return TagAll(context);
     }
 
-    private static ToolEntry CreateSheet(RevitBridge bridge) => new()
+    private static ToolEntry CreateSheet(IPluginContext context) => new()
     {
         Tier=ToolTier.L3,
         RequiresWriteConfirm=true,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="create_sheet", Description="Create sheet (pyRevit: Create Sheets). Params: sheetNumber, sheetName, titleBlockName optional.", Parameters=new{type="object",properties=new{sheetNumber=new{type="string"},sheetName=new{type="string"},titleBlockName=new{type="string"}},required=new[]{"sheetNumber","sheetName"}}}},
         Handler=async json=>{
             string num="",name="",tb=""; try{using var d=JsonDocument.Parse(json); num=d.RootElement.GetProperty("sheetNumber").GetString()??""; name=d.RootElement.GetProperty("sheetName").GetString()??""; if(d.RootElement.TryGetProperty("titleBlockName",out var t)&&t.ValueKind==JsonValueKind.String) tb=t.GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            bool ok=await bridge.RunAsync(uiApp=>{
+            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Create sheet {num} \"{name}\"?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
             }); if(!ok) return "Cancelled by user.";
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     FamilySymbol? tbSym=null;
@@ -46,13 +49,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry PlaceViewOnSheet(RevitBridge bridge) => new()
+    private static ToolEntry PlaceViewOnSheet(IPluginContext context) => new()
     {
         Tier=ToolTier.L3,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="place_view_on_sheet", Description="Place view on sheet (pyRevit: Place Views). Params: viewId, sheetId, x,y optional.", Parameters=new{type="object",properties=new{viewId=new{type="string"},sheetId=new{type="string"},x=new{type="number"},y=new{type="number"}},required=new[]{"viewId","sheetId"}}}},
         Handler=async json=>{
             string vid="",sid=""; double x=0,y=0; try{using var d=JsonDocument.Parse(json); vid=d.RootElement.GetProperty("viewId").GetString()??""; sid=d.RootElement.GetProperty("sheetId").GetString()??""; if(d.RootElement.TryGetProperty("x",out var xv)&&xv.ValueKind==JsonValueKind.Number) x=xv.GetDouble(); if(d.RootElement.TryGetProperty("y",out var yv)&&yv.ValueKind==JsonValueKind.Number) y=yv.GetDouble();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var view=doc.GetElement(AllTools.ParseEid(vid)) as View; var sheet=doc.GetElement(AllTools.ParseEid(sid)) as ViewSheet;
@@ -67,13 +71,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry DuplicateViewTool(RevitBridge bridge) => new()
+    private static ToolEntry DuplicateViewTool(IPluginContext context) => new()
     {
         Tier=ToolTier.L2,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="duplicate_view_ex", Description="Duplicate view with options (pyRevit: Duplicate). Params: viewId, withDetailing bool.", Parameters=new{type="object",properties=new{viewId=new{type="string"},withDetailing=new{type="boolean"}},required=new[]{"viewId"}}}},
         Handler=async json=>{
             string vid=""; bool det=false; try{using var d=JsonDocument.Parse(json); vid=d.RootElement.GetProperty("viewId").GetString()??""; if(d.RootElement.TryGetProperty("withDetailing",out var w)&&w.ValueKind is JsonValueKind.True or JsonValueKind.False) det=w.GetBoolean();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var v=doc.GetElement(AllTools.ParseEid(vid)) as View; if(v==null) return $"View {vid} not found.";
@@ -86,13 +91,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry SetViewTemplate(RevitBridge bridge) => new()
+    private static ToolEntry SetViewTemplate(IPluginContext context) => new()
     {
         Tier=ToolTier.L2,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="set_view_template", Description="Set view template (DiRoots). Params: viewId, templateId (or empty to clear).", Parameters=new{type="object",properties=new{viewId=new{type="string"},templateId=new{type="string"}},required=new[]{"viewId"}}}},
         Handler=async json=>{
             string vid="",tid=""; try{using var d=JsonDocument.Parse(json); vid=d.RootElement.GetProperty("viewId").GetString()??""; if(d.RootElement.TryGetProperty("templateId",out var t)&&t.ValueKind==JsonValueKind.String) tid=t.GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var v=doc.GetElement(AllTools.ParseEid(vid)) as View; if(v==null) return $"View {vid} not found.";
@@ -106,13 +112,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry SetCropBox(RevitBridge bridge) => new()
+    private static ToolEntry SetCropBox(IPluginContext context) => new()
     {
         Tier=ToolTier.L2,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="set_crop_box", Description="Set view crop box active/enable (pyRevit). Params: viewId, enabled bool.", Parameters=new{type="object",properties=new{viewId=new{type="string"},enabled=new{type="boolean"}},required=new[]{"viewId","enabled"}}}},
         Handler=async json=>{
             string vid=""; bool en=true; try{using var d=JsonDocument.Parse(json); vid=d.RootElement.GetProperty("viewId").GetString()??""; en=d.RootElement.GetProperty("enabled").GetBoolean();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 try{
                     var v=doc.GetElement(AllTools.ParseEid(vid)) as View; if(v==null) return $"View {vid} not found.";
@@ -125,13 +132,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry CreateDimension(RevitBridge bridge) => new()
+    private static ToolEntry CreateDimension(IPluginContext context) => new()
     {
         Tier=ToolTier.L3,
         Definition=new ToolDefinition{ Function = new ToolFunction{ Name="create_dimension", Description="Create linear dimension between two parallel walls (pyRevit). Params: wallId1, wallId2, viewId optional.", Parameters=new{type="object",properties=new{wallId1=new{type="string"},wallId2=new{type="string"},viewId=new{type="string"}},required=new[]{"wallId1","wallId2"}}}},
         Handler=async json=>{
             string w1="",w2="",vid=""; try{using var d=JsonDocument.Parse(json); w1=d.RootElement.GetProperty("wallId1").GetString()??""; w2=d.RootElement.GetProperty("wallId2").GetString()??""; if(d.RootElement.TryGetProperty("viewId",out var v)&&v.ValueKind==JsonValueKind.String) vid=v.GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 var view=string.IsNullOrWhiteSpace(vid)? doc.ActiveView : doc.GetElement(AllTools.ParseEid(vid)) as View;
                 if(view==null) return "View not found.";
@@ -156,13 +164,14 @@ public static class SheetDocTools
         }
     };
 
-    private static ToolEntry TagAll(RevitBridge bridge) => new()
+    private static ToolEntry TagAll(IPluginContext context) => new()
     {
         Tier=ToolTier.L3,
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="tag_all", Description="Tag all elements of category in active view (DiRoots). Params: category.", Parameters=new{type="object",properties=new{category=new{type="string"}},required=new[]{"category"}}}},
         Handler=async json=>{
             string cat=""; try{using var d=JsonDocument.Parse(json); cat=d.RootElement.GetProperty("category").GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            return await bridge.RunAsync(uiApp=>{
+            return await context.FullAccess!.RunRevitAsync(session=>{
+                var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
                 var view=doc.ActiveView; if(view==null) return "No active view.";
                 try{
