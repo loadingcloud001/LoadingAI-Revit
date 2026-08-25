@@ -26,7 +26,7 @@ export function PluginShelf({ plugins, onRefresh }: { plugins: PluginInfo[]; onR
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={() => postToHost({ type: 'listPlugins' })} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Refresh</button>
         <button onClick={() => postToHost({ type: 'reloadPlugins' })} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Rescan Disk</button>
-        <span style={{ fontSize: 11, color: '#6b7280', alignSelf: 'center' }}>Drop DLL+manifest to %AppData%\RevitAiPoc\Plugins\&lt;id&gt;\ then Rescan (restart required for new DLLs)</span>
+        <span style={{ fontSize: 11, color: '#6b7280', alignSelf: 'center' }}>Drop DLL+manifest to %AppData%\LoadingAI\Plugins\&lt;id&gt;\ then Rescan (restart required for new DLLs)</span>
       </div>
 
       <div style={{ fontSize: 11, color: '#6b7280', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: 8 }}>

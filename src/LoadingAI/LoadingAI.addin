@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>LoadingAI for Revit</Name>
+    <Assembly>LoadingAI\LoadingAI.dll</Assembly>
+    <AddInId>8F2C4E2A-9B3D-4E2A-A5F1-7D1A3B9C0E12</AddInId>
+    <FullClassName>LoadingAI.App</FullClassName>
+    <VendorId>LoadingAI</VendorId>
+    <VendorDescription>LoadingAI for Revit</VendorDescription>
+  </AddIn>
+</RevitAddIns>

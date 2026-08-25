@@ -2,12 +2,12 @@ using System.Text;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Analysis;
-using RevitAiPoc.Llm;
-using RevitAiPoc.Plugins.Core;
-using RevitAiPoc.Revit;
-using RevitAiPoc.Tools;
+using LoadingAI.Llm;
+using LoadingAI.Plugins.Core;
+using LoadingAI.Revit;
+using LoadingAI.Tools;
 
-namespace RevitAiPoc.Plugins.ViewTools;
+namespace LoadingAI.Plugins.ViewTools;
 
 public sealed class ViewToolsPlugin : IRevitToolPlugin
 {
@@ -62,7 +62,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 if (bic == null) return $"Unknown category {cat}";
                 try
                 {
-                    using var tx = new Transaction(doc, "Revit AI POC: create schedule");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: create schedule");
                     tx.Start();
                     var schedule = ViewSchedule.CreateSchedule(doc, new ElementId(bic.Value), ElementId.InvalidElementId);
                     schedule.Name = string.IsNullOrWhiteSpace(name) ? $"{cat} Schedule" : name.Trim();
@@ -168,7 +168,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     if (typeId == null) return "No FloorPlan view type found.";
                     var level = ResolveLevel(doc, levelId, levelName);
                     if (level == null) return "Level not found. Pass levelId or levelName.";
-                    using var tx = new Transaction(doc, "Revit AI POC: create floor plan");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: create floor plan");
                     tx.Start();
                     var view = ViewPlan.Create(doc, typeId, level.Id);
                     if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
@@ -208,7 +208,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 {
                     var typeId = FindViewFamily(doc, ViewFamily.ThreeDimensional);
                     if (typeId == null) return "No 3D view type found.";
-                    using var tx = new Transaction(doc, "Revit AI POC: create 3D view");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: create 3D view");
                     tx.Start();
                     var view = View3D.CreateIsometric(doc, typeId);
                     if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
@@ -283,7 +283,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     var typeId = FindViewFamily(doc, ViewFamily.Section);
                     if (typeId == null) return "No Section view type found.";
                     var box = SectionBox(a, b, height, depth);
-                    using var tx = new Transaction(doc, "Revit AI POC: create section");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: create section");
                     tx.Start();
                     var view = ViewSection.CreateSection(doc, typeId, box);
                     if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
@@ -347,7 +347,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     if (starts.Count != ends.Count) return "starts and ends must have the same count.";
                     if (starts.Count > 5) return "Max 5 path pairs per call.";
 
-                    using var tx = new Transaction(doc, "Revit AI POC: path of travel");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: path of travel");
                     tx.Start();
                     var paths = PathOfTravel.CreateMultiple(view, starts, ends, out IList<PathOfTravelCalculationStatus> statuses);
                     tx.Commit();

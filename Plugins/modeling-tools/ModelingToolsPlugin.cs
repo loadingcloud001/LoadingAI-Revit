@@ -3,12 +3,12 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Structure;
-using RevitAiPoc.Llm;
-using RevitAiPoc.Plugins.Core;
-using RevitAiPoc.Revit;
-using RevitAiPoc.Tools;
+using LoadingAI.Llm;
+using LoadingAI.Plugins.Core;
+using LoadingAI.Revit;
+using LoadingAI.Tools;
 
-namespace RevitAiPoc.Plugins.ModelingTools;
+namespace LoadingAI.Plugins.ModelingTools;
 
 public sealed class ModelingToolsPlugin : IRevitToolPlugin
 {
@@ -54,7 +54,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 if (doc == null) return "Please open a model first.";
                 try
                 {
-                    using var tx = new Transaction(doc, "Revit AI POC: load family");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: load family");
                     tx.Start();
                     if (!doc.LoadFamily(path, out var family))
                     {
@@ -114,7 +114,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                     if (symbol == null) return "Family symbol not found. Pass familySymbolId or familyName.";
                     var level = ResolveLevel(doc, args.Str("levelId"), args.Str("levelName"));
                     if (level == null) return "No level found. Pass levelName or levelId.";
-                    using var tx = new Transaction(doc, "Revit AI POC: place family instance");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: place family instance");
                     tx.Start();
                     if (!symbol.IsActive) symbol.Activate();
                     var inst = doc.Create.NewFamilyInstance(new XYZ(x, y, z), symbol, level, StructuralType.NonStructural);
@@ -177,7 +177,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                         var names = string.Join(", ", valid.Select(id => (doc.GetElement(id) as ElementType)?.Name).Where(n => n != null));
                         return $"No matching type. Valid types: {names}";
                     }
-                    using var tx = new Transaction(doc, "Revit AI POC: change element type");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: change element type");
                     tx.Start();
                     el.ChangeTypeId(target.Id);
                     tx.Commit();
@@ -225,7 +225,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 if (doc == null) return "Please open a model first.";
                 try
                 {
-                    using var tx = new Transaction(doc, "Revit AI POC: set parameter");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: set parameter");
                     tx.Start();
                     var ok = 0; var skip = 0; var errors = new List<string>();
                     foreach (var id in ids)
@@ -282,7 +282,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                     if (level == null) return "No level found. Pass levelName or levelId.";
                     var typeId = new FilteredElementCollector(doc).OfClass(typeof(ToposolidType)).FirstOrDefault()?.Id;
                     if (typeId == null) return "No ToposolidType found in the model.";
-                    using var tx = new Transaction(doc, "Revit AI POC: create toposolid");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: create toposolid");
                     tx.Start();
                     var surface = Toposolid.Create(doc, pts, level.Id, typeId);
                     tx.Commit();

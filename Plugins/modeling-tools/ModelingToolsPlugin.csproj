@@ -3,17 +3,17 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>RevitAiPoc.Plugins.ModelingTools</AssemblyName>
-    <RootNamespace>RevitAiPoc.Plugins.ModelingTools</RootNamespace>
+    <AssemblyName>LoadingAI.Plugins.ModelingTools</AssemblyName>
+    <RootNamespace>LoadingAI.Plugins.ModelingTools</RootNamespace>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <PluginOutDir>$(AppData)\RevitAiPoc\Plugins\modeling-tools\</PluginOutDir>
+    <PluginOutDir>$(AppData)\LoadingAI\Plugins\modeling-tools\</PluginOutDir>
   </PropertyGroup>
   <ItemGroup>
     <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RevitAiPoc\RevitAiPoc.csproj">
+    <ProjectReference Include="..\..\src\LoadingAI\LoadingAI.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

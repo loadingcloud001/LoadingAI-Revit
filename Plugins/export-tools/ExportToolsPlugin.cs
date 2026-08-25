@@ -1,11 +1,11 @@
 using System.Text.Json;
 using Autodesk.Revit.DB;
-using RevitAiPoc.Llm;
-using RevitAiPoc.Plugins.Core;
-using RevitAiPoc.Revit;
-using RevitAiPoc.Tools;
+using LoadingAI.Llm;
+using LoadingAI.Plugins.Core;
+using LoadingAI.Revit;
+using LoadingAI.Tools;
 
-namespace RevitAiPoc.Plugins.ExportTools;
+namespace LoadingAI.Plugins.ExportTools;
 
 public sealed class ExportToolsPlugin : IRevitToolPlugin
 {
@@ -227,7 +227,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     }
 
                     int deleted = 0, passes = 0;
-                    using var tx = new Transaction(doc, "Revit AI POC: purge unused");
+                    using var tx = new Transaction(doc, "LoadingAI for Revit: purge unused");
                     tx.Start();
                     for (var i = 0; i < 8; i++)
                     {

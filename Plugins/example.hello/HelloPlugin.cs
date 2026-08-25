@@ -1,13 +1,13 @@
 // MIT Example plugin — copy this folder to create your own plugin.
-// Build: dotnet build -c Release (produces RevitAiPoc.Plugins.Hello.dll)
-// Drop the folder (plugin.json + dll) into %AppData%\RevitAiPoc\Plugins\hello\ and restart Revit.
+// Build: dotnet build -c Release (produces LoadingAI.Plugins.Hello.dll)
+// Drop the folder (plugin.json + dll) into %AppData%\LoadingAI\Plugins\hello\ and restart Revit.
 
-using RevitAiPoc.Llm;
-using RevitAiPoc.Plugins.Core;
-using RevitAiPoc.Revit;
-using RevitAiPoc.Tools;
+using LoadingAI.Llm;
+using LoadingAI.Plugins.Core;
+using LoadingAI.Revit;
+using LoadingAI.Tools;
 
-namespace RevitAiPoc.Plugins.Hello;
+namespace LoadingAI.Plugins.Hello;
 
 public sealed class HelloPlugin : IRevitToolPlugin
 {

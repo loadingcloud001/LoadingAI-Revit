@@ -3,13 +3,13 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>RevitAiPoc.Plugins.Hello</AssemblyName>
-    <RootNamespace>RevitAiPoc.Plugins.Hello</RootNamespace>
+    <AssemblyName>LoadingAI.Plugins.Hello</AssemblyName>
+    <RootNamespace>LoadingAI.Plugins.Hello</RootNamespace>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RevitAiPoc\RevitAiPoc.csproj">
+    <ProjectReference Include="..\..\src\LoadingAI\LoadingAI.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

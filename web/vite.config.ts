@@ -7,7 +7,7 @@ export default defineConfig({
   base: './',
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
   build: {
-    outDir: '../src/RevitAiPoc/Web/dist',
+    outDir: '../src/LoadingAI/Web/dist',
     emptyOutDir: true,
     sourcemap: false
   },

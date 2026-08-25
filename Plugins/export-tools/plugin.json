@@ -3,8 +3,8 @@
   "name": "Export Tools",
   "version": "1.0.0",
   "license": "MIT",
-  "author": "Revit AI POC",
-  "entryAssembly": "RevitAiPoc.Plugins.ExportTools.dll",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.ExportTools.dll",
   "tools": [
     {
       "name": "export_pdf",

@@ -3,8 +3,8 @@
   "name": "View & Schedule Tools",
   "version": "1.0.0",
   "license": "MIT",
-  "author": "Revit AI POC",
-  "entryAssembly": "RevitAiPoc.Plugins.ViewTools.dll",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.ViewTools.dll",
   "tools": [
     {
       "name": "create_schedule",

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "author": "Community Example",
-  "entryAssembly": "RevitAiPoc.Plugins.Hello.dll",
+  "entryAssembly": "LoadingAI.Plugins.Hello.dll",
   "tools": [
     {
       "name": "hello",

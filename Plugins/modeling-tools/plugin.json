@@ -3,8 +3,8 @@
   "name": "Family & Element Modeling Tools",
   "version": "1.0.0",
   "license": "MIT",
-  "author": "Revit AI POC",
-  "entryAssembly": "RevitAiPoc.Plugins.ModelingTools.dll",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.ModelingTools.dll",
   "tools": [
     {
       "name": "load_family",
