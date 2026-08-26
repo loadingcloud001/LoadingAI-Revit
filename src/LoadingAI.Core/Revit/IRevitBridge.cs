@@ -47,6 +47,9 @@ public interface IRevitCommand
 /// <summary>Unified bridge contract used by tools and the LLM layer.</summary>
 public interface IRevitBridge : IRevitQuery, IRevitCommand
 {
-    /// <summary>True when a valid Revit document is currently open.</summary>
+    /// <summary>
+    /// Last-known flag: true when a valid Revit document was open the last
+    /// time the host observed the UI thread. Never pumps ExternalEvent.
+    /// </summary>
     bool HasActiveDocument { get; }
 }

@@ -16,8 +16,7 @@ public sealed class AdapterRevitBridge : IRevitBridge
 
     public AdapterRevitBridge(RevitBridge bridge) => _bridge = bridge;
 
-    public bool HasActiveDocument => _bridge.RunAsync(uiApp =>
-        uiApp.ActiveUIDocument?.Document != null).GetAwaiter().GetResult();
+    public bool HasActiveDocument => _bridge.HasActiveDocument;
 
     public Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default)
     {
@@ -67,11 +66,13 @@ public sealed class AdapterRevitBridge : IRevitBridge
     {
         return _bridge.RunAsync(uiApp =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
             var view = doc?.ActiveView;
-            if (doc == null || view == null) return null;
+            if (uidoc == null || doc == null || view == null) return null;
             var count = new FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType().ToElementIds().Count;
-            return new ViewInfoDto(view.Name, view.ViewType.ToString(), view.GetType() != null, count);
+            var isVisible = uidoc.GetOpenUIViews().Any(v => v.ViewId == view.Id);
+            return new ViewInfoDto(view.Name, view.ViewType.ToString(), isVisible, count);
         }, ct);
     }
 

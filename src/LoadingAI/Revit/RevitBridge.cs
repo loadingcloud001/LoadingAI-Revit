@@ -8,6 +8,17 @@ public sealed class RevitBridge : IDisposable
     private readonly BridgeHandler _handler;
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     private volatile bool _executing;
+    private volatile bool _hasActiveDocument;
+
+    /// <summary>
+    /// Last-known document-open flag, refreshed on the Revit UI thread.
+    /// Safe to read from any thread — never pumps ExternalEvent.
+    /// </summary>
+    public bool HasActiveDocument => _hasActiveDocument;
+
+    /// <summary>Call on the Revit UI thread when a live UIApplication is in hand.</summary>
+    public void NoteUiApplication(UIApplication app)
+        => _hasActiveDocument = app.ActiveUIDocument?.Document != null;
 
     public RevitBridge()
     {
@@ -90,6 +101,7 @@ public sealed class RevitBridge : IDisposable
         public void Execute(UIApplication app)
         {
             RevitContext.Set(app);
+            _owner.NoteUiApplication(app);
             _owner._executing = true;
             try
             {

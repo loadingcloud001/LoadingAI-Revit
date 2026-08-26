@@ -13,6 +13,7 @@ public class ShowChatCommand : IExternalCommand
         {
             // Ensure context is set
             LoadingAI.Revit.RevitContext.Set(commandData.Application);
+            App.Bridge?.NoteUiApplication(commandData.Application);
 
             var dpid = new DockablePaneId(App.PaneId);
             var pane = commandData.Application.GetDockablePane(dpid);

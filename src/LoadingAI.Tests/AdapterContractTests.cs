@@ -50,4 +50,14 @@ public class AdapterContractTests
         Assert.Contains(typeof(IRevitQuery), interfaces);
         Assert.Contains(typeof(IRevitCommand), interfaces);
     }
+
+    [Fact]
+    public void ViewInfoDto_IsVisible_IsARealField()
+    {
+        var hidden = new ViewInfoDto("Level 1", "FloorPlan", false, 12);
+        var json = JsonSerializer.Serialize(hidden);
+        Assert.Contains("\"IsVisible\":false", json);
+        var back = JsonSerializer.Deserialize<ViewInfoDto>(json)!;
+        Assert.False(back.IsVisible);
+    }
 }
