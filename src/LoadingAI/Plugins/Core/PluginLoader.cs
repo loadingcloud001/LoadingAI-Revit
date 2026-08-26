@@ -20,8 +20,9 @@ public static class PluginLoader
     private static readonly List<PluginLoadContext> _contexts = new();
     private static readonly object _ctxLock = new();
 #endif
-    // Track live cooperative plugin instances for the reload gate.
+    // Track live cooperative plugin instances + their contexts for the reload gate.
     private static readonly List<IPluginLifecycle> _live = new();
+    private static readonly List<PluginContext> _liveContexts = new();
     private static readonly object _lifeLock = new();
 
     public static string RuntimePluginsDir =>
@@ -42,7 +43,7 @@ public static class PluginLoader
             var core = new CorePlugin();
             var coreCtx = factory.Create("builtin", requestFullAccess: true);
             var tools = ToolGuards.ApplyAll(core.CreateTools(coreCtx), bridge).ToList();
-            JoinLifecycle(coreCtx);
+            TrackLifecycle(coreCtx, core);
             var meta = new PluginMeta
             {
                 Id = core.Id,
@@ -115,8 +116,10 @@ public static class PluginLoader
     {
 #if NETFRAMEWORK
         // No collectible AssemblyLoadContext on net48 — see plugin fallback.
+        SignalShutdown();
         ClearLifecycle();
 #else
+        SignalShutdown();
         WaitForIdle();
         lock (_ctxLock)
         {
@@ -132,15 +135,35 @@ public static class PluginLoader
 #endif
     }
 
-    private static void JoinLifecycle(IPluginContext ctx)
+    private static void TrackLifecycle(IPluginContext ctx, object plugin)
     {
-        if (ctx is IPluginLifecycle lc)
-            lock (_lifeLock) _live.Add(lc);
+        lock (_lifeLock)
+        {
+            if (ctx is PluginContext pc)
+                _liveContexts.Add(pc);
+            // The plugin instance owns IsBusy — PluginContext does not implement IPluginLifecycle.
+            if (plugin is IPluginLifecycle lc)
+                _live.Add(lc);
+        }
+    }
+
+    private static void SignalShutdown()
+    {
+        List<PluginContext> snap;
+        lock (_lifeLock) snap = new List<PluginContext>(_liveContexts);
+        foreach (var pc in snap)
+        {
+            try { pc.BeginShutdown(); } catch { }
+        }
     }
 
     private static void ClearLifecycle()
     {
-        lock (_lifeLock) _live.Clear();
+        lock (_lifeLock)
+        {
+            _live.Clear();
+            _liveContexts.Clear();
+        }
     }
 
     /// <summary>Waits (up to each plugin's MaxReloadWaitMs) for cooperative plugins to become idle.</summary>
@@ -226,7 +249,7 @@ public static class PluginLoader
                         meta.Tools.Add(new PluginToolMeta { Name = te.Definition.Function.Name, Tier = te.Tier.ToString(), Description = te.Definition.Function.Description ?? "", EnabledByDefault = te.Tier != ToolTier.L3 });
                 }
                 if (string.IsNullOrWhiteSpace(meta.Id) || meta.Id == Path.GetFileName(folder)) { meta.Id = inst.Id; meta.Name = inst.Name; meta.Version = inst.Version; }
-                JoinLifecycle(ctx);
+                TrackLifecycle(ctx, inst);
             }
             catch (Exception ex) { Log($"plugin {folder} type {pt.Name} failed: {ex.Message}"); }
         }

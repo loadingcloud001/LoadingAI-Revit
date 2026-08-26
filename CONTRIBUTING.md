@@ -6,16 +6,17 @@ All code is MIT. No billing, no closed-source plugins.
 
 1. Fork the repo.
 2. Create a folder `src/LoadingAI.Plugins.<YourPlugin>/` or add tools directly to `src/LoadingAI/Tools/AllTools.cs` for small tools (the loader treats `core` as the built-in plugin).
-3. Implement `IRevitToolPlugin` (see `src/LoadingAI/Plugins/Core/IRevitToolPlugin.cs`):
+3. Implement `IRevitToolPlugin` (see `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs`). Prefer the revit-free `context.Bridge` for queries; implement the empty `IRevitFullAccess` marker only if you need raw `UIApplication` access:
    ```csharp
    public class HelloPlugin : IRevitToolPlugin {
      public string Id => "hello";
      public string Name => "Hello";
      public string Version => "0.1.0";
-     public IEnumerable<ToolEntry> CreateTools(RevitBridge bridge, QueryCache cache)
+     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
        => new[] { new ToolEntry{ Definition = ..., Handler = async json => "hi", Tier = ToolTier.L1 } };
    }
    ```
+   Optional: implement `IPluginLifecycle` (`IsBusy`) so the host can wait before ALC unload (Revit 2025+).
 4. Add `plugin.json` next to your DLL when shipping externally:
    ```json
    {"id":"hello","name":"Hello","version":"0.1.0","license":"MIT","author":"You","entryAssembly":"LoadingAI.Plugins.Hello.dll","tools":[{"name":"hello","tier":"L1","description":"...","enabledByDefault":true}],"verified":false}

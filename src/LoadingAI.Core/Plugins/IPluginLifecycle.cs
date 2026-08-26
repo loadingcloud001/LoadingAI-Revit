@@ -18,7 +18,8 @@ public interface IPluginLifecycle
     /// <summary>
     /// The maximum time in milliseconds the loader should wait for
     /// <see cref="IsBusy"/> to become false before giving up on the unload.
-    /// Default 2000 when the interface is implemented without overriding.
+    /// Return <see cref="PluginLifecycleDefaults.MaxReloadWaitMs"/> unless
+    /// the plugin needs a longer unload wait.
     /// </summary>
     int MaxReloadWaitMs { get; }
 }
