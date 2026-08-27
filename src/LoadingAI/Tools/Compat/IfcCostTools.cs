@@ -30,18 +30,18 @@ public static class IfcCostTools
                     var elems=new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().ToList();
                     double totalArea=0,totalVol=0,totalLen=0;
                     var sb=new StringBuilder();
-                    sb.AppendLine("Id,Name,Level,AreaSqft,VolumeCuft,LengthFt");
+                    sb.AppendLine("Id,Name,Level,AreaM2,VolumeM3,LengthMm");
                     foreach(var el in elems){
                         double a=el.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED)?.AsDouble()?? 0;
                         double v=el.get_Parameter(BuiltInParameter.HOST_VOLUME_COMPUTED)?.AsDouble()??0;
                         double l=el.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH)?.AsDouble()??0;
                         totalArea+=a; totalVol+=v; totalLen+=l;
                         var lvl=doc.GetElement(el.LevelId) as Level;
-                        sb.AppendLine($"{el.Id},\"{el.Name}\",\"{lvl?.Name}\",{a:F2},{v:F2},{l:F2}");
+                        sb.AppendLine($"{el.Id},\"{el.Name}\",\"{lvl?.Name}\",{Metric.Ft2ToM2(a):F2},{Metric.Ft3ToM3(v):F3},{Metric.FtToMm(l):F0}");
                     }
                      string path=ExportPaths.ResolveWrite(fp, $"takeoff_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                      File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
-                    return $"{cat} takeoff: {elems.Count} instances Area {totalArea:F2} sqft Vol {totalVol:F2} cuft Len {totalLen:F2} ft\nCSV: {path}\nPreview:\n"+string.Join("\n", sb.ToString().Split('\n').Take(6));
+                    return $"{cat} takeoff: {elems.Count} instances Area {Metric.Area(totalArea)} Vol {Metric.Volume(totalVol)} Len {Metric.Length(totalLen)}\nCSV: {path}\nPreview:\n"+string.Join("\n", sb.ToString().Split('\n').Take(6));
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }

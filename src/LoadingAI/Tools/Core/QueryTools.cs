@@ -62,7 +62,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_wall_metrics",
-                    Description = "Get wall quantities: count, total length (feet), total area (sq ft), total volume (cu ft) for all walls or filtered by level name. Use for 'total wall area/length' questions.",
+                    Description = "Get wall quantities: count, total length (mm), total area (m²), total volume (m³) for all walls or filtered by level name. Use for 'total wall area/length' questions.",
                     Parameters = new
                     {
                         type = "object",
@@ -90,9 +90,9 @@ public static class QueryTools
                     if (dto == null) return "Please open a model first.";
                     var s = $"Walls: {dto.Count} (sampled {dto.Sampled})";
                     if (!string.IsNullOrWhiteSpace(dto.LevelName)) s += $" on level '{dto.LevelName}'";
-                    s += $"\nTotal length: {dto.TotalLengthFt:F2} ft";
-                    s += $"\nTotal area: {dto.TotalAreaSqFt:F2} sq ft";
-                    s += $"\nTotal volume: {dto.TotalVolumeCuFt:F2} cu ft";
+                    s += $"\nTotal length: {Metric.Length(dto.TotalLengthFt)}";
+                    s += $"\nTotal area: {Metric.Area(dto.TotalAreaSqFt)}";
+                    s += $"\nTotal volume: {Metric.Volume(dto.TotalVolumeCuFt)}";
                     if (dto.Truncated) s += $"\nNote: limited to {limit} walls for performance; totals are from the sample.";
                     return s;
                 }
@@ -385,7 +385,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_levels_and_grids",
-                    Description = "List levels and grids: name, elevation (feet), Id.",
+                    Description = "List levels and grids: name, elevation (mm), Id.",
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
@@ -397,7 +397,7 @@ public static class QueryTools
                     var grids = await context.Bridge.GetGridsAsync();
                     if (!context.Bridge.HasActiveDocument && levels.Count == 0 && grids.Count == 0)
                         return "Please open a model first.";
-                    var s = $"Levels ({levels.Count}):\n" + string.Join("\n", levels.OrderBy(l => l.Elevation).Select(l => $"  {l.Id} \"{l.Name}\" elev {l.Elevation:F2} ft"));
+                    var s = $"Levels ({levels.Count}):\n" + string.Join("\n", levels.OrderBy(l => l.Elevation).Select(l => $"  {l.Id} \"{l.Name}\" elev {Metric.Length(l.Elevation)}"));
                     s += $"\nGrids ({grids.Count}):\n" + string.Join("\n", grids.Select(g => $"  {g.Id} \"{g.Name}\""));
                     return s;
                 }
@@ -416,7 +416,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_quantities",
-                    Description = "Get length/area/volume for given elementIds or current selection.",
+                    Description = "Get length (mm) / area (m²) / volume (m³) for given elementIds or current selection.",
                     Parameters = new
                     {
                         type = "object",
@@ -449,9 +449,9 @@ public static class QueryTools
                     {
                         if (q.Name == "not found") { s += $"{q.Id}: not found\n"; continue; }
                         s += $"{q.Id} {q.Category} \"{q.Name}\":";
-                        if (q.LengthFt.HasValue) s += $" L={q.LengthFt.Value:F2}ft";
-                        if (q.AreaSqFt.HasValue) s += $" A={q.AreaSqFt.Value:F2}sqft";
-                        if (q.VolumeCuFt.HasValue) s += $" V={q.VolumeCuFt.Value:F2}cuft";
+                        if (q.LengthFt.HasValue) s += $" L={Metric.Length(q.LengthFt.Value)}";
+                        if (q.AreaSqFt.HasValue) s += $" A={Metric.Area(q.AreaSqFt.Value)}";
+                        if (q.VolumeCuFt.HasValue) s += $" V={Metric.Volume(q.VolumeCuFt.Value)}";
                         if (!string.IsNullOrEmpty(q.BoundingBox)) s += $" BB={q.BoundingBox}";
                         s += "\n";
                     }

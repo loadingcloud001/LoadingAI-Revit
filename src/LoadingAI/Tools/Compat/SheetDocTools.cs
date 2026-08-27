@@ -55,6 +55,7 @@ public static class SheetDocTools
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="place_view_on_sheet", Description="Place view on sheet (pyRevit: Place Views). Params: viewId, sheetId, x,y optional.", Parameters=new{type="object",properties=new{viewId=new{type="string"},sheetId=new{type="string"},x=new{type="number"},y=new{type="number"}},required=new[]{"viewId","sheetId"}}}},
         Handler=async json=>{
             string vid="",sid=""; double x=0,y=0; try{using var d=JsonDocument.Parse(json); vid=d.RootElement.GetProperty("viewId").GetString()??""; sid=d.RootElement.GetProperty("sheetId").GetString()??""; if(d.RootElement.TryGetProperty("x",out var xv)&&xv.ValueKind==JsonValueKind.Number) x=xv.GetDouble(); if(d.RootElement.TryGetProperty("y",out var yv)&&yv.ValueKind==JsonValueKind.Number) y=yv.GetDouble();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
+ x=Metric.MmToFt(x); y=Metric.MmToFt(y);
             return await context.FullAccess!.RunRevitAsync(session=>{
                 var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";

@@ -29,16 +29,16 @@ public static class GeometryTools
                 Function = new ToolFunction
                 {
                     Name = "move_elements",
-                    Description = "Move elements by vector (feet).",
+                    Description = "Move elements by vector (mm).",
                     Parameters = new
                     {
                         type = "object",
                         properties = new
                         {
                             elementIds = new { type = "array", items = new { type = "string" } },
-                            dx = new { type = "number", description = "Delta X in feet" },
-                            dy = new { type = "number", description = "Delta Y in feet" },
-                            dz = new { type = "number", description = "Delta Z in feet" }
+                            dx = new { type = "number", description = "Delta X in mm" },
+                            dy = new { type = "number", description = "Delta Y in mm" },
+                            dz = new { type = "number", description = "Delta Z in mm" }
                         },
                         required = new[] { "elementIds", "dx", "dy", "dz" }
                     }
@@ -56,7 +56,7 @@ public static class GeometryTools
                     dz = d.RootElement.GetProperty("dz").GetDouble();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                var result = await context.Bridge.MoveElementsAsync(eids, dx, dy, dz);
+                var result = await context.Bridge.MoveElementsAsync(eids, Metric.MmToFt(dx), Metric.MmToFt(dy), Metric.MmToFt(dz));
                 return result.Message;
             }
         };
@@ -109,7 +109,7 @@ public static class GeometryTools
                 Function = new ToolFunction
                 {
                     Name = "create_wall",
-                    Description = "Create a wall by start/end points (feet) on a level. For testing geometry creation.",
+                    Description = "Create a wall by start/end points (mm) on a level.",
                     Parameters = new
                     {
                         type = "object",
@@ -127,6 +127,7 @@ public static class GeometryTools
             {
                 string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null;
                 try { using var d = JsonDocument.Parse(json); levelName = d.RootElement.GetProperty("levelName").GetString() ?? ""; x1 = d.RootElement.GetProperty("x1").GetDouble(); y1 = d.RootElement.GetProperty("y1").GetDouble(); x2 = d.RootElement.GetProperty("x2").GetDouble(); y2 = d.RootElement.GetProperty("y2").GetDouble(); if (d.RootElement.TryGetProperty("wallTypeName", out var w) && w.ValueKind == JsonValueKind.String) wallTypeName = w.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                x1 = Metric.MmToFt(x1); y1 = Metric.MmToFt(y1); x2 = Metric.MmToFt(x2); y2 = Metric.MmToFt(y2);
                 bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
@@ -182,7 +183,7 @@ public static class GeometryTools
                 Function = new ToolFunction
                 {
                     Name = "create_family_instance",
-                    Description = "Place a family instance by symbol name at a point (feet) on a level.",
+                    Description = "Place a family instance by symbol name at a point (mm) on a level.",
                     Parameters = new
                     {
                         type = "object",
@@ -201,6 +202,7 @@ public static class GeometryTools
             {
                 string symbolName = "", familyName = "", levelName = ""; double x = 0, y = 0, z = 0;
                 try { using var d = JsonDocument.Parse(json); symbolName = d.RootElement.GetProperty("symbolName").GetString() ?? ""; if (d.RootElement.TryGetProperty("familyName", out var fn) && fn.ValueKind == JsonValueKind.String) familyName = fn.GetString() ?? ""; if (d.RootElement.TryGetProperty("levelName", out var ln) && ln.ValueKind == JsonValueKind.String) levelName = ln.GetString() ?? ""; x = d.RootElement.GetProperty("x").GetDouble(); y = d.RootElement.GetProperty("y").GetDouble(); if (d.RootElement.TryGetProperty("z", out var zz) && zz.ValueKind == JsonValueKind.Number) z = zz.GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                x = Metric.MmToFt(x); y = Metric.MmToFt(y); z = Metric.MmToFt(z);
                 bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
