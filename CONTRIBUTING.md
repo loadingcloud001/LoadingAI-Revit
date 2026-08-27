@@ -26,7 +26,7 @@ All code is MIT. No billing, no closed-source plugins.
 
 ## Local dev without PR
 
-Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `src/LoadingAI/Plugins/dev/` for dev build). Restart Revit. The Web `Plugins` Tab will show it as **Unverified (yellow)** — works locally, not distributed.
+Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `src/LoadingAI/Plugins/dev/` for dev build). Restart Revit. **設定** shows it as **Unverified** — works locally, not distributed.
 
 ## Rules
 

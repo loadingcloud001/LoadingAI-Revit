@@ -31,7 +31,7 @@ Plugins/hello/
 ```
 
 - `verified:true` = merged via PR and reviewed.
-- `verified:false` = local drop, shown yellow in Web Plugins Tab.
+- `verified:false` = local drop, shown in **設定** as unverified.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggle in Web requires no restart, adding/removing DLL requires restart (AppDomain lock).
 - csproj must ProjectReference `LoadingAI.Core` (and `LoadingAI.RevitUtil` if FullAccess). Never reference the host `LoadingAI.csproj`.
 
