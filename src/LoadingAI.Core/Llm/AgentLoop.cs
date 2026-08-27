@@ -20,6 +20,7 @@ public sealed class AgentLoop
         "If a tool returns an error, tell the user what to do (open a model, select elements). " +
         "Do not claim you changed the model unless a write tool succeeded. Be concise. " +
         "Destructive actions are confirmed via TaskDialog. You have up to 64 tool rounds; prefer composite tools. " +
+        "Lengths are millimetres, areas m², volumes m³. Pass those units in tool arguments. " +
         "User can press Stop to cancel.";
 
     public AgentLoop(OpenAiCompatibleClient client, ToolRegistry registry)

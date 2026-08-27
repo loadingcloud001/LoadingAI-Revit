@@ -229,7 +229,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_section_view",
-                Description = "Create a section (CreateViewSection). Params: elementId of a wall/curve, or x1,y1,x2,y2 in feet. Optional name, height, depth.",
+                Description = "Create a section (CreateViewSection). Params: elementId of a wall/curve, or x1,y1,x2,y2 in mm. Optional name, height, depth in mm.",
                 Parameters = new
                 {
                     type = "object",
@@ -254,8 +254,8 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var args = Args.Parse(json);
             var eid = args.Str("elementId");
             var name = args.Str("name");
-            var height = args.Dbl("height", 10);
-            var depth = args.Dbl("depth", 8);
+            var height = Metric.MmToFt(args.Dbl("height", 3000));
+            var depth = Metric.MmToFt(args.Dbl("depth", 2500));
             return await context.FullAccess!.RunRevitAsync(session =>
             {
                 var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
@@ -275,9 +275,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     }
                     else if (args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2"))
                     {
-                        var z = args.Dbl("z", 0);
-                        a = new XYZ(args.Dbl("x1", 0), args.Dbl("y1", 0), z);
-                        b = new XYZ(args.Dbl("x2", 0), args.Dbl("y2", 0), z);
+                        var z = Metric.MmToFt(args.Dbl("z", 0));
+                        a = new XYZ(Metric.MmToFt(args.Dbl("x1", 0)), Metric.MmToFt(args.Dbl("y1", 0)), z);
+                        b = new XYZ(Metric.MmToFt(args.Dbl("x2", 0)), Metric.MmToFt(args.Dbl("y2", 0)), z);
                     }
                     if (a == null || b == null) return "Pass elementId or x1,y1,x2,y2.";
 
@@ -304,7 +304,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "path_of_travel",
-                Description = "Create path of travel on a floor plan (PathOfTravel.CreateMultiple). Params: startX,startY,endX,endY (feet) or starts/ends as [x,y] arrays. viewId optional. Max 5 pairs.",
+                Description = "Create path of travel on a floor plan (PathOfTravel.CreateMultiple). Params: startX,startY,endX,endY (mm) or starts/ends as [x,y] arrays. viewId optional. Max 5 pairs.",
                 Parameters = new
                 {
                     type = "object",
@@ -341,9 +341,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     var starts = args.Points("starts");
                     var ends = args.Points("ends");
                     if (starts.Count == 0 && args.HasNumber("startX") && args.HasNumber("startY"))
-                        starts.Add(new XYZ(args.Dbl("startX", 0), args.Dbl("startY", 0), 0));
+                        starts.Add(new XYZ(Metric.MmToFt(args.Dbl("startX", 0)), Metric.MmToFt(args.Dbl("startY", 0)), 0));
                     if (ends.Count == 0 && args.HasNumber("endX") && args.HasNumber("endY"))
-                        ends.Add(new XYZ(args.Dbl("endX", 0), args.Dbl("endY", 0), 0));
+                        ends.Add(new XYZ(Metric.MmToFt(args.Dbl("endX", 0)), Metric.MmToFt(args.Dbl("endY", 0)), 0));
                     if (starts.Count == 0 || ends.Count == 0) return "Pass startX/startY/endX/endY or starts/ends arrays.";
                     if (starts.Count != ends.Count) return "starts and ends must have the same count.";
                     if (starts.Count > 5) return "Max 5 path pairs per call.";
@@ -503,7 +503,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             {
                 if (item.ValueKind != JsonValueKind.Array) continue;
                 var nums = item.EnumerateArray().Where(n => n.ValueKind == JsonValueKind.Number).Select(n => n.GetDouble()).ToList();
-                if (nums.Count >= 2) list.Add(new XYZ(nums[0], nums[1], nums.Count > 2 ? nums[2] : 0));
+                if (nums.Count >= 2) list.Add(new XYZ(Metric.MmToFt(nums[0]), Metric.MmToFt(nums[1]), nums.Count > 2 ? Metric.MmToFt(nums[2]) : 0));
             }
             return list;
         }

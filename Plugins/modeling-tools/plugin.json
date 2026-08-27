@@ -1,7 +1,7 @@
 {
   "id": "modeling-tools",
   "name": "Family & Element Modeling Tools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.ModelingTools.dll",
@@ -13,34 +13,16 @@
       "enabledByDefault": false
     },
     {
-      "name": "place_family_instance",
-      "tier": "L3",
-      "description": "Place a family instance at x,y,z. Params: familyName (or familySymbolId), x,y,z, levelName/levelId optional.",
-      "enabledByDefault": false
-    },
-    {
       "name": "change_element_type",
       "tier": "L3",
       "description": "Change an element's type. Params: elementId, typeName (or typeId).",
       "enabledByDefault": false
     },
     {
-      "name": "set_parameter",
-      "tier": "L3",
-      "description": "Set a parameter on element(s). Params: elementId or elementIds, paramName, value.",
-      "enabledByDefault": false
-    },
-    {
       "name": "create_topography",
       "tier": "L3",
-      "description": "Create a toposolid from points. Params: points array of [x,y,z] (3+ points).",
+      "description": "Create a toposolid from points. Params: points array of [x,y,z] in mm (3+ points).",
       "enabledByDefault": false
-    },
-    {
-      "name": "list_phases",
-      "tier": "L1",
-      "description": "List project phases (id, name). Params: none.",
-      "enabledByDefault": true
     }
   ],
   "verified": false

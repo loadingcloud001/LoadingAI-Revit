@@ -133,7 +133,7 @@ public static class QueryHealthTools
                     var rooms=new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType().Cast<Room>().ToList();
                     if(!string.IsNullOrWhiteSpace(cap)) rooms=rooms.Where(r=>doc.GetElement(r.LevelId) is Level l && l.Name.Equals(cap,StringComparison.OrdinalIgnoreCase)).ToList();
                     double total=rooms.Sum(r=> r.get_Parameter(BuiltInParameter.ROOM_AREA)?.AsDouble()??0);
-                    return $"Rooms: {rooms.Count} Total area: {total:F2} sqft ({total*0.092903:F2} m2)" + (rooms.Count>0?"\n"+string.Join("\n",rooms.Take(10).Select(r=>$"  {r.Id} \"{r.Name}\" Level:{(doc.GetElement(r.LevelId) as Level)?.Name} Area:{(r.get_Parameter(BuiltInParameter.ROOM_AREA)?.AsDouble()??0):F1} sqft")):"");
+                    return $"Rooms: {rooms.Count} Total area: {Metric.Area(total)}" + (rooms.Count>0?"\n"+string.Join("\n",rooms.Take(10).Select(r=>$"{r.Id} \"{r.Name}\" Level:{(doc.GetElement(r.LevelId) as Level)?.Name} Area:{Metric.Area(r.get_Parameter(BuiltInParameter.ROOM_AREA)?.AsDouble()??0)}")):"");
                 }catch(Exception ex){return $"Failed: {ex.Message}";}
             });
         }
