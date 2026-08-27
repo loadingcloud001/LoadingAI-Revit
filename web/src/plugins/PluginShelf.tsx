@@ -1,97 +1,63 @@
-import { PluginInfo } from '../bridge';
-import { postToHost } from '../bridge';
+import { PluginInfo, postToHost } from '../bridge';
 
-export function PluginShelf({ plugins, onRefresh }: { plugins: PluginInfo[]; onRefresh?: () => void }) {
+const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
+
+export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
   if (!plugins || plugins.length === 0) {
     return (
-      <div style={{ padding: 16, color: '#6b7280', fontSize: 13 }}>
-        No plugins discovered. Core built-in tools should appear after restart.
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => postToHost({ type: 'reloadPlugins' })} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer' }}>Reload</button>
-        </div>
+      <div style={{ padding: 8, fontSize: 11, color: '#6a6a6a' }}>
+        沒有插件。Core 工具應在重啟後出現。
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs ml-2" onClick={() => postToHost({ type: 'reloadPlugins' })}>重掃</button>
       </div>
     );
   }
 
-  const totalTools = plugins.reduce((n, p) => n + p.tools.length, 0);
-  const enabledTools = plugins.reduce((n, p) => n + p.tools.filter(t => t.enabled).length, 0);
+  const total = plugins.reduce((n, p) => n + p.tools.length, 0);
+  const on = plugins.reduce((n, p) => n + p.tools.filter(t => t.enabled).length, 0);
 
   return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontWeight: 700, fontSize: 13 }}>Plugins — MIT Opensource</div>
-        <div style={{ fontSize: 11, color: '#6b7280' }}>{plugins.length} plugins · {enabledTools}/{totalTools} tools enabled</div>
+    <div>
+      <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
+        <span className="font-semibold">工具</span>
+        <span className="text-[10px] text-muted-foreground">{on}/{total} 開 · L3 預設關</span>
+        <span className="flex-1" />
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'listPlugins' })}>重新整理</button>
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'reloadPlugins' })}>重掃磁碟</button>
       </div>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => postToHost({ type: 'listPlugins' })} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Refresh</button>
-        <button onClick={() => postToHost({ type: 'reloadPlugins' })} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Rescan Disk</button>
-        <span style={{ fontSize: 11, color: '#6b7280', alignSelf: 'center' }}>Drop DLL+manifest to %AppData%\LoadingAI\Plugins\&lt;id&gt;\ then Rescan (restart required for new DLLs)</span>
-      </div>
-
-      <div style={{ fontSize: 11, color: '#6b7280', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: 8 }}>
-        Toggle = instant (no restart). L3 (red) defaults OFF. <span style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 4 }}>Unverified</span> = local drop not PR-reviewed.
-      </div>
-
       {plugins.map(p => {
-        const allEnabled = p.tools.every(t => t.enabled);
-        const someEnabled = p.tools.some(t => t.enabled);
+        const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);
+        const someOn = p.tools.some(t => t.enabled);
         return (
-          <div key={p.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: p.id === 'core' ? '#f9fafb' : '#fff' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {p.name} <span style={{ fontSize: 11, color: '#6b7280' }}>{p.id} v{p.version}</span>
-                  {p.verified ? <span style={{ fontSize: 10, background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 10 }}>Verified</span>
-                    : <span style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 10, border: '1px solid #fde68a' }}>Unverified</span>}
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>{p.license} · {p.author}</span>
-                </div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{p.folderPath}</div>
+          <div key={p.id} style={{ borderBottom: '1px solid #d0d0d0' }}>
+            <div style={{ ...row, background: '#f7f7f7' }}>
+              <div className="min-w-0">
+                <div className="truncate">{p.name} <span className="text-[10px] text-muted-foreground">{p.id}</span></div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+              <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={allOn}
+                  ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                  onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
+                />
+                {allOn ? '全開' : someOn ? '部分' : '全關'}
+              </label>
+            </div>
+            {p.tools.map(t => (
+              <div key={t.name} style={{ ...row, background: t.enabled ? '#fff' : '#fafafa' }}>
+                <div className="min-w-0 pr-2">
+                  <div className="font-mono text-[11px] truncate">{t.name} <span style={{ color: t.tier === 'L3' ? '#8a1f11' : '#6a6a6a' }}>{t.tier}</span></div>
+                </div>
+                <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
                   <input
                     type="checkbox"
-                    checked={allEnabled}
-                    ref={el => { if (el) el.indeterminate = !allEnabled && someEnabled; }}
-                    onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
+                    checked={t.enabled}
+                    onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })}
                   />
-                  {allEnabled ? 'All on' : someEnabled ? 'Partial' : 'All off'}
+                  {t.enabled ? '開' : '關'}
                 </label>
-                {p.id !== 'core' && (
-                  <button onClick={() => { if (confirm(`Remove plugin ${p.id}? Requires restart.`)) postToHost({ type: 'removePlugin', pluginId: p.id }); }}
-                    style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 11, cursor: 'pointer' }}>Remove</button>
-                )}
               </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid #f3f4f6' }}>
-              {p.tools.map(t => (
-                <div key={t.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', borderBottom: '1px solid #f3f4f6', background: t.enabled ? '#fff' : '#fafafa' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>{t.name}</span>
-                      <span style={{
-                        fontSize: 10, padding: '2px 6px', borderRadius: 10,
-                        background: t.tier === 'L3' ? '#fee2e2' : t.tier === 'L2' ? '#fef3c7' : '#d1fae5',
-                        color: t.tier === 'L3' ? '#991b1b' : t.tier === 'L2' ? '#92400e' : '#065f46',
-                        border: '1px solid #e5e7eb'
-                      }}>{t.tier}</span>
-                      {!t.enabledByDefault && <span style={{ fontSize: 10, color: '#92400e' }}>default off</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{t.description}</div>
-                  </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginLeft: 12 }}>
-                    <input
-                      type="checkbox"
-                      checked={t.enabled}
-                      onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })}
-                    />
-                    <span style={{ fontSize: 12, color: t.enabled ? '#111827' : '#9ca3af' }}>{t.enabled ? 'Enabled' : 'Disabled'}</span>
-                  </label>
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         );
       })}

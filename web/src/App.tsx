@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, onHostMessage, postToHost } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
+import { PluginShelf } from './plugins/PluginShelf';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -75,6 +76,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<ProviderPreset[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
+  const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [editing, setEditing] = useState<ProviderConfig | null>(null);
   const [editForm, setEditForm] = useState({ name: '', baseUrl: '', model: '', apiKey: '', apiKind: 'openai' as string, group: 'custom' as string, icon: '＋' });
   const [editSearch, setEditSearch] = useState('');
@@ -166,6 +168,9 @@ export default function App() {
             const upd = norm.providers.find(p => p.id === ed.id);
             if (upd) { setEditing(upd); setEditForm({ name: upd.name, baseUrl: upd.baseUrl, model: upd.model, apiKey: upd.apiKey, apiKind: upd.apiKind ?? 'openai', group: upd.group ?? 'custom', icon: upd.icon ?? '＋' }); }
           }
+        } else if (msg.type === 'plugins') {
+          const list = Array.isArray(msg.plugins) ? msg.plugins as PluginInfo[] : [];
+          setPlugins(list);
         } else if (msg.type === 'catalog') { setCatalog(normalizePresets(msg.presets)); }
         else if (msg.type === 'testResult') {
           setTestState({ id: msg.providerId ?? '', ok: !!msg.ok, message: String(msg.message ?? ''), loading: false });
@@ -249,7 +254,8 @@ export default function App() {
     const off = onHostMessage(handler as any);
     postToHost({ type: 'requestSettings' });
     postToHost({ type: 'getCatalog' } as any);
-    const t = setTimeout(() => { postToHost({ type: 'requestSettings' }); postToHost({ type: 'getCatalog' } as any); }, 800);
+    postToHost({ type: 'listPlugins' });
+    const t = setTimeout(() => { postToHost({ type: 'requestSettings' }); postToHost({ type: 'getCatalog' } as any); postToHost({ type: 'listPlugins' }); }, 800);
     return () => { clearTimeout(t); off(); };
   }, []);
 
@@ -471,7 +477,7 @@ export default function App() {
               {activeProvider ? `${activeProvider.model} · ${connected ? '已連線' : '未設定'}` : (settings ? '未設定提供商' : '載入中…')}
             </div>
           </div>
-          <button type="button" className={btn} onClick={() => setShowSettings(v => !v)}>{showSettings ? '關閉' : '設定'}</button>
+          <button type="button" className={btn} onClick={() => setShowSettings(v => { const next = !v; if (!v) postToHost({ type: 'listPlugins' }); return next; })}>{showSettings ? '關閉' : '設定'}</button>
         </div>
       </div>
 
@@ -560,6 +566,7 @@ export default function App() {
               </div>
             </div>
           )}
+          <PluginShelf plugins={plugins} />
         </div>
       )}
 

@@ -7,7 +7,7 @@ public static class ToolGuards
 {
     public static ToolEntry ApplyConfirm(ToolEntry entry, RevitBridge bridge)
     {
-        if (entry.Tier == ToolTier.L1 || entry.RequiresWriteConfirm)
+        if (entry.Tier == ToolTier.L1 || entry.Tier == ToolTier.L3 || entry.RequiresWriteConfirm)
             return entry;
 
         var inner = entry.Handler;
