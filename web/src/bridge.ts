@@ -70,6 +70,8 @@ export type ToHost =
   | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
+  | { type: 'setPluginTierEnabled'; tier: string; enabled: boolean }
+  | { type: 'saveToolSettings' }
   | { type: 'removePlugin'; pluginId: string }
   | { type: 'reloadPlugins' }
   | { type: 'listCheckpoints' }

@@ -9,7 +9,7 @@ public sealed record TodoItem(string Id, string Title, string? Tool, string Stat
 public sealed class AgentLoop
 {
     private readonly OpenAiCompatibleClient _client;
-    private readonly ToolRegistry _registry;
+    private ToolRegistry _registry;
     private readonly List<ChatMessage> _history = new();
     private readonly object _historyLock = new();
     private readonly List<TodoItem> _todos = new();
@@ -21,6 +21,7 @@ public sealed class AgentLoop
         "Do not claim you changed the model unless a write tool succeeded. Be concise. " +
         "Destructive actions are confirmed via TaskDialog. You have up to 64 tool rounds; prefer composite tools. " +
         "Lengths are millimetres, areas m², volumes m³. Pass those units in tool arguments. " +
+        "L3 tools (delete/move/create/save) default off; if a write tool is missing, tell the user to enable it in Settings — do not send them to the Revit ribbon. " +
         "User can press Stop to cancel.";
 
     public AgentLoop(OpenAiCompatibleClient client, ToolRegistry registry)
@@ -29,6 +30,8 @@ public sealed class AgentLoop
         _registry = registry;
         _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
     }
+
+    public void ReplaceRegistry(ToolRegistry registry) => _registry = registry;
 
     public IReadOnlyList<ChatMessage> History
     {

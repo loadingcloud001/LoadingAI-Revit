@@ -142,7 +142,10 @@ public partial class HostPage : Page
             }
         }
         _registry = reg;
-        _agent = new AgentLoop(_client, _registry);
+        if (_agent == null)
+            _agent = new AgentLoop(_client, _registry);
+        else
+            _agent.ReplaceRegistry(_registry);
     }
 
     private object GetPluginsPayload()
@@ -347,6 +350,43 @@ public partial class HostPage : Page
                                 PostToWeb(new { type = "status", text = enabled ? $"Enabled plugin {pluginId}" : $"Disabled plugin {pluginId}" });
                             }
                         }
+                        break;
+                    }
+
+                case "setPluginTierEnabled":
+                    {
+                        var tier = doc.RootElement.TryGetProperty("tier", out var tr) ? tr.GetString() ?? "" : "";
+                        var enabled = doc.RootElement.TryGetProperty("enabled", out var en3) && en3.ValueKind == JsonValueKind.True;
+                        if (!string.IsNullOrWhiteSpace(tier))
+                        {
+                            var n = 0;
+                            foreach (var plugin in _discovered)
+                            {
+                                foreach (var entry in plugin.Tools)
+                                {
+                                    if (!entry.Tier.ToString().Equals(tier, StringComparison.OrdinalIgnoreCase)) continue;
+                                    _settings.Plugins[entry.Definition.Function.Name] = enabled;
+                                    n++;
+                                }
+                            }
+                            ProviderSettings.Save(_settings);
+                            RebuildRegistry();
+                            PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
+                            PostToWeb(new { type = "status", text = enabled ? $"Enabled {n} {tier} tools. Click Save if chat still misses them." : $"Disabled {n} {tier} tools." });
+                        }
+                        break;
+                    }
+
+                case "saveToolSettings":
+                    {
+                        ProviderSettings.Save(_settings);
+                        RebuildRegistry();
+                        PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
+                        var l3 = _registry.Entries.Where(e => e.Tier == ToolTier.L3).Select(e => e.Definition.Function.Name).OrderBy(s => s).ToList();
+                        var msg = $"Saved. {_registry.GetToolDefinitions().Count} tools on.";
+                        if (l3.Count > 0) msg += " L3: " + string.Join(", ", l3) + ".";
+                        else msg += " No L3 tools on — use L3 all on, then Save.";
+                        PostToWeb(new { type = "status", text = msg });
                         break;
                     }
 

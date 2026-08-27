@@ -35,12 +35,12 @@ public static class GeometryTools
                         type = "object",
                         properties = new
                         {
-                            elementIds = new { type = "array", items = new { type = "string" } },
+                            elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                             dx = new { type = "number", description = "Delta X in mm" },
                             dy = new { type = "number", description = "Delta Y in mm" },
                             dz = new { type = "number", description = "Delta Z in mm" }
                         },
-                        required = new[] { "elementIds", "dx", "dy", "dz" }
+                        required = new[] { "dx", "dy", "dz" }
                     }
                 }
             },
@@ -50,12 +50,19 @@ public static class GeometryTools
                 try
                 {
                     using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     dx = d.RootElement.GetProperty("dx").GetDouble();
                     dy = d.RootElement.GetProperty("dy").GetDouble();
                     dz = d.RootElement.GetProperty("dz").GetDouble();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                if (eids.Count == 0)
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if (eids.Count == 0) return "Please select elements first.";
                 var result = await context.Bridge.MoveElementsAsync(eids, Metric.MmToFt(dx), Metric.MmToFt(dy), Metric.MmToFt(dz));
                 return result.Message;
             }
@@ -73,12 +80,12 @@ public static class GeometryTools
                 Function = new ToolFunction
                 {
                     Name = "delete_elements",
-                    Description = "Delete elements by Id. Destructive ??asks for confirmation and shows preview.",
+                    Description = "Delete selected elements, or pass elementIds. Destructive; host confirms.",
                     Parameters = new
                     {
                         type = "object",
-                        properties = new { elementIds = new { type = "array", items = new { type = "string" } } },
-                        required = new[] { "elementIds" }
+                        properties = new { elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." } },
+                        required = Array.Empty<string>()
                     }
                 }
             },
@@ -88,10 +95,16 @@ public static class GeometryTools
                 try
                 {
                     using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if (eids.Count == 0) return "Provide elementIds.";
+                if (eids.Count == 0)
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if (eids.Count == 0) return "Please select elements first.";
                 var result = await context.Bridge.DeleteElementsAsync(eids);
                 return result.Message;
             }
@@ -127,14 +140,8 @@ public static class GeometryTools
             {
                 string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null;
                 try { using var d = JsonDocument.Parse(json); levelName = d.RootElement.GetProperty("levelName").GetString() ?? ""; x1 = d.RootElement.GetProperty("x1").GetDouble(); y1 = d.RootElement.GetProperty("y1").GetDouble(); x2 = d.RootElement.GetProperty("x2").GetDouble(); y2 = d.RootElement.GetProperty("y2").GetDouble(); if (d.RootElement.TryGetProperty("wallTypeName", out var w) && w.ValueKind == JsonValueKind.String) wallTypeName = w.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var x1mm = x1; var y1mm = y1; var x2mm = x2; var y2mm = y2;
                 x1 = Metric.MmToFt(x1); y1 = Metric.MmToFt(y1); x2 = Metric.MmToFt(x2); y2 = Metric.MmToFt(y2);
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Create wall on {levelName} from ({x1},{y1}) to ({x2},{y2}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
@@ -142,8 +149,11 @@ public static class GeometryTools
                     if (doc == null) return "Please open a model first.";
                     try
                     {
-                        var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
-                        if (level == null) return $"Level '{levelName}' not found.";
+                        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+                        var names = levels.Select(l => l.Name).ToList();
+                        var resolved = LevelNames.Resolve(levelName, names);
+                        if (resolved == null) return LevelNames.NotFound(levelName, names);
+                        var level = levels.First(l => l.Name == resolved);
                         ElementId wallTypeId = ElementId.InvalidElementId;
                         if (!string.IsNullOrWhiteSpace(wallTypeName))
                         {
@@ -163,7 +173,7 @@ public static class GeometryTools
                         tx.Start();
                         var wall = Wall.Create(doc, line, wallTypeId, level.Id, 10, 0, false, false);
                         tx.Commit();
-                        return $"Created wall {wall.Id} on {levelName} from ({x1},{y1}) to ({x2},{y2}) type {wallTypeId}.";
+                        return $"Created wall {wall.Id} on {level.Name} from ({x1mm:F0},{y1mm:F0}) to ({x2mm:F0},{y2mm:F0}) mm type {wallTypeId}.";
                     }
                     catch (Exception ex) { return $"Failed: {ex.Message}"; }
                 });
@@ -203,13 +213,6 @@ public static class GeometryTools
                 string symbolName = "", familyName = "", levelName = ""; double x = 0, y = 0, z = 0;
                 try { using var d = JsonDocument.Parse(json); symbolName = d.RootElement.GetProperty("symbolName").GetString() ?? ""; if (d.RootElement.TryGetProperty("familyName", out var fn) && fn.ValueKind == JsonValueKind.String) familyName = fn.GetString() ?? ""; if (d.RootElement.TryGetProperty("levelName", out var ln) && ln.ValueKind == JsonValueKind.String) levelName = ln.GetString() ?? ""; x = d.RootElement.GetProperty("x").GetDouble(); y = d.RootElement.GetProperty("y").GetDouble(); if (d.RootElement.TryGetProperty("z", out var zz) && zz.ValueKind == JsonValueKind.Number) z = zz.GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 x = Metric.MmToFt(x); y = Metric.MmToFt(y); z = Metric.MmToFt(z);
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Place '{symbolName}' at ({x},{y},{z})?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
@@ -260,13 +263,6 @@ public static class GeometryTools
             {
                 string eidStr = "";
                 try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Duplicate element {eidStr}?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
