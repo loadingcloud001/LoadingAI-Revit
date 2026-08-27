@@ -60,7 +60,7 @@ public class UsabilityContractTests
         foreach (var f in files)
         {
             var src = File.ReadAllText(f);
-            Assert.False(src.Contains("new TaskDialog"), Path.GetRelativePath(root, f) + " must not show its own TaskDialog");
+            Assert.False(src.Contains("new TaskDialog"), f + " must not show its own TaskDialog");
         }
     }
 
