@@ -642,7 +642,7 @@ public partial class HostPage : Page
             return hint;
         }
 
-        // For L3, require UI approval before executing (in addition to TaskDialog inside handler)
+        // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
         if (entry.Tier == ToolTier.L3)
         {
             var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -664,6 +664,24 @@ public partial class HostPage : Page
             {
                 try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_result", text = $"{name} denied by user" })); } catch { }
                 return "Cancelled by user (denied).";
+            }
+
+            if (name is "delete_elements" or "move_elements")
+            {
+                var raw = App.Bridge;
+                if (raw == null) return "Cancelled: no Revit bridge.";
+                bool native = await raw.RunAsync(_ =>
+                {
+                    var td = new TaskDialog("LoadingAI for Revit")
+                    {
+                        MainInstruction = $"Confirm L3: {name}?",
+                        MainContent = Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
+                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                        DefaultButton = TaskDialogResult.No
+                    };
+                    return td.Show() == TaskDialogResult.Yes;
+                });
+                if (!native) return "Cancelled by user.";
             }
         }
         else
