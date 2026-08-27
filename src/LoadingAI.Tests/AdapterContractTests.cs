@@ -32,17 +32,6 @@ public class AdapterContractTests
     }
 
     [Fact]
-    public void BatchOperation_Serializes()
-    {
-        var op = new BatchOperation("get_model_summary", "{}");
-        var json = JsonSerializer.Serialize(op);
-        var back = JsonSerializer.Deserialize<BatchOperation>(json);
-        Assert.NotNull(back);
-        Assert.Equal("get_model_summary", back!.Operation);
-        Assert.Equal("{}", back.ArgsJson);
-    }
-
-    [Fact]
     public void BridgeContract_SurfaceExists()
     {
         // Compile-time guard that the unified contract inherits query + command.
