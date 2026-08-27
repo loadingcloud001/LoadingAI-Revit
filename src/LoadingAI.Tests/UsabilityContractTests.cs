@@ -49,6 +49,22 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void AllToolScripts_DoNotShowTheirOwnTaskDialog()
+    {
+        var root = RepoRoot();
+        var files = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*.cs", SearchOption.AllDirectories)
+            .Concat(Directory.GetFiles(Path.Combine(root, "Plugins"), "*.cs", SearchOption.AllDirectories))
+            .Where(f => !f.EndsWith("ToolGuards.cs", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.NotEmpty(files);
+        foreach (var f in files)
+        {
+            var src = File.ReadAllText(f);
+            Assert.False(src.Contains("new TaskDialog"), Path.GetRelativePath(root, f) + " must not show its own TaskDialog");
+        }
+    }
+
+    [Fact]
     public void GearChrome_HostsPluginToggles()
     {
         var app = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));

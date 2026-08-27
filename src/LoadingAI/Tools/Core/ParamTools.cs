@@ -194,27 +194,6 @@ public static class ParamTools
                 if (newNames != null && newNames.Count != eids.Count) return "newNames length must match elementIds.";
                 if (newNames == null && string.IsNullOrWhiteSpace(pattern)) return "Provide newNames or newNamePattern.";
                 var newNamesCapture = newNames; var patternCapture = pattern;
-                var preview = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var s = "";
-                    for (int i = 0; i < eids.Count; i++)
-                    {
-                        var el = doc.GetElement(AllTools.ParseEid(eids[i]));
-                        var nn = newNamesCapture != null ? newNamesCapture[i] : patternCapture!.Replace("{i}", i.ToString());
-                        s += $"{eids[i]} \"{el?.Name}\" -> \"{nn}\"\n";
-                    }
-                    return s;
-                });
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Rename {eids.Count} element(s)?", MainContent = preview, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
@@ -304,20 +283,6 @@ public static class ParamTools
                 if (!string.IsNullOrEmpty(preview.err)) return preview.err;
                 var levelNames = preview.levels.Select(l => l.name).ToArray();
                 var schedule = levelNames.Select((n, i) => (n, date: startDate.AddDays(i * interval).ToString("yyyy-MM-dd"))).ToArray();
-                var previewText = string.Join("\n", schedule.Select(s => $"{s.n} -> {s.date}"));
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit")
-                    {
-                        MainInstruction = $"Apply {targetParam} bottom-up from {startDate:yyyy-MM-dd} (+{interval}d) to {levelNames.Length} levels?",
-                        MainContent = previewText + $"\n\nCategories: {(cats == null ? "all common" : string.Join(", ", cats))}\nOne transaction, undoable.",
-                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                        DefaultButton = TaskDialogResult.No
-                    };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
 
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {

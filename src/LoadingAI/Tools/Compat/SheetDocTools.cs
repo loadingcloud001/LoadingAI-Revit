@@ -27,10 +27,6 @@ public static class SheetDocTools
         Definition=new ToolDefinition{ Function=new ToolFunction{ Name="create_sheet", Description="Create sheet (pyRevit: Create Sheets). Params: sheetNumber, sheetName, titleBlockName optional.", Parameters=new{type="object",properties=new{sheetNumber=new{type="string"},sheetName=new{type="string"},titleBlockName=new{type="string"}},required=new[]{"sheetNumber","sheetName"}}}},
         Handler=async json=>{
             string num="",name="",tb=""; try{using var d=JsonDocument.Parse(json); num=d.RootElement.GetProperty("sheetNumber").GetString()??""; name=d.RootElement.GetProperty("sheetName").GetString()??""; if(d.RootElement.TryGetProperty("titleBlockName",out var t)&&t.ValueKind==JsonValueKind.String) tb=t.GetString()??"";}catch(Exception ex){return $"Invalid args: {ex.Message}";}
-            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
-                var uiApp = session.As<UIApplication>();
-                var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Create sheet {num} \"{name}\"?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
-            }); if(!ok) return "Cancelled by user.";
             return await context.FullAccess!.RunRevitAsync(session=>{
                 var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
