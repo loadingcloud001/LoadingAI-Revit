@@ -50,73 +50,15 @@ public static class ViewTools
                 bool isolate = true;
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                     if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array) eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
                     if (d.RootElement.TryGetProperty("isolate", out var iso) && iso.ValueKind is JsonValueKind.True or JsonValueKind.False) isolate = iso.GetBoolean();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var uidoc = uiApp.ActiveUIDocument;
-                    if (uidoc == null) return "Please open a model first.";
-                    var doc = uidoc.Document;
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    if (view.IsTemplate) return "Cannot isolate in a view template.";
-                    try
-                    {
-                        // Confirm
-                        int count = eids?.Count ?? 0;
-                        string preview = !string.IsNullOrWhiteSpace(cat) ? $"Category: {cat}\nView: {view.Name}\nIsolate: {isolate}" : $"Ids: {string.Join(", ", eids!.Take(5))}{(eids.Count > 5 ? "..." : "")}\nView: {view.Name}";
-                        // Skip confirm for L2? But we use L2 tier => bridge will confirm via HostPage's audit? Actually we need explicit dialog here for view ops as well.
-                        // Use same Confirm helper
-                        if (count > 10 || !string.IsNullOrWhiteSpace(cat))
-                        {
-                            var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = isolate ? $"Isolate {(cat ?? count + " elements")} in '{view.Name}'?" : $"Reset isolate in '{view.Name}'?", MainContent = preview, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                            if (td.Show() != TaskDialogResult.Yes) return "Cancelled by user.";
-                        }
-                        // All temporary view modifications require a Transaction in Revit 2027
-                        using (var tx = new Transaction(doc, isolate ? $"LoadingAI for Revit: isolate {cat ?? eids!.Count.ToString()} in {view.Name}" : $"LoadingAI for Revit: reset isolate in {view.Name}"))
-                        {
-                            tx.Start();
-                            try
-                            {
-                                if (!view.IsTemporaryHideIsolateActive() || isolate)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(cat) && (eids == null || eids.Count == 0))
-                                    {
-                                        var bic = AllTools.ParseCategory(cat);
-                                        if (bic == null) { tx.RollBack(); return $"Unknown category '{cat}'."; }
-                                        var catObj = doc.Settings.Categories.get_Item(bic.Value);
-                                        if (catObj == null) { tx.RollBack(); return $"Category '{cat}' not found."; }
-                                        view.IsolateCategoryTemporary(catObj.Id);
-                                    }
-                                    else
-                                    {
-                                        var ids = eids!.Select(AllTools.ParseEid).ToList();
-                                        view.IsolateElementsTemporary(ids);
-                                    }
-                                }
-                                if (!isolate)
-                                {
-                                    view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                                }
-                                tx.Commit();
-                            }
-                            catch
-                            {
-                                try { tx.RollBack(); } catch { }
-                                throw;
-                            }
-                        }
-                        return isolate ? $"Isolated {(cat ?? eids!.Count + " elements")} in view '{view.Name}' (temporary). Use reset_temporary_view to restore." : $"Reset isolate in '{view.Name}'.";
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.IsolateInViewAsync(eids, cat, isolate);
+                return result.Message;
             }
         };
     }
@@ -148,57 +90,16 @@ public static class ViewTools
             {
                 List<string>? eids = null;
                 string? cat = null;
-                try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("elementIds", out var a) && a.ValueKind == JsonValueKind.Array) eids = a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
+                try
                 {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    try
-                    {
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: hide {cat ?? eids!.Count.ToString()} in {view.Name}");
-                        tx.Start();
-                        try
-                        {
-                            if (!string.IsNullOrWhiteSpace(cat) && (eids == null || eids.Count == 0))
-                            {
-                                var lowerCat = cat.Trim().ToLowerInvariant();
-                                ICollection<ElementId> ids;
-                                if (lowerCat is "link" or "links" or "rvt links" or "revit links" or "rvtlinks")
-                                {
-                                    ids = new FilteredElementCollector(doc, view.Id).OfCategory(BuiltInCategory.OST_RvtLinks).WhereElementIsNotElementType().ToElementIds();
-                                }
-                                else
-                                {
-                                    var bic = AllTools.ParseCategory(cat);
-                                    if (bic == null) { tx.RollBack(); return $"Unknown category '{cat}'. Try RVT Links, Walls, Doors, etc."; }
-                                    ids = new FilteredElementCollector(doc, view.Id).OfCategory(bic.Value).WhereElementIsNotElementType().ToElementIds();
-                                }
-                                if (ids.Count == 0) { tx.RollBack(); return $"No visible {cat} in view '{view.Name}'."; }
-                                view.HideElementsTemporary(ids);
-                                tx.Commit();
-                                return $"Hid {ids.Count} {cat} in '{view.Name}' (temporary). Use reset_temporary_view to restore.";
-                            }
-                            else
-                            {
-                                var ids = eids!.Select(AllTools.ParseEid).ToList();
-                                view.HideElementsTemporary(ids);
-                                tx.Commit();
-                                return $"Hid {ids.Count} element(s) in '{view.Name}' (temporary).";
-                            }
-                        }
-                        catch
-                        {
-                            try { tx.RollBack(); } catch { }
-                            throw;
-                        }
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    if (d.RootElement.TryGetProperty("elementIds", out var a) && a.ValueKind == JsonValueKind.Array) eids = a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
+                var result = await context.Bridge.HideInViewAsync(eids, cat);
+                return result.Message;
             }
         };
     }
@@ -219,36 +120,8 @@ public static class ViewTools
             },
             Handler = async _ =>
             {
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    try
-                    {
-                        if (view.IsTemporaryHideIsolateActive())
-                        {
-                            using var tx = new Transaction(doc, $"LoadingAI for Revit: reset view {view.Name}");
-                            tx.Start();
-                            try
-                            {
-                                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                                tx.Commit();
-                            }
-                            catch
-                            {
-                                try { tx.RollBack(); } catch { }
-                                throw;
-                            }
-                            return $"Reset temporary view in '{view.Name}'.";
-                        }
-                        return $"No temporary hide/isolate active in '{view.Name}'.";
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.ResetViewVisibilityAsync();
+                return result.Message;
             }
         };
     }

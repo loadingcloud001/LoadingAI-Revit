@@ -48,10 +48,22 @@ public sealed record BatchOperation(
 /// </summary>
 public interface IRevitCommand
 {
+    Task<CommandResultDto> IsolateInViewAsync(
+        IReadOnlyList<string>? elementIds = null,
+        string? category = null,
+        bool isolate = true,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> HideInViewAsync(
+        IReadOnlyList<string>? elementIds = null,
+        string? category = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
+
     /// <summary>
-    /// Executes a sequence of operations in a single Revit modal dispatch
-    /// (good for consistency across many steps and for batch performance).
-    /// Returns a JSON object mapping each operation's result.
+    /// Executes a sequence of operations in a single Revit modal dispatch.
+    /// Stub; public opcode list is removed in Phase 3.
     /// </summary>
     Task<string> RunBatchAsync(IReadOnlyList<BatchOperation> operations, CancellationToken ct = default);
 }

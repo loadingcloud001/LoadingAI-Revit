@@ -116,3 +116,9 @@ public sealed record ActiveViewDetailsDto(
     int VisibleElementCount,
     IReadOnlyList<CategoryCountDto> TopCategories,
     IReadOnlyList<string> SampleIds);
+
+public sealed record CommandResultDto(
+    bool Ok,
+    string Message,
+    int AffectedCount = 0,
+    string? ViewName = null);
