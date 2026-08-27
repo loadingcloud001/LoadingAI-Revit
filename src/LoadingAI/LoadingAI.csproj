@@ -80,4 +80,9 @@
     <Message Text="Copied Web/dist to $(RevitAddinDir)Web\dist\" Importance="high" />
   </Target>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Ribbon32.png" LogicalName="LoadingAI.Resources.Ribbon32.png" />
+    <EmbeddedResource Include="Resources\Ribbon16.png" LogicalName="LoadingAI.Resources.Ribbon16.png" />
+  </ItemGroup>
+
 </Project>

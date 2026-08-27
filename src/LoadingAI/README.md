@@ -20,7 +20,7 @@ Post-build copies DLL + `Web/dist` to `%AppData%\Autodesk\Revit\Addins\2027\Load
 
 ## Use
 1. Start Revit 2027 → open a model
-2. Add-Ins → **AI POC** → **AI Chat**
+2. Add-Ins → **LoadingAI** → **Open Chat**
 3. Settings → provider + API key (stored DPAPI-protected in `%AppData%\LoadingAI\settings.json`)
 4. Plugins tab toggles L1/L2/L3 tools. L3 defaults off. Destructive tools confirm via TaskDialog.
 5. File import/export is sandboxed to `%AppData%\LoadingAI\exports\`
