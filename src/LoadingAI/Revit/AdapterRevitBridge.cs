@@ -441,6 +441,136 @@ public sealed class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
+    public Task<CommandResultDto> IsolateInViewAsync(
+        IReadOnlyList<string>? elementIds = null,
+        string? category = null,
+        bool isolate = true,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var view = doc?.ActiveView;
+            if (uidoc == null || doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (view == null) return new CommandResultDto(false, "No active view.");
+            if (view.IsTemplate) return new CommandResultDto(false, "Cannot isolate in a view template.");
+            if ((elementIds == null || elementIds.Count == 0) && string.IsNullOrWhiteSpace(category))
+                return new CommandResultDto(false, "Provide elementIds or category.");
+
+            using var tx = new Transaction(doc, isolate
+                ? $"LoadingAI for Revit: isolate {category ?? elementIds!.Count.ToString()} in {view.Name}"
+                : $"LoadingAI for Revit: reset isolate in {view.Name}");
+            tx.Start();
+            try
+            {
+                int affected = 0;
+                if (!view.IsTemporaryHideIsolateActive() || isolate)
+                {
+                    if (!string.IsNullOrWhiteSpace(category) && (elementIds == null || elementIds.Count == 0))
+                    {
+                        var bic = AllTools.ParseCategory(category);
+                        if (bic == null) { tx.RollBack(); return new CommandResultDto(false, $"Unknown category '{category}'."); }
+                        var catObj = doc.Settings.Categories.get_Item(bic.Value);
+                        if (catObj == null) { tx.RollBack(); return new CommandResultDto(false, $"Category '{category}' not found."); }
+                        view.IsolateCategoryTemporary(catObj.Id);
+                        affected = 0;
+                    }
+                    else
+                    {
+                        var ids = elementIds!.Select(AllTools.ParseEid).ToList();
+                        view.IsolateElementsTemporary(ids);
+                        affected = ids.Count;
+                    }
+                }
+                if (!isolate)
+                    view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                tx.Commit();
+                var msg = isolate
+                    ? $"Isolated {(category ?? affected + " elements")} in view '{view.Name}' (temporary). Use reset_temporary_view to restore."
+                    : $"Reset isolate in '{view.Name}'.";
+                return new CommandResultDto(true, msg, affected, view.Name);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<CommandResultDto> HideInViewAsync(
+        IReadOnlyList<string>? elementIds = null,
+        string? category = null,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var view = doc?.ActiveView;
+            if (uidoc == null || doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (view == null) return new CommandResultDto(false, "No active view.");
+            if ((elementIds == null || elementIds.Count == 0) && string.IsNullOrWhiteSpace(category))
+                return new CommandResultDto(false, "Provide elementIds or category.");
+
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: hide {category ?? elementIds!.Count.ToString()} in {view.Name}");
+            tx.Start();
+            try
+            {
+                ICollection<ElementId> ids;
+                if (!string.IsNullOrWhiteSpace(category) && (elementIds == null || elementIds.Count == 0))
+                {
+                    var bic = AllTools.ParseCategory(category);
+                    if (bic == null) { tx.RollBack(); return new CommandResultDto(false, $"Unknown category '{category}'. Try RVT Links, Walls, Doors, etc."); }
+                    ids = new FilteredElementCollector(doc, view.Id).OfCategory(bic.Value).WhereElementIsNotElementType().ToElementIds();
+                    if (ids.Count == 0) { tx.RollBack(); return new CommandResultDto(false, $"No visible {category} in view '{view.Name}'."); }
+                    view.HideElementsTemporary(ids);
+                    tx.Commit();
+                    return new CommandResultDto(true, $"Hid {ids.Count} {category} in '{view.Name}' (temporary). Use reset_temporary_view to restore.", ids.Count, view.Name);
+                }
+
+                ids = elementIds!.Select(AllTools.ParseEid).ToList();
+                view.HideElementsTemporary(ids);
+                tx.Commit();
+                return new CommandResultDto(true, $"Hid {ids.Count} element(s) in '{view.Name}' (temporary).", ids.Count, view.Name);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var view = doc?.ActiveView;
+            if (uidoc == null || doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (view == null) return new CommandResultDto(false, "No active view.");
+            if (!view.IsTemporaryHideIsolateActive())
+                return new CommandResultDto(true, $"No temporary hide/isolate active in '{view.Name}'.", 0, view.Name);
+
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: reset view {view.Name}");
+            tx.Start();
+            try
+            {
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                tx.Commit();
+                return new CommandResultDto(true, $"Reset temporary view in '{view.Name}'.", 0, view.Name);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
     public Task<string> RunBatchAsync(IReadOnlyList<BatchOperation> operations, CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
