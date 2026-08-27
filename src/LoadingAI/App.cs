@@ -2,6 +2,8 @@ using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Ui;
+using System.IO;
+using System.Windows.Media.Imaging;
 
 namespace LoadingAI;
 
@@ -9,6 +11,20 @@ public class App : IExternalApplication
 {
     public static readonly Guid PaneId = new("A7B2C3D4-E5F6-4A1B-9C2D-3E4F5A6B7C8D");
     public static RevitBridge? Bridge { get; private set; }
+
+    private static BitmapImage? LoadIcon(string name)
+    {
+        var asm = typeof(App).Assembly;
+        using var stream = asm.GetManifestResourceStream(name);
+        if (stream is null) return null;
+        var bmp = new BitmapImage();
+        bmp.BeginInit();
+        bmp.StreamSource = stream;
+        bmp.CacheOption = BitmapCacheOption.OnLoad;
+        bmp.EndInit();
+        bmp.Freeze();
+        return bmp;
+    }
 
     public Result OnStartup(UIControlledApplication application)
     {
@@ -21,11 +37,13 @@ public class App : IExternalApplication
         // Ribbon: Add-Ins tab
         try
         {
-            var panel = application.CreateRibbonPanel("AI POC");
+            var panel = application.CreateRibbonPanel("LoadingAI");
             var asmPath = typeof(App).Assembly.Location;
-            var btnData = new PushButtonData("AIChat", "AI Chat", asmPath, typeof(Commands.ShowChatCommand).FullName!);
+            var btnData = new PushButtonData("AIChat", "Open Chat", asmPath, typeof(Commands.ShowChatCommand).FullName!);
             btnData.ToolTip = "Open LoadingAI for Revit chat";
-            btnData.LongDescription = "Chat with LLM and run tools on the active model.";
+            btnData.LongDescription = "Chat with the LLM and run tools on the active model.";
+            btnData.LargeImage = LoadIcon("LoadingAI.Resources.Ribbon32.png");
+            btnData.Image = LoadIcon("LoadingAI.Resources.Ribbon16.png");
             panel.AddItem(btnData);
         }
         catch (Exception ex)
@@ -37,7 +55,7 @@ public class App : IExternalApplication
         try
         {
             var dpid = new DockablePaneId(PaneId);
-            application.RegisterDockablePane(dpid, "AI Chat", new ChatPaneProvider());
+            application.RegisterDockablePane(dpid, "LoadingAI", new ChatPaneProvider());
         }
         catch (Exception ex)
         {
