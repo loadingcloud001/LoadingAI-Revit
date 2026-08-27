@@ -22,6 +22,7 @@ public static class QueryTools
         yield return CreateGetLevelsAndGrids(context);
         yield return CreateGetQuantities(context);
         yield return CreateSaveAndSyncInfo(context);
+        yield return CreateSaveDocument(context);
     }
 
     internal static ToolEntry CreateGetModelSummary(IPluginContext context)
@@ -471,55 +472,17 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_document_info",
-                    Description = "Get document info: title, path, worksharing, central, and optionally save.",
+                    Description = "Get document info: title, path, worksharing, central. Read-only. Use save_document to save.",
                     Parameters = new
                     {
                         type = "object",
-                        properties = new
-                        {
-                            save = new { type = "boolean", description = "True to save the document. Default false." }
-                        },
+                        properties = new { },
                         required = Array.Empty<string>()
                     }
                 }
             },
-            Handler = async json =>
+            Handler = async _ =>
             {
-                bool save = false;
-                TryRead(json, d =>
-                {
-                    if (d.TryGetProperty("save", out var s) && s.ValueKind is JsonValueKind.True or JsonValueKind.False) save = s.GetBoolean();
-                });
-                if (save)
-                {
-                    if (context.FullAccess == null) return "Cannot save: raw Revit access not granted.";
-                    bool confirmed = await context.FullAccess.RunRevitAsync(session =>
-                    {
-                        var uiApp = session.As<UIApplication>();
-                        var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = "Save the document?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                        return td.Show() == TaskDialogResult.Yes;
-                    });
-                    if (!confirmed) return "Cancelled by user.";
-                    return await context.FullAccess.RunRevitAsync(session =>
-                    {
-                        var uiApp = session.As<UIApplication>();
-                        var doc = uiApp.ActiveUIDocument?.Document;
-                        if (doc == null) return "Please open a model first.";
-                        try
-                        {
-                            var title = doc.Title;
-                            var path = string.IsNullOrEmpty(doc.PathName) ? "(unsaved)" : doc.PathName;
-                            var ws = doc.IsWorkshared ? "Workshared" : "Not workshared";
-                            var central = "";
-                            try { central = doc.IsWorkshared ? doc.GetWorksharingCentralModelPath()?.ToString() ?? "" : ""; } catch { }
-                            if (string.IsNullOrEmpty(doc.PathName)) return "Cannot save: document has no path (unsaved).";
-                            doc.Save();
-                            return $"Saved {title} to {path} ({ws}) central: {central}";
-                        }
-                        catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                    });
-                }
-
                 try
                 {
                     var model = await context.Bridge.GetModelSummaryAsync();
@@ -530,6 +493,51 @@ public static class QueryTools
                     return $"Model: {model.Title}\nPath: {model.Path}\n{ws}\nCentral: {central}";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateSaveDocument(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "save_document",
+                    Description = "Save the active Revit document. L3. Host confirms before write. Fails if the document has never been saved to a path.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new { },
+                        required = Array.Empty<string>()
+                    }
+                }
+            },
+            Handler = async _ =>
+            {
+                if (context.FullAccess == null) return "Cannot save: raw Revit access not granted.";
+                return await context.FullAccess.RunRevitAsync(session =>
+                {
+                    var uiApp = session.As<UIApplication>();
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    try
+                    {
+                        var title = doc.Title;
+                        var path = string.IsNullOrEmpty(doc.PathName) ? "(unsaved)" : doc.PathName;
+                        var ws = doc.IsWorkshared ? "Workshared" : "Not workshared";
+                        var central = "";
+                        try { central = doc.IsWorkshared ? doc.GetWorksharingCentralModelPath()?.ToString() ?? "" : ""; } catch { }
+                        if (string.IsNullOrEmpty(doc.PathName)) return "Cannot save: document has no path (unsaved).";
+                        doc.Save();
+                        return $"Saved {title} to {path} ({ws}) central: {central}";
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
             }
         };
     }

@@ -666,23 +666,20 @@ public partial class HostPage : Page
                 return "Cancelled by user (denied).";
             }
 
-            if (name is "delete_elements" or "move_elements")
+            var raw = App.Bridge;
+            if (raw == null) return "Cancelled: no Revit bridge.";
+            bool native = await raw.RunAsync(_ =>
             {
-                var raw = App.Bridge;
-                if (raw == null) return "Cancelled: no Revit bridge.";
-                bool native = await raw.RunAsync(_ =>
+                var td = new TaskDialog("LoadingAI for Revit")
                 {
-                    var td = new TaskDialog("LoadingAI for Revit")
-                    {
-                        MainInstruction = $"Confirm L3: {name}?",
-                        MainContent = Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
-                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                        DefaultButton = TaskDialogResult.No
-                    };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!native) return "Cancelled by user.";
-            }
+                    MainInstruction = $"Confirm L3: {name}?",
+                    MainContent = Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
+                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                    DefaultButton = TaskDialogResult.No
+                };
+                return td.Show() == TaskDialogResult.Yes;
+            });
+            if (!native) return "Cancelled by user.";
         }
         else
         {

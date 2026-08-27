@@ -152,10 +152,6 @@ public static class GeometryCreateTools
             try{using var d=JsonDocument.Parse(json); ids=d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v=>v.ValueKind==JsonValueKind.String).Select(v=>v.GetString()!).ToList(); ang=d.RootElement.GetProperty("angleDegrees").GetDouble(); if(d.RootElement.TryGetProperty("originX",out var xv)&&xv.ValueKind==JsonValueKind.Number) ox=xv.GetDouble(); if(d.RootElement.TryGetProperty("originY",out var yv)&&yv.ValueKind==JsonValueKind.Number) oy=yv.GetDouble();}catch(Exception ex){return $"Invalid args: {ex.Message}";}
             if(!double.IsNaN(ox)) ox=Metric.MmToFt(ox);
             if(!double.IsNaN(oy)) oy=Metric.MmToFt(oy);
-            bool ok=await context.FullAccess!.RunRevitAsync(session=>{
-                var uiApp = session.As<UIApplication>();
-                var td=new TaskDialog("LoadingAI for Revit"){MainInstruction=$"Rotate {ids.Count} elements {ang}°?", CommonButtons=TaskDialogCommonButtons.Yes|TaskDialogCommonButtons.No, DefaultButton=TaskDialogResult.No}; return td.Show()==TaskDialogResult.Yes;
-            }); if(!ok) return "Cancelled by user.";
             return await context.FullAccess!.RunRevitAsync(session=>{
                 var uiApp = session.As<UIApplication>();
                 var doc=uiApp.ActiveUIDocument?.Document; if(doc==null) return "Please open a model first.";
