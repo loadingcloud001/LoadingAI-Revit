@@ -64,7 +64,8 @@ internal class ChatPaneProvider : IDockablePaneProvider
         data.InitialState = new DockablePaneState
         {
             DockPosition = DockPosition.Right,
-            TabBehind = DockablePanes.BuiltInDockablePanes.ProjectBrowser
+            TabBehind = DockablePanes.BuiltInDockablePanes.ProjectBrowser,
+            MinimumWidth = 360
         };
         data.VisibleByDefault = false;
     }

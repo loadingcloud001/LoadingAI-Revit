@@ -4,41 +4,29 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 15% 14%;
+    --background: 0 0% 95%;
+    --foreground: 0 0% 7%;
     --card: 0 0% 100%;
-    --card-foreground: 222 15% 14%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 222 15% 14%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 20% 96%;
-    --accent-foreground: 222 15% 14%;
-    --border: 214 20% 93%;
-    --input: 214 20% 93%;
-    --ring: 221 83% 53%;
-    --radius: 0.6rem;
-  }
-  .dark {
-    --background: 222 47% 6%;
-    --foreground: 0 0% 98%;
-    --card: 222 47% 8%;
-    --card-foreground: 0 0% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 222 47% 12%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 222 47% 12%;
-    --muted-foreground: 215 16% 65%;
-    --accent: 222 47% 12%;
-    --accent-foreground: 0 0% 98%;
-    --border: 222 47% 18%;
-    --input: 222 47% 18%;
-    --ring: 217 91% 60%;
+    --card-foreground: 0 0% 7%;
+    --primary: 0 0% 17%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 7%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 7%;
+    --border: 0 0% 82%;
+    --input: 0 0% 78%;
+    --ring: 0 0% 17%;
+    --radius: 0px;
   }
 }
 * { border-color: hsl(var(--border)); }
 html, body, #root { height: 100%; margin: 0; }
-body { overscroll-behavior: none; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: ui-sans-system, system-ui, -apple-system, Segoe UI, sans-serif; }
+body {
+  overscroll-behavior: none;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
