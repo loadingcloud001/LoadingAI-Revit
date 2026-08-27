@@ -46,50 +46,17 @@ public static class ParamTools
             Handler = async json =>
             {
                 string eidStr = "", paramName = "", value = "";
-                try { using var d = JsonDocument.Parse(json); eidStr = d.RootElement.GetProperty("elementId").GetString() ?? ""; paramName = d.RootElement.GetProperty("paramName").GetString() ?? ""; value = d.RootElement.GetProperty("value").GetString() ?? ""; } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                var pre = await context.FullAccess!.RunRevitAsync(session =>
+                try
                 {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return (err: "Please open a model first.", elName: "");
-                    try
-                    {
-                        var el = doc.GetElement(AllTools.ParseEid(eidStr));
-                        if (el == null) return (err: $"Element {eidStr} not found.", elName: "");
-                        return (err: "", elName: $"{el.Category?.Name} \"{el.Name}\"");
-                    }
-                    catch (Exception ex) { return (err: ex.Message, elName: ""); }
-                });
-                if (!string.IsNullOrEmpty(pre.err)) return pre.err;
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Set {paramName} on element {eidStr}?", MainContent = $"Element: {pre.elName}\n{paramName} = \"{value}\"", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    try
-                    {
-                        var el = doc.GetElement(AllTools.ParseEid(eidStr));
-                        if (el == null) return $"Element {eidStr} not found.";
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: set {paramName} on {eidStr}");
-                        tx.Start();
-                        try
-                        {
-                            if (!AllTools.TrySetParameter(el, paramName, value, out var err)) { tx.RollBack(); return err; }
-                            tx.Commit();
-                        }
-                        catch { try { tx.RollBack(); } catch { } throw; }
-                        return $"Set {paramName}=\"{value}\" on {eidStr} ({pre.elName}).";
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    eidStr = d.RootElement.GetProperty("elementId").GetString() ?? "";
+                    paramName = d.RootElement.GetProperty("paramName").GetString() ?? "";
+                    value = d.RootElement.GetProperty("value").GetString() ?? "";
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.SetParameterAsync(eidStr, paramName, value);
+                if (!result.Ok) return result.Message;
+                return $"Set {paramName}=\"{value}\" on {eidStr}.";
             }
         };
     }
@@ -112,58 +79,17 @@ public static class ParamTools
             Handler = async json =>
             {
                 string text;
-                try { using var d = JsonDocument.Parse(json); if (!d.RootElement.TryGetProperty("text", out var p)) return "Missing required parameter 'text'."; text = p.GetString() ?? ""; } catch (Exception ex) { return $"Invalid arguments: {ex.Message}"; }
-                var pre = await context.FullAccess!.RunRevitAsync(session =>
+                try
                 {
-                    var uiApp = session.As<UIApplication>();
-                    var uidoc = uiApp.ActiveUIDocument;
-                    if (uidoc == null) return (error: "Please open a model first.", count: 0);
-                    var ids = uidoc.Selection.GetElementIds();
-                    if (ids.Count == 0) return (error: "Please select elements first.", count: 0);
-                    return (error: "", count: ids.Count);
-                });
-                if (!string.IsNullOrEmpty(pre.error)) return pre.error;
-                int count = pre.count;
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Set Comments on {count} selected element(s)?", MainContent = $"New Comments value:\n\"{text}\"\n\nThis will create an undoable transaction.", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
-                var writeResult = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var uidoc = uiApp.ActiveUIDocument;
-                    var doc = uidoc?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var selIds = uidoc!.Selection.GetElementIds();
-                    if (selIds.Count == 0) return "Please select elements first.";
-                    int updated = 0, skipped = 0; var skippedIds = new List<string>();
-                    using (var tx = new Transaction(doc, "LoadingAI for Revit: set comments"))
-                    {
-                        tx.Start();
-                        try
-                        {
-                            foreach (var eid in selIds)
-                            {
-                                var el = doc.GetElement(eid);
-                                if (el == null) { skipped++; continue; }
-                                if (!AllTools.TrySetParameter(el, "Comments", text, out _))
-                                {
-                                    skipped++; skippedIds.Add(eid.ToString()); continue;
-                                }
-                                updated++;
-                            }
-                            tx.Commit();
-                        }
-                        catch { try { tx.RollBack(); } catch { } throw; }
-                    }
-                    var msg = $"Updated {updated} element(s).";
-                    if (skipped > 0) msg += $" Skipped {skipped} (no Comments): {string.Join(", ", skippedIds.Take(10))}" + (skipped > 10 ? "..." : "");
-                    return msg;
-                });
-                return writeResult;
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    if (!d.RootElement.TryGetProperty("text", out var p)) return "Missing required parameter 'text'.";
+                    text = p.GetString() ?? "";
+                }
+                catch (Exception ex) { return $"Invalid arguments: {ex.Message}"; }
+                var sel = await context.Bridge.GetSelectionSummaryAsync();
+                if (sel.ElementCount == 0) return "Please select elements first.";
+                var result = await context.Bridge.SetParametersAsync(sel.ElementIds, "Comments", text);
+                return result.Message;
             }
         };
     }
@@ -204,7 +130,7 @@ public static class ParamTools
                 int limit = 200;
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                     category = d.RootElement.GetProperty("category").GetString() ?? "";
                     targetParam = d.RootElement.GetProperty("targetParam").GetString() ?? "";
                     targetValue = d.RootElement.GetProperty("targetValue").GetString() ?? "";
@@ -215,110 +141,13 @@ public static class ParamTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 limit = Polyfills.Clamp(limit, 1, 1000);
-                var preview = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return (err: "Please open a model first.", count: 0, sample: Array.Empty<string>());
-                    var bic = AllTools.ParseCategory(category);
-                    if (bic == null) return (err: $"Unknown category '{category}'.", count: 0, sample: Array.Empty<string>());
-                    try
-                    {
-                        var col = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType();
-                        var els = col.ToElements();
-                        if (!string.IsNullOrWhiteSpace(filterParam))
-                        {
-                            var filtered = new List<Element>();
-                            foreach (var el in els)
-                            {
-                                var p = el.LookupParameter(filterParam!);
-                                string? pv = p?.AsString() ?? p?.AsValueString();
-                                pv ??= "";
-                                bool match = filterOp switch
-                                {
-                                    "empty" => string.IsNullOrWhiteSpace(pv),
-                                    "notempty" => !string.IsNullOrWhiteSpace(pv),
-                                    "=" => pv.Equals(filterValue ?? "", StringComparison.OrdinalIgnoreCase),
-                                    "!=" => !pv.Equals(filterValue ?? "", StringComparison.OrdinalIgnoreCase),
-                                    "contains" => pv.IndexOf(filterValue ?? "", StringComparison.OrdinalIgnoreCase) >= 0,
-                                    _ => false
-                                };
-                                if (match) filtered.Add(el);
-                            }
-                            els = filtered;
-                        }
-                        var ids = els.Take(limit).Select(e => e.Id.ToString()).ToArray();
-                        return (err: "", count: els.Count, sample: ids);
-                    }
-                    catch (Exception ex) { return (err: ex.Message, count: 0, sample: Array.Empty<string>()); }
-                });
-                if (!string.IsNullOrEmpty(preview.err)) return preview.err;
-                int total = preview.count;
-                if (total == 0) return $"No elements matched filter for {category}.";
-                // confirm
-                int toUpdate = Math.Min(total, limit);
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit")
-                    {
-                        MainInstruction = $"Batch set {targetParam} on {toUpdate} {category} element(s)?",
-                        MainContent = $"Filter: {filterParam} {filterOp} '{filterValue}' matched {total}.\nSet {targetParam} = \"{targetValue}\" on first {toUpdate}.\nSample Ids: {string.Join(", ", preview.sample.Take(5))}",
-                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                        DefaultButton = TaskDialogResult.No
-                    };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var bic = AllTools.ParseCategory(category);
-                    if (bic == null) return $"Unknown category '{category}'.";
-                    try
-                    {
-                        var col = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType();
-                        var els = col.ToElements();
-                        if (!string.IsNullOrWhiteSpace(filterParam))
-                        {
-                            els = els.Where(el =>
-                            {
-                                var p = el.LookupParameter(filterParam!);
-                                string? pv = p?.AsString() ?? p?.AsValueString() ?? "";
-                                return filterOp switch
-                                {
-                                    "empty" => string.IsNullOrWhiteSpace(pv),
-                                    "notempty" => !string.IsNullOrWhiteSpace(pv),
-                                    "=" => pv.Equals(filterValue ?? "", StringComparison.OrdinalIgnoreCase),
-                                    "!=" => !pv.Equals(filterValue ?? "", StringComparison.OrdinalIgnoreCase),
-                                    "contains" => pv.IndexOf(filterValue ?? "", StringComparison.OrdinalIgnoreCase) >= 0,
-                                    _ => false
-                                };
-                            }).ToList();
-                        }
-                        els = els.Take(limit).ToList();
-                        int updated = 0, skipped = 0; var skippedIds = new List<string>();
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: batch {targetParam} on {category}");
-                        tx.Start();
-                        try
-                        {
-                            foreach (var el in els)
-                            {
-                                if (!AllTools.TrySetParameter(el, targetParam, targetValue, out _)) { skipped++; skippedIds.Add(el.Id.ToString()); continue; }
-                                updated++;
-                            }
-                            tx.Commit();
-                        }
-                        catch { try { tx.RollBack(); } catch { } throw; }
-                        var msg = $"Batch updated {updated} {category} (matched {total}, limited {toUpdate}).";
-                        if (skipped > 0) msg += $" Skipped {skipped}: {string.Join(", ", skippedIds.Take(5))}";
-                        return msg;
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var found = await context.Bridge.FindElementsFilteredAsync(category, filterParam, filterOp, filterValue, limit, 0);
+                if (!string.IsNullOrEmpty(found.Error)) return found.Error;
+                if (found.Total == 0) return $"No elements matched filter for {category}.";
+                var ids = found.Items.Select(e => e.Id).ToList();
+                var result = await context.Bridge.SetParametersAsync(ids, targetParam, targetValue);
+                if (!result.Ok) return result.Message;
+                return $"Batch updated {result.AffectedCount} {category} (matched {found.Total}, limited {ids.Count}).";
             }
         };
     }

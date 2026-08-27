@@ -37,11 +37,6 @@ public interface IRevitQuery
     Task<ActiveViewDetailsDto?> GetActiveViewDetailsAsync(int limit = 200, CancellationToken ct = default);
 }
 
-/// <summary>One step in a batched bridge dispatch.</summary>
-public sealed record BatchOperation(
-    string Operation,
-    string ArgsJson);
-
 /// <summary>
 /// Mutating / multi-step operations. Each command is funneled through the
 /// App's approval gate (confirm-then-run) in production.
@@ -61,11 +56,13 @@ public interface IRevitCommand
 
     Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
 
-    /// <summary>
-    /// Executes a sequence of operations in a single Revit modal dispatch.
-    /// Stub; public opcode list is removed in Phase 3.
-    /// </summary>
-    Task<string> RunBatchAsync(IReadOnlyList<BatchOperation> operations, CancellationToken ct = default);
+    Task<CommandResultDto> SetParameterAsync(
+        string elementId, string paramName, string value,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> SetParametersAsync(
+        IReadOnlyList<string> elementIds, string paramName, string value,
+        CancellationToken ct = default);
 }
 
 /// <summary>Unified bridge contract used by tools and the LLM layer.</summary>

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Tools;
@@ -571,40 +570,63 @@ public sealed class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
-    public Task<string> RunBatchAsync(IReadOnlyList<BatchOperation> operations, CancellationToken ct = default)
+    public Task<CommandResultDto> SetParameterAsync(
+        string elementId, string paramName, string value,
+        CancellationToken ct = default)
+    {
+        return SetParametersAsync(new[] { elementId }, paramName, value, ct);
+    }
+
+    public Task<CommandResultDto> SetParametersAsync(
+        IReadOnlyList<string> elementIds, string paramName, string value,
+        CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
-            if (doc == null) return "{\"error\":\"No open model.\"}";
-            var results = new Dictionary<string, object>();
-            foreach (var op in operations)
-            {
-                try
-                {
-                    results[op.Operation] = ExecuteOperation(uiApp, doc, op);
-                }
-                catch (Exception ex)
-                {
-                    results[op.Operation] = new { error = ex.Message };
-                }
-            }
-            return JsonSerializer.Serialize(results);
-        }, ct);
-    }
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            if (uidoc == null || doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (elementIds == null || elementIds.Count == 0)
+                return new CommandResultDto(false, "Please select elements first or provide elementIds.");
 
-    private static object ExecuteOperation(UIApplication uiApp, Document doc, BatchOperation op)
-    {
-        switch (op.Operation)
-        {
-            case "get_model_summary":
-                return new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Count(v => !v.IsTemplate);
-            case "get_warning_count":
-                return doc.GetWarnings().Count;
-            case "get_level_count":
-                return new FilteredElementCollector(doc).OfClass(typeof(Level)).GetElementCount();
-            default:
-                throw new InvalidOperationException($"Unknown batch operation '{op.Operation}'");
-        }
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: set {paramName} on {elementIds.Count}");
+            tx.Start();
+            try
+            {
+                int updated = 0, skipped = 0;
+                var skippedIds = new List<string>();
+                string? lastErr = null;
+                foreach (var eidStr in elementIds)
+                {
+                    Element? el;
+                    try { el = doc.GetElement(AllTools.ParseEid(eidStr)); }
+                    catch { skipped++; skippedIds.Add(eidStr); continue; }
+                    if (el == null) { skipped++; skippedIds.Add(eidStr); continue; }
+                    if (!AllTools.TrySetParameter(el, paramName, value, out var err))
+                    {
+                        skipped++;
+                        skippedIds.Add(eidStr);
+                        lastErr = err;
+                        continue;
+                    }
+                    updated++;
+                }
+                if (updated == 0)
+                {
+                    tx.RollBack();
+                    return new CommandResultDto(false, lastErr ?? $"Could not set {paramName} on any of {elementIds.Count} element(s).");
+                }
+                tx.Commit();
+                var msg = $"Updated {updated} element(s).";
+                if (skipped > 0)
+                    msg += $" Skipped {skipped}: {string.Join(", ", skippedIds.Take(10))}" + (skipped > 10 ? "..." : "");
+                return new CommandResultDto(true, msg, updated);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
     }
 }

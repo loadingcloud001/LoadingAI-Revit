@@ -33,6 +33,6 @@ public class ViewCommandContractTests
         Assert.Contains("IsolateInViewAsync", names);
         Assert.Contains("HideInViewAsync", names);
         Assert.Contains("ResetViewVisibilityAsync", names);
-        Assert.Contains("RunBatchAsync", names);
+        Assert.DoesNotContain("RunBatchAsync", names);
     }
 }
