@@ -27,7 +27,7 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
-  <Target Name="CopyPlugin" AfterTargets="Build">
+  <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(PluginOutDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)plugin.json" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
