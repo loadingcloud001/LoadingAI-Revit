@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>LoadingAI.Plugins.ExportTools</AssemblyName>
     <RootNamespace>LoadingAI.Plugins.ExportTools</RootNamespace>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <PluginOutDir>$(AppData)\LoadingAI\Plugins\export-tools\</PluginOutDir>
   </PropertyGroup>
@@ -12,9 +12,20 @@
     <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\LoadingAI\LoadingAI.csproj">
+    <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
+    <ProjectReference Include="..\..\src\LoadingAI.RevitUtil\LoadingAI.RevitUtil.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
   </ItemGroup>
   <Target Name="CopyPlugin" AfterTargets="Build">
     <MakeDir Directories="$(PluginOutDir)" />

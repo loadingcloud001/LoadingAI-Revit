@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LoadingAI.Tools</RootNamespace>
+    <AssemblyName>LoadingAI.RevitUtil</AssemblyName>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" />
+  </ItemGroup>
+</Project>
