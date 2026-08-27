@@ -23,6 +23,18 @@ public interface IRevitQuery
     Task<IReadOnlyList<GridDto>> GetGridsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<QuantityDto>> GetQuantitiesAsync(CancellationToken ct = default);
     Task<SyncInfoDto?> GetSyncInfoAsync(CancellationToken ct = default);
+
+    Task<WallMetricsDto?> GetWallMetricsAsync(string? levelName = null, int limit = 500, CancellationToken ct = default);
+    Task<VisibleElementsDto?> GetVisibleElementsInViewAsync(string? category = null, int limit = 100, CancellationToken ct = default);
+    Task<ElementDetailsDto?> GetElementDetailsAsync(string elementId, CancellationToken ct = default);
+    Task<FindResultDto> FindElementsFilteredAsync(
+        string category,
+        string? paramName = null, string? op = null, string? value = null,
+        int limit = 100, int offset = 0,
+        CancellationToken ct = default);
+    Task<IReadOnlyList<ElementQuantityDto>> GetElementQuantitiesAsync(
+        IReadOnlyList<string>? elementIds = null, CancellationToken ct = default);
+    Task<ActiveViewDetailsDto?> GetActiveViewDetailsAsync(int limit = 200, CancellationToken ct = default);
 }
 
 /// <summary>One step in a batched bridge dispatch.</summary>

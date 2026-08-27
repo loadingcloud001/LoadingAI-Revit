@@ -118,7 +118,14 @@ public sealed class AdapterRevitBridge : IRevitBridge
             if (doc == null) return (IReadOnlyList<WarningDto>)Array.Empty<WarningDto>();
             var list = doc.GetWarnings()
                 .GroupBy(w => w.GetDescriptionText())
-                .Select(g => new WarningDto(g.Key, g.Count(), "warning"))
+                .Select(g => new WarningDto(
+                    g.Key,
+                    g.Count(),
+                    "warning",
+                    g.SelectMany(w => w.GetFailingElements().Take(3).Select(id => id.ToString()))
+                        .Distinct()
+                        .Take(5)
+                        .ToList()))
                 .ToList();
             return (IReadOnlyList<WarningDto>)list;
         }, ct);
@@ -200,6 +207,237 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 doc.IsWorkshared,
                 "",
                 0);
+        }, ct);
+    }
+
+    public Task<WallMetricsDto?> GetWallMetricsAsync(string? levelName = null, int limit = 500, CancellationToken ct = default)
+    {
+        if (limit < 1) limit = 1;
+        if (limit > 500) limit = 500;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            var walls = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Walls)
+                .WhereElementIsNotElementType()
+                .ToElements()
+                .OfType<Wall>()
+                .ToList();
+            if (!string.IsNullOrWhiteSpace(levelName))
+            {
+                walls = walls.Where(w =>
+                    w.LevelId != ElementId.InvalidElementId
+                    && doc.GetElement(w.LevelId) is Level lvl
+                    && lvl.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            int count = walls.Count;
+            double totalLength = 0, totalArea = 0, totalVol = 0;
+            int sampled = 0;
+            foreach (var w in walls.Take(limit))
+            {
+                var lenP = w.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH);
+                if (lenP != null && lenP.StorageType == StorageType.Double) totalLength += lenP.AsDouble();
+                var areaP = w.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED);
+                if (areaP != null && areaP.StorageType == StorageType.Double) totalArea += areaP.AsDouble();
+                var volP = w.get_Parameter(BuiltInParameter.HOST_VOLUME_COMPUTED);
+                if (volP != null && volP.StorageType == StorageType.Double) totalVol += volP.AsDouble();
+                sampled++;
+            }
+            return new WallMetricsDto(count, sampled, levelName, totalLength, totalArea, totalVol, count > limit);
+        }, ct);
+    }
+
+    public Task<VisibleElementsDto?> GetVisibleElementsInViewAsync(string? category = null, int limit = 100, CancellationToken ct = default)
+    {
+        if (limit < 1) limit = 1;
+        if (limit > 500) limit = 500;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var view = doc?.ActiveView;
+            if (uidoc == null || doc == null || view == null) return null;
+            FilteredElementCollector col = new FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType();
+            if (!string.IsNullOrWhiteSpace(category))
+            {
+                var bic = AllTools.ParseCategory(category);
+                if (bic == null)
+                    return new VisibleElementsDto(view.Name, 0, category, $"Unknown category '{category}'. Try Walls, Doors, Windows, Floors, etc.", Array.Empty<string>());
+                col = col.OfCategory(bic.Value);
+            }
+            var ids = col.ToElementIds();
+            return new VisibleElementsDto(
+                view.Name,
+                ids.Count,
+                category,
+                null,
+                ids.Take(limit).Select(id => id.ToString()).ToList());
+        }, ct);
+    }
+
+    public Task<ElementDetailsDto?> GetElementDetailsAsync(string elementId, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                var el = doc.GetElement(AllTools.ParseEid(elementId));
+                if (el == null)
+                    return new ElementDetailsDto(elementId, "", "", "", "", "", Array.Empty<ParameterValueDto>(), 0, $"Element {elementId} not found.");
+                var cat = el.Category?.Name ?? "NoCat";
+                var type = doc.GetElement(el.GetTypeId()) as ElementType;
+                var level = doc.GetElement(el.LevelId) as Level;
+                var loc = el.Location is LocationPoint lp ? $"Point {lp.Point}" : el.Location is LocationCurve lc ? $"Curve {lc.Curve}" : "No location";
+                var parameters = new List<ParameterValueDto>();
+                int n = 0;
+                foreach (Parameter p in el.Parameters)
+                {
+                    if (n++ >= 30) break;
+                    string vs = p.StorageType switch
+                    {
+                        StorageType.String => p.AsString() ?? "",
+                        StorageType.Integer => p.AsInteger().ToString(),
+                        StorageType.Double => p.AsDouble().ToString("F3"),
+                        StorageType.ElementId => p.AsElementId().ToString(),
+                        _ => "?"
+                    };
+                    parameters.Add(new ParameterValueDto(p.Definition.Name, vs, p.IsReadOnly, p.StorageType.ToString()));
+                }
+                return new ElementDetailsDto(
+                    el.Id.ToString(), el.Name, cat, type?.Name ?? el.GetType().Name,
+                    level?.Name ?? el.LevelId.ToString(), loc, parameters, el.Parameters.Size, null);
+            }
+            catch (Exception ex)
+            {
+                return new ElementDetailsDto(elementId, "", "", "", "", "", Array.Empty<ParameterValueDto>(), 0, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<FindResultDto> FindElementsFilteredAsync(
+        string category,
+        string? paramName = null, string? op = null, string? value = null,
+        int limit = 100, int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (limit < 1) limit = 1;
+        if (limit > 500) limit = 500;
+        if (offset < 0) offset = 0;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null)
+                return new FindResultDto(0, offset, "Please open a model first.", Array.Empty<ElementSummaryDto>());
+            var bic = AllTools.ParseCategory(category);
+            if (bic == null)
+                return new FindResultDto(0, offset, $"Unknown category '{category}'.", Array.Empty<ElementSummaryDto>());
+            var elements = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().ToList();
+            if (!string.IsNullOrWhiteSpace(paramName))
+            {
+                op ??= "=";
+                var filtered = new List<Element>();
+                foreach (var el in elements)
+                {
+                    var p = el.LookupParameter(paramName!);
+                    if (op == "empty") { if (p == null || string.IsNullOrWhiteSpace(p.AsString())) filtered.Add(el); continue; }
+                    if (op == "notempty") { if (p != null && !string.IsNullOrWhiteSpace(p.AsString())) filtered.Add(el); continue; }
+                    if (p == null) continue;
+                    string pv = (p.StorageType == StorageType.String ? p.AsString() : p.AsValueString() ?? p.AsString()) ?? "";
+                    bool match = op switch
+                    {
+                        "=" => pv.Equals(value ?? "", StringComparison.OrdinalIgnoreCase),
+                        "!=" => !pv.Equals(value ?? "", StringComparison.OrdinalIgnoreCase),
+                        "contains" => pv.IndexOf(value ?? "", StringComparison.OrdinalIgnoreCase) >= 0,
+                        _ => false
+                    };
+                    if (match) filtered.Add(el);
+                }
+                elements = filtered;
+            }
+            int total = elements.Count;
+            var page = elements.Skip(offset).Take(limit).Select(e => new ElementSummaryDto(
+                e.Id.ToString(),
+                e.Category?.Name ?? "No Category",
+                (e as FamilyInstance)?.Symbol?.Family?.Name ?? "",
+                (doc.GetElement(e.GetTypeId()) as ElementType)?.Name ?? e.GetType().Name,
+                e.Name)).ToList();
+            return new FindResultDto(total, offset, null, page);
+        }, ct);
+    }
+
+    public Task<IReadOnlyList<ElementQuantityDto>> GetElementQuantitiesAsync(
+        IReadOnlyList<string>? elementIds = null, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            if (uidoc == null || doc == null) return (IReadOnlyList<ElementQuantityDto>)Array.Empty<ElementQuantityDto>();
+            ICollection<ElementId> ids;
+            if (elementIds != null && elementIds.Count > 0)
+                ids = elementIds.Select(AllTools.ParseEid).ToList();
+            else
+                ids = uidoc.Selection.GetElementIds();
+            var list = new List<ElementQuantityDto>();
+            foreach (var eid in ids.Take(50))
+            {
+                var el = doc.GetElement(eid);
+                if (el == null)
+                {
+                    list.Add(new ElementQuantityDto(eid.ToString(), "", "not found", null, null, null, null));
+                    continue;
+                }
+                var len = el.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH);
+                var area = el.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED);
+                var vol = el.get_Parameter(BuiltInParameter.HOST_VOLUME_COMPUTED);
+                string? bbStr = null;
+                var bb = el.get_BoundingBox(doc.ActiveView);
+                if (bb != null)
+                    bbStr = $"({bb.Min.X:F1},{bb.Min.Y:F1},{bb.Min.Z:F1})-({bb.Max.X:F1},{bb.Max.Y:F1},{bb.Max.Z:F1})";
+                list.Add(new ElementQuantityDto(
+                    eid.ToString(),
+                    el.Category?.Name ?? "NoCat",
+                    el.Name,
+                    len != null && len.StorageType == StorageType.Double ? len.AsDouble() : null,
+                    area != null && area.StorageType == StorageType.Double ? area.AsDouble() : null,
+                    vol != null && vol.StorageType == StorageType.Double ? vol.AsDouble() : null,
+                    bbStr));
+            }
+            return (IReadOnlyList<ElementQuantityDto>)list;
+        }, ct);
+    }
+
+    public Task<ActiveViewDetailsDto?> GetActiveViewDetailsAsync(int limit = 200, CancellationToken ct = default)
+    {
+        if (limit < 1) limit = 1;
+        if (limit > 500) limit = 500;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var view = doc?.ActiveView;
+            if (uidoc == null || doc == null || view == null) return null;
+            var all = new FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType().ToElements();
+            var byCat = new Dictionary<string, int>();
+            foreach (var el in all)
+            {
+                var cat = el.Category?.Name ?? "NoCat";
+                byCat[cat] = byCat.TryGetValue(cat, out var c) ? c + 1 : 1;
+            }
+            var top = byCat.OrderByDescending(kv => kv.Value).Take(10)
+                .Select(kv => new CategoryCountDto(kv.Key, kv.Value)).ToList();
+            return new ActiveViewDetailsDto(
+                view.Name,
+                view.ViewType.ToString(),
+                view.Id.ToString(),
+                view.Scale,
+                view.DetailLevel.ToString(),
+                all.Count,
+                top,
+                all.Take(limit).Select(e => e.Id.ToString()).ToList());
         }, ct);
     }
 
