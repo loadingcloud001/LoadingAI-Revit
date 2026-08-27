@@ -91,6 +91,7 @@ export default function App() {
   const [reasoning, setReasoning] = useState<{ text: string; isStreaming?: boolean } | null>(null);
   const [currentPlan, setCurrentPlan] = useState<PlanPayload | null>(null);
   const [todos, setTodos] = useState<TodoPayload[]>([]);
+  const [todoOpen, setTodoOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
   const [context, setContext] = useState<ContextPayload | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
@@ -186,10 +187,14 @@ export default function App() {
           if (plan.steps?.length) {
             const mapped: TodoPayload[] = plan.steps.map((s, i) => ({ id: `plan-${i}`, title: s.title, tool: s.tool, status: (s.status as any) ?? 'pending' }));
             setTodos(mapped);
+            setTodoOpen(mapped.some(x => x.status === 'running' || x.status === 'pending'));
           }
         } else if (msg.type === 'todo') {
           const t = (msg as any).todos as TodoPayload[];
-          setTodos(Array.isArray(t) ? t : []);
+          const next = Array.isArray(t) ? t : [];
+          setTodos(next);
+          const busy = next.some(x => x.status === 'running' || x.status === 'pending');
+          setTodoOpen(busy);
         } else if (msg.type === 'context') {
           setContext((msg as any).context as ContextPayload);
         } else if (msg.type === 'checkpoints') {
@@ -571,15 +576,22 @@ export default function App() {
       )}
 
       {todos.length > 0 && (
-        <div style={{ borderBottom: '1px solid #d0d0d0', background: '#fff' }}>
-          <div className="px-2.5 py-1 text-[11px] font-semibold" style={{ borderBottom: '1px solid #ececec' }}>Todo · {todos.filter(t => t.status === 'done').length}/{todos.length}</div>
-          {todos.map(t => (
-            <div key={t.id} className="px-2.5 py-1 text-xs flex gap-2" style={{ borderBottom: '1px solid #ececec' }}>
-              <span className="w-4">{t.status === 'done' ? '✓' : t.status === 'running' ? '●' : t.status === 'error' ? '✗' : '·'}</span>
-              <span className="flex-1 truncate">{t.title}</span>
-              {t.tool && <span className="font-mono text-[10px]">{t.tool}</span>}
+        <div style={{ borderBottom: '1px solid #d0d0d0', background: '#fff', flexShrink: 0 }}>
+          <button type="button" className="w-full text-left px-2.5 py-1 text-[11px] font-semibold flex items-center gap-2" style={{ background: '#fff' }} onClick={() => setTodoOpen(v => !v)} aria-expanded={todoOpen}>
+            <span className="flex-1">Todo · {todos.filter(t => t.status === 'done').length}/{todos.length}</span>
+            <span className="text-[10px] font-normal" style={{ color: '#5c5c5c' }}>{todoOpen ? 'hide' : 'show'}</span>
+          </button>
+          {todoOpen && (
+            <div style={{ maxHeight: 120, overflowY: 'auto', borderTop: '1px solid #ececec' }}>
+              {todos.map(t => (
+                <div key={t.id} className="px-2.5 py-1 text-xs flex gap-2 items-center" style={{ borderBottom: '1px solid #ececec' }}>
+                  <span className="w-4 shrink-0">{t.status === 'done' ? '✓' : t.status === 'running' ? '●' : t.status === 'error' ? '✗' : '·'}</span>
+                  <span className="flex-1 truncate">{t.title}</span>
+                  {t.tool && t.tool !== t.title && <span className="font-mono text-[10px] shrink-0">{t.tool}</span>}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
