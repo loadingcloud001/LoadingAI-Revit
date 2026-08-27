@@ -6,7 +6,6 @@ using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
-using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -163,7 +162,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 if (doc == null) return "Please open a model first.";
                 try
                 {
-                    var el = doc.GetElement(AllTools.ParseEid(eid));
+                    var el = doc.GetElement(RevitParse.ParseEid(eid));
                     if (el == null) return $"Element {eid} not found.";
                     var valid = Element.GetValidTypes(doc, new List<ElementId> { el.Id });
                     ElementType? target = null;
@@ -171,7 +170,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     {
                         var t = doc.GetElement(tid) as ElementType;
                         if (t == null) continue;
-                        if (!string.IsNullOrWhiteSpace(typeId) && t.Id == AllTools.ParseEid(typeId)) { target = t; break; }
+                        if (!string.IsNullOrWhiteSpace(typeId) && t.Id == RevitParse.ParseEid(typeId)) { target = t; break; }
                         if (!string.IsNullOrWhiteSpace(typeName) && t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase)) { target = t; break; }
                     }
                     if (target == null)
@@ -198,7 +197,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "set_parameter",
-                Description = "Set a parameter on element(s) (AllTools.TrySetParameter). Params: elementId or elementIds, paramName, value.",
+                Description = "Set a parameter on element(s). Params: elementId or elementIds, paramName, value.",
                 Parameters = new
                 {
                     type = "object",
@@ -234,7 +233,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     {
                         var el = doc.GetElement(id);
                         if (el == null) { skip++; continue; }
-                        if (AllTools.TrySetParameter(el, paramName!, value!, out var err)) ok++;
+                        if (RevitParse.TrySetParameter(el, paramName!, value!, out var err)) ok++;
                         else { skip++; errors.Add(err); }
                     }
                     tx.Commit();
@@ -328,7 +327,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
     {
         if (!string.IsNullOrWhiteSpace(symbolId))
         {
-            var s = doc.GetElement(AllTools.ParseEid(symbolId)) as FamilySymbol;
+            var s = doc.GetElement(RevitParse.ParseEid(symbolId)) as FamilySymbol;
             if (s != null) return s;
         }
         if (!string.IsNullOrWhiteSpace(familyName))
@@ -347,7 +346,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
     private static Level? ResolveLevel(Document doc, string? levelId, string? levelName)
     {
         if (!string.IsNullOrWhiteSpace(levelId))
-            return doc.GetElement(AllTools.ParseEid(levelId)) as Level;
+            return doc.GetElement(RevitParse.ParseEid(levelId)) as Level;
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>();
         if (!string.IsNullOrWhiteSpace(levelName))
             return levels.FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
@@ -389,11 +388,11 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var list = new List<ElementId>();
             if (_root is not { } r) return list;
             if (r.TryGetProperty(single, out var sv) && sv.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(sv.GetString()))
-                list.Add(AllTools.ParseEid(sv.GetString()!));
+                list.Add(RevitParse.ParseEid(sv.GetString()!));
             if (r.TryGetProperty(many, out var mv) && mv.ValueKind == JsonValueKind.Array)
                 foreach (var item in mv.EnumerateArray())
                     if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
-                        list.Add(AllTools.ParseEid(item.GetString()!));
+                        list.Add(RevitParse.ParseEid(item.GetString()!));
             return list;
         }
 

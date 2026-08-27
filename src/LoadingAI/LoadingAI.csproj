@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LoadingAI.Core\LoadingAI.Core.csproj" />
+    <ProjectReference Include="..\LoadingAI.RevitUtil\LoadingAI.RevitUtil.csproj" />
   </ItemGroup>
 
   <!-- net48 (Revit 2024) backports: System.Range/Index + DPAPI are missing from .NET Framework -->

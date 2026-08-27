@@ -3,7 +3,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
-using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -256,7 +255,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             {
                 try
                 {
-                    var view = doc.GetElement(AllTools.ParseEid(s)) as View;
+                    var view = doc.GetElement(RevitParse.ParseEid(s)) as View;
                     if (view != null && IsExportable(view)) result.Add(view.Id);
                 }
                 catch { }

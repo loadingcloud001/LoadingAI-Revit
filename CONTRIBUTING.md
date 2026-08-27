@@ -5,8 +5,8 @@ All code is MIT. No billing, no closed-source plugins.
 ## How to add a plugin
 
 1. Fork the repo.
-2. Create a folder `src/LoadingAI.Plugins.<YourPlugin>/` or add tools directly to `src/LoadingAI/Tools/AllTools.cs` for small tools (the loader treats `core` as the built-in plugin).
-3. Implement `IRevitToolPlugin` (see `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs`). Prefer the revit-free `context.Bridge` for queries; implement the empty `IRevitFullAccess` marker only if you need raw `UIApplication` access:
+2. Create a folder `Plugins/<your-id>/` (plugin.json + csproj + C#). Do not put plugins under `src/LoadingAI.Plugins.*`.
+3. Implement `IRevitToolPlugin` (see `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs`). Prefer `context.Bridge` (typed DTOs, no RevitAPI). Implement the empty `IRevitFullAccess` marker only if you need raw `UIApplication` (geometry / export / family).
    ```csharp
    public class HelloPlugin : IRevitToolPlugin {
      public string Id => "hello";
@@ -16,6 +16,7 @@ All code is MIT. No billing, no closed-source plugins.
        => new[] { new ToolEntry{ Definition = ..., Handler = async json => "hi", Tier = ToolTier.L1 } };
    }
    ```
+   ProjectReference `src/LoadingAI.Core` — never `src/LoadingAI` (the host). FullAccess plugins also reference `src/LoadingAI.RevitUtil` and Nice3point RevitAPI packages (`Private=false`, `ExcludeAssets=runtime`).
    Optional: implement `IPluginLifecycle` (`IsBusy`) so the host can wait before ALC unload (Revit 2025+).
 4. Add `plugin.json` next to your DLL when shipping externally:
    ```json
@@ -33,10 +34,12 @@ Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `s
 - All `RevitBridge.RunAsync` calls must stay on ExternalEvent; no direct `Document` access off UI thread.
 - Temporary view ops (`Isolate/Hide/Override`) must be inside `Transaction` (Revit 2027 requirement).
 - Keep `Tool` description concise and English.
+- Bridge-first: L1 query and L2 view/param tools use `context.Bridge`. Do not call `FullAccess` unless the op is on the exception list (geometry / export / family).
 
 ## Review Checklist
 
 - [ ] MIT header, no secret keys
+- [ ] csproj does not ProjectReference the host
 - [ ] Tier correct (L1 read / L2 light write / L3 destructive)
 - [ ] Handles `Please open a model first.` and `Please select elements first.`
 - [ ] Transaction with RollBack on failure

@@ -2,14 +2,13 @@
 // Build: dotnet build -c Release (produces LoadingAI.Plugins.Hello.dll)
 // Drop the folder (plugin.json + dll) into %AppData%\LoadingAI\Plugins\hello\ and restart Revit.
 
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.Hello;
 
-public sealed class HelloPlugin : IRevitToolPlugin, IRevitFullAccess
+public sealed class HelloPlugin : IRevitToolPlugin
 {
     public string Id => "hello";
     public string Name => "Hello Example";
@@ -31,13 +30,9 @@ public sealed class HelloPlugin : IRevitToolPlugin, IRevitFullAccess
             },
             Handler = async _ =>
             {
-                return await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Hello! No document open.";
-                    return $"Hello from Example Plugin! Active doc: {doc.Title}";
-                });
+                var dto = await context.Bridge.GetModelSummaryAsync();
+                if (dto == null) return "Hello! No document open.";
+                return $"Hello from Example Plugin! Active doc: {dto.Title}";
             }
         };
     }

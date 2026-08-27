@@ -5,7 +5,6 @@ using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
-using LoadingAI.Plugins.Core;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -60,7 +59,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             {
                 var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
                 if (doc == null) return "Please open a model first.";
-                var bic = AllTools.ParseCategory(cat);
+                var bic = RevitParse.ParseCategory(cat);
                 if (bic == null) return $"Unknown category {cat}";
                 try
                 {
@@ -266,7 +265,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     XYZ? a = null, b = null;
                     if (!string.IsNullOrWhiteSpace(eid))
                     {
-                        var el = doc.GetElement(AllTools.ParseEid(eid));
+                        var el = doc.GetElement(RevitParse.ParseEid(eid));
                         if (el?.Location is LocationCurve lc && lc.Curve != null)
                         {
                             a = lc.Curve.GetEndPoint(0);
@@ -335,7 +334,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 {
                     View? view = string.IsNullOrWhiteSpace(viewId)
                         ? doc.ActiveView
-                        : doc.GetElement(AllTools.ParseEid(viewId)) as View;
+                        : doc.GetElement(RevitParse.ParseEid(viewId)) as View;
                     if (view is not ViewPlan)
                         return "path_of_travel requires a floor plan view. Pass viewId of a ViewPlan.";
 
@@ -388,7 +387,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
     private static ViewSchedule? FindSchedule(Document doc, string? id, string? name)
     {
         if (!string.IsNullOrWhiteSpace(id))
-            return doc.GetElement(AllTools.ParseEid(id)) as ViewSchedule;
+            return doc.GetElement(RevitParse.ParseEid(id)) as ViewSchedule;
         if (string.IsNullOrWhiteSpace(name)) return null;
         return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
             .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -397,7 +396,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
     private static Level? ResolveLevel(Document doc, string? id, string? name)
     {
         if (!string.IsNullOrWhiteSpace(id))
-            return doc.GetElement(AllTools.ParseEid(id)) as Level;
+            return doc.GetElement(RevitParse.ParseEid(id)) as Level;
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>();
         if (!string.IsNullOrWhiteSpace(name))
             return levels.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
