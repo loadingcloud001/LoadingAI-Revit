@@ -203,7 +203,6 @@ public static class PluginLoader
 
         meta ??= new PluginMeta { Id = Path.GetFileName(folder), Name = Path.GetFileName(folder), Verified = false, FolderPath = folder };
         meta.FolderPath = folder;
-        meta.Verified = false;
         if (string.IsNullOrWhiteSpace(meta.EntryAssembly)) meta.EntryAssembly = Path.GetFileName(dll);
 
         Assembly asm;

@@ -40,4 +40,4 @@ See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/export-tools/` — `export_pdf`, `export_dwg`, `export_ifc`, `purge_unused`
 - `Plugins/view-tools/` — `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
-- `Plugins/modeling-tools/` — `load_family`, `place_family_instance`, `change_element_type`, `set_parameter`, `create_topography`, `list_phases`
+- `Plugins/modeling-tools/` — `load_family`, `change_element_type`, `create_topography`

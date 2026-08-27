@@ -9,7 +9,7 @@ MIT. API keys stay in `%AppData%\LoadingAI\settings.json` (DPAPI).
 ## Install (no Visual Studio)
 
 1. Install [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-2. Download the zip for your Revit year from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases) (`LoadingAI-Revit-2027.zip`, …).
+2. Download the zip for your Revit year from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases) (`LoadingAI-Revit-2024.zip` … `LoadingAI-Revit-2027.zip`).
 3. Right-click the zip → Properties → unblock if Windows marked it.
 4. Open PowerShell **in the unzipped folder** and run:
 
@@ -43,7 +43,7 @@ The last command (no `SkipCopyAddin`) copies the add-in into `%AppData%\Autodesk
 Pack a zip locally:
 
 ```powershell
-pwsh scripts/pack-addin.ps1 -RevitVersion 2027
+pwsh scripts/pack-addin.ps1 -RevitVersion 2027   # also 2024, 2025, 2026
 ```
 
 ## Use

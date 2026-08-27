@@ -45,7 +45,7 @@ jobs:
 
       - name: Pack zip
         shell: pwsh
-        run: ./scripts/pack-addin.ps1 -RevitVersion ${{ matrix.revit }}
+        run: ./scripts/pack-addin.ps1 -RevitVersion ${{ matrix.revit }} -SkipBuild
 
       - uses: actions/upload-artifact@v4
         with:

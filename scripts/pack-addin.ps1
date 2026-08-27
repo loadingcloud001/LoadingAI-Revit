@@ -1,13 +1,28 @@
 param(
     [Parameter()][string]$RevitVersion = "2027",
     [Parameter()][string]$Configuration = "Release",
-    [Parameter()][string]$OutDir = "artifacts"
+    [Parameter()][string]$OutDir = "artifacts",
+    [Parameter()][switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Name = "LoadingAI-Revit-$RevitVersion"
 $Stage = Join-Path $Root "$OutDir\$Name"
+
+if (-not $SkipBuild) {
+    Push-Location $Root
+    try {
+        & dotnet build (Join-Path $Root "LoadingAI.sln") `
+            -c $Configuration `
+            -p:RevitVersion=$RevitVersion `
+            -p:SkipCopyAddin=true `
+            -p:SkipHostPluginBuild=true `
+            -m:1
+        if ($LASTEXITCODE -ne 0) { throw "dotnet build failed for Revit $RevitVersion" }
+    }
+    finally { Pop-Location }
+}
 
 if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $Stage "LoadingAI") | Out-Null
@@ -24,6 +39,11 @@ Get-ChildItem $HostBin -Filter *.dll | Where-Object { $_.Name -notmatch '^RevitA
 }
 $deps = Join-Path $HostBin "LoadingAI.deps.json"
 if (Test-Path $deps) { Copy-Item $deps (Join-Path $Stage "LoadingAI") }
+
+$loader = Join-Path $HostBin "runtimes\win-x64\native\WebView2Loader.dll"
+if (-not (Test-Path $loader)) { $loader = Join-Path $HostBin "WebView2Loader.dll" }
+if (-not (Test-Path $loader)) { throw "WebView2Loader.dll missing under $HostBin (runtimes/win-x64/native or bin root)" }
+Copy-Item $loader (Join-Path $Stage "LoadingAI")
 
 $Web = Join-Path $Root "src\LoadingAI\Web\dist"
 if (-not (Test-Path (Join-Path $Web "index.html"))) {

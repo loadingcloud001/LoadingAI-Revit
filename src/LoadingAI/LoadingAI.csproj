@@ -68,10 +68,15 @@
       <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)RevitAPI.dll;$(TargetDir)RevitAPIUI.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_Deps)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
+    <PropertyGroup>
+      <_WebView2Loader Condition="Exists('$(TargetDir)runtimes\win-x64\native\WebView2Loader.dll')">$(TargetDir)runtimes\win-x64\native\WebView2Loader.dll</_WebView2Loader>
+      <_WebView2Loader Condition="'$(_WebView2Loader)' == '' And Exists('$(TargetDir)WebView2Loader.dll')">$(TargetDir)WebView2Loader.dll</_WebView2Loader>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_WebView2Loader)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="'$(_WebView2Loader)' != ''" />
     <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\$(RevitVersion)\" Importance="high" />
   </Target>
 
-  <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">
+  <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true' And Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">
     <RemoveDir Directories="$(RevitAddinDir)Web\dist" Condition="Exists('$(RevitAddinDir)Web\dist')" />
     <ItemGroup>
       <_WebFiles Include="$(MSBuildProjectDirectory)\Web\dist\**\*.*" />
