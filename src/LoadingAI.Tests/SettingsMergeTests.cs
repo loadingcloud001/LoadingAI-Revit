@@ -20,7 +20,7 @@ public class SettingsMergeTests
         };
         var merged = ProviderSettings.MergeFromWeb(current, incoming);
         Assert.True(merged.Plugins["delete_elements"]);
-        Assert.Equal("sk-secret", merged.Providers[0].ApiKey);
+        Assert.Equal("sk-secret", merged.Providers.First(p => p.Id == "deepseek").ApiKey);
     }
 
     [Fact]

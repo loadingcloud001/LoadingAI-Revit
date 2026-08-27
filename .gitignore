@@ -12,6 +12,7 @@ artifacts/
 vendor/
 models/
 local/
+src/LoadingAI.Core/Llm/DefaultLlmKey.g.cs
 .worktrees/
 *_backup/
 *_backup/**
