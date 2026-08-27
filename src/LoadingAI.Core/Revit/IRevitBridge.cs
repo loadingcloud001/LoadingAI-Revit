@@ -63,6 +63,13 @@ public interface IRevitCommand
     Task<CommandResultDto> SetParametersAsync(
         IReadOnlyList<string> elementIds, string paramName, string value,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> DeleteElementsAsync(
+        IReadOnlyList<string> elementIds, CancellationToken ct = default);
+
+    Task<CommandResultDto> MoveElementsAsync(
+        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        CancellationToken ct = default);
 }
 
 /// <summary>Unified bridge contract used by tools and the LLM layer.</summary>

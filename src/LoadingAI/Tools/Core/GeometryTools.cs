@@ -47,40 +47,17 @@ public static class GeometryTools
             Handler = async json =>
             {
                 List<string> eids = new(); double dx = 0, dy = 0, dz = 0;
-                try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); dx = d.RootElement.GetProperty("dx").GetDouble(); dy = d.RootElement.GetProperty("dy").GetDouble(); dz = d.RootElement.GetProperty("dz").GetDouble(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
+                try
                 {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Move {eids.Count} element(s) by ({dx},{dy},{dz}) ft?", CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    try
-                    {
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: move {eids.Count} elements");
-                        tx.Start();
-                        var vec = new XYZ(dx, dy, dz);
-                        int ok = 0;
-                        var failed = new List<string>();
-                        foreach (var eidStr in eids)
-                        {
-                            var eid = AllTools.ParseEid(eidStr);
-                            try { ElementTransformUtils.MoveElement(doc, eid, vec); ok++; }
-                            catch (Exception ex) { failed.Add($"{eidStr}:{ex.Message}"); }
-                        }
-                        tx.Commit();
-                        var msg = $"Moved {ok}/{eids.Count} element(s) by ({dx},{dy},{dz}) ft.";
-                        if (failed.Count > 0) msg += " Failed: " + string.Join("; ", failed.Take(10));
-                        return msg;
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    dx = d.RootElement.GetProperty("dx").GetDouble();
+                    dy = d.RootElement.GetProperty("dy").GetDouble();
+                    dz = d.RootElement.GetProperty("dz").GetDouble();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.MoveElementsAsync(eids, dx, dy, dz);
+                return result.Message;
             }
         };
     }
@@ -108,42 +85,15 @@ public static class GeometryTools
             Handler = async json =>
             {
                 List<string> eids = new();
-                try { using var d = JsonDocument.Parse(json); eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList(); } catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 if (eids.Count == 0) return "Provide elementIds.";
-                var preview = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return (err: "Please open a model first.", s: "");
-                    var s = string.Join("\n", eids.Take(5).Select(id => { var el = doc.GetElement(AllTools.ParseEid(id)); return $"{id} {el?.Category?.Name} \"{el?.Name}\""; }));
-                    if (eids.Count > 5) s += $"\n... and {eids.Count - 5} more.";
-                    return (err: "", s: s);
-                });
-                if (!string.IsNullOrEmpty(preview.err)) return preview.err;
-                bool confirmed = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var td = new TaskDialog("LoadingAI for Revit") { MainInstruction = $"Delete {eids.Count} element(s)? This cannot be undone except via Undo.", MainContent = preview.s, CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                    return td.Show() == TaskDialogResult.Yes;
-                });
-                if (!confirmed) return "Cancelled by user.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    try
-                    {
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: delete {eids.Count} elements");
-                        tx.Start();
-                        var ids = eids.Select(AllTools.ParseEid).ToList();
-                        doc.Delete(ids);
-                        tx.Commit();
-                        return $"Deleted {ids.Count} element(s). Undo with Ctrl+Z.";
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.DeleteElementsAsync(eids);
+                return result.Message;
             }
         };
     }

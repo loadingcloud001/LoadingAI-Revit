@@ -629,4 +629,76 @@ public sealed class AdapterRevitBridge : IRevitBridge
             }
         }, ct);
     }
+
+    public Task<CommandResultDto> DeleteElementsAsync(
+        IReadOnlyList<string> elementIds, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (elementIds == null || elementIds.Count == 0)
+                return new CommandResultDto(false, "Provide elementIds.");
+
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: delete {elementIds.Count} elements");
+            tx.Start();
+            try
+            {
+                var ids = elementIds.Select(AllTools.ParseEid).ToList();
+                doc.Delete(ids);
+                tx.Commit();
+                return new CommandResultDto(true, $"Deleted {ids.Count} element(s). Undo with Ctrl+Z.", ids.Count);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<CommandResultDto> MoveElementsAsync(
+        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (elementIds == null || elementIds.Count == 0)
+                return new CommandResultDto(false, "Provide elementIds.");
+
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: move {elementIds.Count} elements");
+            tx.Start();
+            try
+            {
+                var vec = new XYZ(dx, dy, dz);
+                int ok = 0;
+                var failed = new List<string>();
+                foreach (var eidStr in elementIds)
+                {
+                    try
+                    {
+                        ElementTransformUtils.MoveElement(doc, AllTools.ParseEid(eidStr), vec);
+                        ok++;
+                    }
+                    catch (Exception ex) { failed.Add($"{eidStr}:{ex.Message}"); }
+                }
+                if (ok == 0)
+                {
+                    tx.RollBack();
+                    return new CommandResultDto(false, failed.Count > 0 ? "Failed: " + string.Join("; ", failed.Take(10)) : "Could not move any elements.");
+                }
+                tx.Commit();
+                var msg = $"Moved {ok}/{elementIds.Count} element(s) by ({dx},{dy},{dz}) ft.";
+                if (failed.Count > 0) msg += " Failed: " + string.Join("; ", failed.Take(10));
+                return new CommandResultDto(true, msg, ok);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
 }
