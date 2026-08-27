@@ -37,8 +37,11 @@ jobs:
           npm ci
           npm run build
 
+      - name: Restore
+        run: dotnet restore LoadingAI.sln -p:RevitVersion=${{ matrix.revit }}
+
       - name: Build
-        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} -p:SkipCopyAddin=true
+        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} --no-restore -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true -m:1
 
       - name: Pack zip
         shell: pwsh
