@@ -21,6 +21,7 @@ public sealed class AgentLoop
         "Do not claim you changed the model unless a write tool succeeded. Be concise. " +
         "Destructive actions are confirmed via TaskDialog. You have up to 64 tool rounds; prefer composite tools. " +
         "Lengths are millimetres, areas m², volumes m³. Pass those units in tool arguments. " +
+        "L3 tools (delete/move/create/save) default off; if a write tool is missing, tell the user to enable it in Settings — do not send them to the Revit ribbon. " +
         "User can press Stop to cancel.";
 
     public AgentLoop(OpenAiCompatibleClient client, ToolRegistry registry)

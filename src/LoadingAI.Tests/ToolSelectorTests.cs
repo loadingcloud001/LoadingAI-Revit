@@ -35,4 +35,31 @@ public class ToolSelectorTests
         var noise = T("zzz_unrelated", "nothing");
         Assert.True(ToolSelector.Score(wall, "create wall") > ToolSelector.Score(noise, "create wall"));
     }
+
+    [Fact]
+    public void ChineseDelete_KeepsDeleteElements()
+    {
+        var tools = new List<ToolDefinition> { T("delete_elements", "Delete elements by Id") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "刪掉選取", 8);
+        Assert.Contains(selected, t => t.Function.Name == "delete_elements");
+    }
+
+    [Fact]
+    public void ChineseSave_KeepsSaveDocument()
+    {
+        var tools = new List<ToolDefinition> { T("save_document", "Save the Revit document") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "存檔", 8);
+        Assert.Contains(selected, t => t.Function.Name == "save_document");
+    }
+
+    [Fact]
+    public void ChineseMove_KeepsMoveElements()
+    {
+        var tools = new List<ToolDefinition> { T("move_elements", "Move elements by vector (mm)") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "把選取的牆往 Y 移 300mm", 8);
+        Assert.Contains(selected, t => t.Function.Name == "move_elements");
+    }
 }

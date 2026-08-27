@@ -40,6 +40,14 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void GeometryTools_DoNotShowTheirOwnTaskDialog()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "GeometryTools.cs"));
+        Assert.DoesNotContain("new TaskDialog", src);
+        Assert.DoesNotContain(") ft?", src);
+    }
+
+    [Fact]
     public void GearChrome_HostsPluginToggles()
     {
         var app = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
@@ -56,6 +64,14 @@ public class UsabilityContractTests
         Assert.True(ProviderSettings.IsToolEnabled(s, "get_model_summary", defaultEnabled: true));
         s.Plugins["delete_elements"] = true;
         Assert.True(ProviderSettings.IsToolEnabled(s, "delete_elements", defaultEnabled: false));
+    }
+
+    [Fact]
+    public void SystemPrompt_TellsModelL3LivesInSettings()
+    {
+        Assert.Contains("Settings", AgentLoop.BaseSystemPrompt);
+        Assert.Contains("L3", AgentLoop.BaseSystemPrompt);
+        Assert.Contains("millimetres", AgentLoop.BaseSystemPrompt);
     }
 
     private static string RepoRoot()
