@@ -36,7 +36,8 @@ public sealed record ElementSummaryDto(
 public sealed record WarningDto(
     string Description,
     int Count,
-    string Severity);
+    string Severity,
+    IReadOnlyList<string> FailingElementIds);
 
 public sealed record LevelDto(string Name, double Elevation, string Id);
 
@@ -55,3 +56,63 @@ public sealed record SyncInfoDto(
     bool IsWorkshared,
     string LastSavedBy,
     int OpenWorksets);
+
+public sealed record WallMetricsDto(
+    int Count,
+    int Sampled,
+    string? LevelName,
+    double TotalLengthFt,
+    double TotalAreaSqFt,
+    double TotalVolumeCuFt,
+    bool Truncated);
+
+public sealed record VisibleElementsDto(
+    string ViewName,
+    int Count,
+    string? Category,
+    string? Error,
+    IReadOnlyList<string> SampleIds);
+
+public sealed record ParameterValueDto(
+    string Name,
+    string Value,
+    bool IsReadOnly,
+    string StorageType);
+
+public sealed record ElementDetailsDto(
+    string Id,
+    string Name,
+    string Category,
+    string Type,
+    string Level,
+    string Location,
+    IReadOnlyList<ParameterValueDto> Parameters,
+    int ParameterTotal,
+    string? Error);
+
+public sealed record FindResultDto(
+    int Total,
+    int Offset,
+    string? Error,
+    IReadOnlyList<ElementSummaryDto> Items);
+
+public sealed record ElementQuantityDto(
+    string Id,
+    string Category,
+    string Name,
+    double? LengthFt,
+    double? AreaSqFt,
+    double? VolumeCuFt,
+    string? BoundingBox);
+
+public sealed record CategoryCountDto(string Name, int Count);
+
+public sealed record ActiveViewDetailsDto(
+    string Name,
+    string ViewType,
+    string ViewId,
+    int Scale,
+    string DetailLevel,
+    int VisibleElementCount,
+    IReadOnlyList<CategoryCountDto> TopCategories,
+    IReadOnlyList<string> SampleIds);
