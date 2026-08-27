@@ -45,6 +45,7 @@ public class UsabilityContractTests
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "GeometryTools.cs"));
         Assert.DoesNotContain("new TaskDialog", src);
         Assert.DoesNotContain(") ft?", src);
+        Assert.Contains("uses current selection", src);
     }
 
     [Fact]
@@ -54,6 +55,10 @@ public class UsabilityContractTests
         Assert.Contains("PluginShelf", app);
         Assert.Contains("listPlugins", app);
         Assert.Contains("type === 'plugins'", app);
+        var shelf = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "plugins", "PluginShelf.tsx"));
+        Assert.Contains("setPluginTierEnabled", shelf);
+        Assert.Contains("saveToolSettings", shelf);
+        Assert.Contains("L3", shelf);
     }
 
     [Fact]

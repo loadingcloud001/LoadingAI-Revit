@@ -9,7 +9,7 @@ public sealed record TodoItem(string Id, string Title, string? Tool, string Stat
 public sealed class AgentLoop
 {
     private readonly OpenAiCompatibleClient _client;
-    private readonly ToolRegistry _registry;
+    private ToolRegistry _registry;
     private readonly List<ChatMessage> _history = new();
     private readonly object _historyLock = new();
     private readonly List<TodoItem> _todos = new();
@@ -30,6 +30,8 @@ public sealed class AgentLoop
         _registry = registry;
         _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
     }
+
+    public void ReplaceRegistry(ToolRegistry registry) => _registry = registry;
 
     public IReadOnlyList<ChatMessage> History
     {

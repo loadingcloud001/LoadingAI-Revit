@@ -1,28 +1,48 @@
 import { PluginInfo, postToHost } from '../bridge';
 
 const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
+const btn = 'px-2 py-1 border bg-white text-[11px]';
+
+function tierStats(plugins: PluginInfo[], tier: string) {
+  const tools = plugins.flatMap(p => p.tools).filter(t => t.tier === tier);
+  const on = tools.filter(t => t.enabled).length;
+  return { total: tools.length, on, allOn: tools.length > 0 && on === tools.length };
+}
 
 export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
   if (!plugins || plugins.length === 0) {
     return (
       <div style={{ padding: 8, fontSize: 11, color: '#6a6a6a' }}>
         No plugins. Core tools should appear after restart.
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs ml-2" onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
+        <button type="button" className={`${btn} ml-2`} onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
       </div>
     );
   }
 
   const total = plugins.reduce((n, p) => n + p.tools.length, 0);
   const on = plugins.reduce((n, p) => n + p.tools.filter(t => t.enabled).length, 0);
+  const l1 = tierStats(plugins, 'L1');
+  const l2 = tierStats(plugins, 'L2');
+  const l3 = tierStats(plugins, 'L3');
+
+  const toggleTier = (tier: string, allOn: boolean) =>
+    postToHost({ type: 'setPluginTierEnabled', tier, enabled: !allOn });
 
   return (
     <div>
       <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
         <span className="font-semibold">Tools</span>
-        <span className="text-[10px] text-muted-foreground">{on}/{total} on · L3 off by default</span>
+        <span className="text-[10px] text-muted-foreground">{on}/{total} on</span>
         <span className="flex-1" />
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'listPlugins' })}>Refresh</button>
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan disk</button>
+        <button type="button" className={btn} onClick={() => postToHost({ type: 'saveToolSettings' })}>Save</button>
+      </div>
+      <div className="px-2 py-1.5 flex flex-wrap gap-1" style={{ borderBottom: '1px solid #d0d0d0' }}>
+        <button type="button" className={btn} onClick={() => toggleTier('L1', l1.allOn)}>L1 {l1.allOn ? 'all off' : 'all on'} · {l1.on}/{l1.total}</button>
+        <button type="button" className={btn} onClick={() => toggleTier('L2', l2.allOn)}>L2 {l2.allOn ? 'all off' : 'all on'} · {l2.on}/{l2.total}</button>
+        <button type="button" className={btn} style={{ color: '#8a1f11' }} onClick={() => toggleTier('L3', l3.allOn)}>L3 {l3.allOn ? 'all off' : 'all on'} · {l3.on}/{l3.total}</button>
+      </div>
+      <div className="px-2 py-1 text-[10px]" style={{ color: '#6a6a6a', borderBottom: '1px solid #ececec' }}>
+        Ticks save immediately. Save rebuilds the tool list for chat. L3 (delete/move/create/save) default off.
       </div>
       {plugins.map(p => {
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);

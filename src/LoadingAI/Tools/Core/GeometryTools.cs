@@ -35,12 +35,12 @@ public static class GeometryTools
                         type = "object",
                         properties = new
                         {
-                            elementIds = new { type = "array", items = new { type = "string" } },
+                            elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                             dx = new { type = "number", description = "Delta X in mm" },
                             dy = new { type = "number", description = "Delta Y in mm" },
                             dz = new { type = "number", description = "Delta Z in mm" }
                         },
-                        required = new[] { "elementIds", "dx", "dy", "dz" }
+                        required = new[] { "dx", "dy", "dz" }
                     }
                 }
             },
@@ -50,12 +50,19 @@ public static class GeometryTools
                 try
                 {
                     using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     dx = d.RootElement.GetProperty("dx").GetDouble();
                     dy = d.RootElement.GetProperty("dy").GetDouble();
                     dz = d.RootElement.GetProperty("dz").GetDouble();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                if (eids.Count == 0)
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if (eids.Count == 0) return "Please select elements first.";
                 var result = await context.Bridge.MoveElementsAsync(eids, Metric.MmToFt(dx), Metric.MmToFt(dy), Metric.MmToFt(dz));
                 return result.Message;
             }
@@ -73,12 +80,12 @@ public static class GeometryTools
                 Function = new ToolFunction
                 {
                     Name = "delete_elements",
-                    Description = "Delete elements by Id. Destructive; host confirms.",
+                    Description = "Delete selected elements, or pass elementIds. Destructive; host confirms.",
                     Parameters = new
                     {
                         type = "object",
-                        properties = new { elementIds = new { type = "array", items = new { type = "string" } } },
-                        required = new[] { "elementIds" }
+                        properties = new { elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." } },
+                        required = Array.Empty<string>()
                     }
                 }
             },
@@ -88,10 +95,16 @@ public static class GeometryTools
                 try
                 {
                     using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                    eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                    if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if (eids.Count == 0) return "Provide elementIds.";
+                if (eids.Count == 0)
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if (eids.Count == 0) return "Please select elements first.";
                 var result = await context.Bridge.DeleteElementsAsync(eids);
                 return result.Message;
             }
