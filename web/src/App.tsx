@@ -96,7 +96,7 @@ export default function App() {
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([
-    { id: 'welcome', role: 'system', text: 'LoadingAI. 預設 Build。/ask /plan /help' }
+    { id: 'welcome', role: 'system', text: 'LoadingAI. Default Build. /ask /plan /help' }
   ]);
   const [input, setInput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -128,14 +128,14 @@ export default function App() {
 
   const addFiles = useCallback(async (files: File[]) => {
     const imgs = files.filter(f => f.type.startsWith('image/')).slice(0, 5 - attachments.length);
-    if (imgs.length === 0) { setStatus('僅支持圖片（png/jpg/webp/gif）'); return; }
-    if (attachments.length + imgs.length > 5) { setStatus('最多 5 張圖片'); return; }
+    if (imgs.length === 0) { setStatus('Images only (png/jpg/webp/gif)'); return; }
+    if (attachments.length + imgs.length > 5) { setStatus('Max 5 images'); return; }
     for (const f of imgs) {
       try {
-        if (f.size > 12 * 1024 * 1024) { setStatus(`${f.name} 超過 12MB`); continue; }
+        if (f.size > 12 * 1024 * 1024) { setStatus(`${f.name} over 12MB`); continue; }
         const att = await compressImage(f);
         setAttachments(a => [...a, att]);
-      } catch (e: any) { setStatus(`壓縮失敗: ${e?.message ?? String(e)}`); }
+      } catch (e: any) { setStatus(`Compress failed: ${e?.message ?? String(e)}`); }
     }
   }, [attachments.length]);
 
@@ -195,10 +195,10 @@ export default function App() {
         } else if (msg.type === 'checkpoints') {
           const list = ((msg as any).checkpoints as CheckpointInfo[]) ?? [];
           setCheckpoints(list);
-          setMessages(m => [...m, { id: nextId(), role: 'system', text: list.length ? list.map(c => `${c.id}  ${c.preview ?? ''}`).join('\n') : '沒有 checkpoint。/resume 恢復。' }]);
+          setMessages(m => [...m, { id: nextId(), role: 'system', text: list.length ? list.map(c => `${c.id}  ${c.preview ?? ''}`).join('\n') : 'No checkpoints. /resume to restore.' }]);
         } else if ((msg as any).type === 'history') {
           const hist = ((msg as any).messages as { role: string; text: string }[]) ?? [];
-          setMessages([{ id: 'resumed', role: 'system', text: `已恢復 ${hist.length} 條歷史` }, ...hist.map((h, i) => ({ id: `h${i}`, role: h.role === 'user' ? 'you' as const : h.role === 'assistant' ? 'assistant' as const : 'system' as const, text: h.text }))]);
+          setMessages([{ id: 'resumed', role: 'system', text: `Restored ${hist.length} messages` }, ...hist.map((h, i) => ({ id: `h${i}`, role: h.role === 'user' ? 'you' as const : h.role === 'assistant' ? 'assistant' as const : 'system' as const, text: h.text }))]);
           setIsRunning(false);
         } else if (msg.type === 'tool_approval') {
           setPendingApproval(msg.approval);
@@ -276,14 +276,14 @@ export default function App() {
     if (parsed.slash) {
       if (parsed.slash.name === 'clear') { handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
       if (parsed.slash.name === 'help') {
-        setMessages(m => [...m, { id: nextId(), role: 'system', text: `可用命令：${SLASH_COMMANDS.map(c => `${c.label} ${c.argsHint ?? ''} — ${c.description}`).join('\n')}\n\n@提及：@selection @activeView @visible @warnings @levels @sheets` }]);
+        setMessages(m => [...m, { id: nextId(), role: 'system', text: `Commands: ${SLASH_COMMANDS.map(c => `${c.label} ${c.argsHint ?? ''} — ${c.description}`).join('\n')}\n\n@mentions: @selection @activeView @visible @warnings @levels @sheets` }]);
         setInput(''); setSlashOpen(false); return;
       }
       if (parsed.slash.name === 'checkpoints') { postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); return; }
     }
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
-    if (!cur || !active) { setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open 設定 to add one.' }]); setShowSettings(true); return; }
+    if (!cur || !active) { setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open Settings to add one.' }]); setShowSettings(true); return; }
     if (!active.apiKey && !active.baseUrl.includes('localhost')) { setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key.` }]); setShowSettings(true); return; }
     if (selectedProviderId && selectedProviderId !== cur.activeProviderId) {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
@@ -292,7 +292,7 @@ export default function App() {
     let effMode = mode;
     if (parsed.effectiveMode) effMode = parsed.effectiveMode;
     if (raw.trim()) { inputHistoryRef.current = [raw.trim(), ...inputHistoryRef.current.filter(x => x !== raw.trim())].slice(0, 50); historyIdxRef.current = -1; }
-    setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '（圖片）' : ''), attachments: atts.length ? atts : undefined }]);
+    setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '(image)' : ''), attachments: atts.length ? atts : undefined }]);
     setInput(''); setAttachments([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
     setIsRunning(true); streamedRef.current = false; pendingDeltaRef.current = '';
     setStatus(effMode === 'plan' ? 'Planning...' : effMode === 'ask' ? 'Thinking...' : 'Working...');
@@ -301,7 +301,7 @@ export default function App() {
   const handleApprove = (approved: boolean) => {
     if (!pendingApproval) return;
     postToHost({ type: 'approveTool', toolCallId: pendingApproval.toolCallId, approved } as any);
-    setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `已批准 ${pendingApproval.toolName}` : `已拒絕 ${pendingApproval.toolName}` }]);
+    setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `Approved ${pendingApproval.toolName}` : `Denied ${pendingApproval.toolName}` }]);
     setPendingApproval(null);
   };
   const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); streamedRef.current = false; };
@@ -456,7 +456,7 @@ export default function App() {
 
   const connected = !!(activeProvider?.apiKey || activeProvider?.baseUrl.includes('localhost'));
   const ctxLine = context
-    ? `選 ${context.selectionCount}${context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 40)}` : ''} · ${context.activeView} · 警告 ${context.warningCount ?? 0}`
+    ? `Sel ${context.selectionCount}${context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 40)}` : ''} · ${context.activeView} · warnings ${context.warningCount ?? 0}`
     : status;
 
   const roleLabel = (role: Message['role']) => {
@@ -474,27 +474,27 @@ export default function App() {
           <div className="flex-1 min-w-0">
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#444' }}>LoadingAI</div>
             <div style={{ fontSize: 12, color: '#111', marginTop: 2 }} className="truncate">
-              {activeProvider ? `${activeProvider.model} · ${connected ? '已連線' : '未設定'}` : (settings ? '未設定提供商' : '載入中…')}
+              {activeProvider ? `${activeProvider.model} · ${connected ? 'connected' : 'not set'}` : (settings ? 'No provider' : 'Loading…')}
             </div>
           </div>
-          <button type="button" className={btn} onClick={() => setShowSettings(v => { const next = !v; if (!v) postToHost({ type: 'listPlugins' }); return next; })}>{showSettings ? '關閉' : '設定'}</button>
+          <button type="button" className={btn} onClick={() => setShowSettings(v => { const next = !v; if (!v) postToHost({ type: 'listPlugins' }); return next; })}>{showSettings ? 'Close' : 'Settings'}</button>
         </div>
       </div>
 
       <div style={{ fontSize: 11, color: '#5c5c5c', padding: '6px 10px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {isRunning ? '處理中…' : ctxLine}
+        {isRunning ? 'Working…' : ctxLine}
       </div>
 
       {showSettings && (
         <div className="border-b overflow-y-auto" style={{ maxHeight: '52vh', background: '#f3f3f3', borderColor: '#d0d0d0' }}>
           <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
-            <span className="font-semibold">提供商</span>
-            <span className="text-[10px] text-muted-foreground">{providers.length} · 金鑰 DPAPI</span>
+            <span className="font-semibold">Providers</span>
+            <span className="text-[10px] text-muted-foreground">{providers.length} · keys DPAPI</span>
             <span className="flex-1" />
-            <button type="button" className={btn} onClick={handleAddCustom}>+ 自訂</button>
-            <button type="button" className={btn} onClick={handleClear}>清除會話</button>
+            <button type="button" className={btn} onClick={handleAddCustom}>+ Custom</button>
+            <button type="button" className={btn} onClick={handleClear}>Clear session</button>
           </div>
-          <input value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="過濾…" className={`${inp} m-2`} style={{ width: 'calc(100% - 16px)' }} />
+          <input value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Filter…" className={`${inp} m-2`} style={{ width: 'calc(100% - 16px)' }} />
           <div style={{ borderTop: '1px solid #d0d0d0' }}>
             {filteredProvidersLeft.map(p => {
               const isEditing = editing?.id === p.id;
@@ -508,8 +508,8 @@ export default function App() {
             })}
           </div>
           <div className="p-2" style={{ borderTop: '1px solid #d0d0d0' }}>
-            <div className="text-[11px] font-semibold mb-1">預設</div>
-            <input value={catalogFilter} onChange={e => setCatalogFilter(e.target.value)} placeholder="過濾預設…" className={`${inp} mb-1`} />
+            <div className="text-[11px] font-semibold mb-1">Presets</div>
+            <input value={catalogFilter} onChange={e => setCatalogFilter(e.target.value)} placeholder="Filter presets…" className={`${inp} mb-1`} />
             <div className="max-h-24 overflow-y-auto" style={{ background: '#fff', border: '1px solid #d0d0d0' }}>
               {catalogFiltered.map(c => (
                 <button key={c.id} type="button" onClick={() => handleAddFromPreset(c)} className="w-full text-left px-2 py-1 text-xs" style={{ borderBottom: '1px solid #ececec' }}>
@@ -520,16 +520,16 @@ export default function App() {
           </div>
           {editing && (
             <div className="p-2 flex flex-col gap-1.5" style={{ borderTop: '1px solid #d0d0d0', background: '#fff' }}>
-              <label className="text-[11px] font-semibold">名稱<input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className={inp} /></label>
+              <label className="text-[11px] font-semibold">Name<input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className={inp} /></label>
               <label className="text-[11px] font-semibold">Base URL<input value={editForm.baseUrl} onChange={e => setEditForm(f => ({ ...f, baseUrl: e.target.value }))} className={`${inp} font-mono`} /></label>
-              <label className="text-[11px] font-semibold">API 類型
+              <label className="text-[11px] font-semibold">API kind
                 <select value={editForm.apiKind} onChange={e => setEditForm(f => ({ ...f, apiKind: e.target.value }))} className={inp}>
                   <option value="openai">OpenAI Compatible</option>
                   <option value="responses">Responses</option>
                   <option value="anthropic">Anthropic</option>
                 </select>
               </label>
-              <label className="text-[11px] font-semibold">分組
+              <label className="text-[11px] font-semibold">Group
                 <select value={editForm.group} onChange={e => setEditForm(f => ({ ...f, group: e.target.value }))} className={inp}>
                   <option value="cloud">Cloud</option>
                   <option value="gateway">Gateway</option>
@@ -538,7 +538,7 @@ export default function App() {
                 </select>
               </label>
               <label className="text-[11px] font-semibold">
-                <span className="flex items-center">模型<button type="button" className={`${btn} ml-auto`} onClick={handleFetchModels} disabled={!!modelsLoading}>{modelsLoading === editing.id ? '…' : '取得'}</button></span>
+                <span className="flex items-center">Model<button type="button" className={`${btn} ml-auto`} onClick={handleFetchModels} disabled={!!modelsLoading}>{modelsLoading === editing.id ? '…' : 'Fetch'}</button></span>
                 <input value={editForm.model} onChange={e => setEditForm(f => ({ ...f, model: e.target.value }))} className={`${inp} font-mono`} />
               </label>
               {editingModels.length > 0 && (
@@ -548,7 +548,7 @@ export default function App() {
                   ))}
                   {editingModels.length > 8 && (
                     <div className="p-1.5">
-                      <ModelSelector models={editingModels.map(id => ({ id, name: id, provider: editing.name } as any))} value={editForm.model} onChange={(id: string) => setEditForm(f => ({ ...f, model: id }))} placeholder="搜尋模型..." storageKey={`oms-${editing.id}`} />
+                      <ModelSelector models={editingModels.map(id => ({ id, name: id, provider: editing.name } as any))} value={editForm.model} onChange={(id: string) => setEditForm(f => ({ ...f, model: id }))} placeholder="Search models..." storageKey={`oms-${editing.id}`} />
                     </div>
                   )}
                 </div>
@@ -559,10 +559,10 @@ export default function App() {
               </label>
               {testState && testState.id === editing.id && <div className="text-xs px-2 py-1" style={{ border: '1px solid #d0d0d0' }}>{testState.message}</div>}
               <div className="flex gap-1.5">
-                <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={handleSave}>保存</button>
-                <button type="button" className={btn} onClick={handleUse}>設為當前</button>
-                <button type="button" className={btn} onClick={handleTest} disabled={testState?.loading}>測試</button>
-                <button type="button" className={btn} style={{ color: '#8a1f11' }} onClick={handleDelete}>刪除</button>
+                <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={handleSave}>Save</button>
+                <button type="button" className={btn} onClick={handleUse}>Use</button>
+                <button type="button" className={btn} onClick={handleTest} disabled={testState?.loading}>Test</button>
+                <button type="button" className={btn} style={{ color: '#8a1f11' }} onClick={handleDelete}>Delete</button>
               </div>
             </div>
           )}
@@ -598,8 +598,8 @@ export default function App() {
               <div key={i} className="text-xs py-0.5">{i + 1}. {s.title}{s.tool ? `  (${s.tool})` : ''}</div>
             ))}
             <div className="flex gap-1.5 mt-2">
-              <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={() => { setMode('build'); setCurrentPlan(null); handleSend('按剛才的計劃執行。'); }}>執行</button>
-              <button type="button" className={btn} onClick={() => setCurrentPlan(null)}>調整</button>
+              <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={() => { setMode('build'); setCurrentPlan(null); handleSend('Execute the plan.'); }}>Run</button>
+              <button type="button" className={btn} onClick={() => setCurrentPlan(null)}>Edit</button>
             </div>
           </div>
         )}
@@ -620,13 +620,13 @@ export default function App() {
                 <div style={{ ...kLabel, color: '#8a1f11' }}>Confirm L3</div>
                 <div>{m.approval.toolName}{m.approval.tier ? ` · ${m.approval.tier}` : ''}</div>
                 <div className="font-mono text-[11px] mt-1 break-all" style={{ color: '#5c5c5c' }}>{m.approval.args}</div>
-                <div className="mt-1" style={{ color: '#5c5c5c' }}>允許之後 Revit 還會再問一次。預設否。</div>
+                <div className="mt-1" style={{ color: '#5c5c5c' }}>After Allow, Revit will ask once more. Default is No.</div>
                 {isPending ? (
                   <div className="grid grid-cols-2 gap-1.5 mt-2">
-                    <button type="button" className={btn} onClick={() => handleApprove(false)}>拒絕</button>
-                    <button type="button" className={btn} style={{ background: '#8a1f11', color: '#fff', borderColor: '#8a1f11' }} onClick={() => handleApprove(true)}>允許</button>
+                    <button type="button" className={btn} onClick={() => handleApprove(false)}>Deny</button>
+                    <button type="button" className={btn} style={{ background: '#8a1f11', color: '#fff', borderColor: '#8a1f11' }} onClick={() => handleApprove(true)}>Allow</button>
                   </div>
-                ) : <div className="text-[11px] text-muted-foreground mt-1">（已處理）</div>}
+                ) : <div className="text-[11px] text-muted-foreground mt-1">(done)</div>}
               </div>
             );
           }
@@ -647,7 +647,7 @@ export default function App() {
             </div>
           );
         })}
-        {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{mode === 'plan' ? '規劃中…' : mode === 'ask' ? '思考中…' : '執行中…'}</div>}
+        {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{mode === 'plan' ? 'Planning…' : mode === 'ask' ? 'Thinking…' : 'Working…'}</div>}
       </div>
 
       <div
@@ -658,7 +658,7 @@ export default function App() {
         onPaste={handlePaste}
         style={{ borderTop: '1px solid #d0d0d0', padding: 8, background: '#f3f3f3' }}
       >
-        {isDragging && <div className="text-[11px] mb-1">拖放圖片至此</div>}
+        {isDragging && <div className="text-[11px] mb-1">Drop images here</div>}
         {attachments.length > 0 && (
           <div className="flex gap-1 mb-1 overflow-x-auto">
             {attachments.map(a => (
@@ -693,7 +693,7 @@ export default function App() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="描述任務"
+            placeholder="Describe the task"
             rows={2}
             disabled={isRunning}
             className="w-full resize-none outline-none text-xs"
@@ -703,11 +703,11 @@ export default function App() {
         <div className="flex items-center gap-1.5 mt-1.5">
           <span className="text-[10.5px]" style={{ color: '#7a7a7a' }}>/plan  /ask  /hide  ·  @selection</span>
           <span className="flex-1" />
-          <button type="button" className={btn} disabled={isRunning || attachments.length >= 5} onClick={() => fileInputRef.current?.click()}>圖</button>
+          <button type="button" className={btn} disabled={isRunning || attachments.length >= 5} onClick={() => fileInputRef.current?.click()}>Img</button>
           <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={async e => { const files = Array.from(e.target.files ?? []); if (files.length) await addFiles(files); if (fileInputRef.current) fileInputRef.current.value = ''; }} />
           {isRunning
-            ? <button type="button" className={btn} onClick={handleStop}>停止</button>
-            : <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!input.trim() && attachments.length === 0} onClick={() => handleSend()}>送出</button>}
+            ? <button type="button" className={btn} onClick={handleStop}>Stop</button>
+            : <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!input.trim() && attachments.length === 0} onClick={() => handleSend()}>Send</button>}
         </div>
       </div>
     </div>

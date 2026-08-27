@@ -7,18 +7,18 @@ export type SlashCommand = {
 };
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: 'plan', label: '/plan', description: '只讀規劃，生成 Todo 待批准', argsHint: '<目標>', mode: 'plan' },
-  { name: 'build', label: '/build', description: '可寫執行，自主調用工具', argsHint: '<目標>', mode: 'build' },
-  { name: 'ask', label: '/ask', description: '只讀問答，不改模型', argsHint: '<問題>', mode: 'ask' },
-  { name: 'clear', label: '/clear', description: '清空會話與 Todo' },
-  { name: 'help', label: '/help', description: '顯示所有命令與 @提及' },
-  { name: 'export', label: '/export', description: '快捷匯出', argsHint: 'ifc|dwg|pdf' },
-  { name: 'isolate', label: '/isolate', description: '隔離當前選中', argsHint: '[類別]' },
-  { name: 'hide', label: '/hide', description: '隱藏當前選中' },
-  { name: 'resume', label: '/resume', description: '恢復上次會話', argsHint: '[checkpoint id]' },
-  { name: 'checkpoints', label: '/checkpoints', description: '列出可恢復檢查點' },
-  { name: 'history', label: '/history', description: '顯示會話歷史長度' },
-  { name: 'models', label: '/models', description: '列出當前提供商模型' },
+  { name: 'plan', label: '/plan', description: 'Read-only plan, build a todo list', argsHint: '<goal>', mode: 'plan' },
+  { name: 'build', label: '/build', description: 'Write mode, run tools', argsHint: '<goal>', mode: 'build' },
+  { name: 'ask', label: '/ask', description: 'Read-only Q&A, do not change the model', argsHint: '<question>', mode: 'ask' },
+  { name: 'clear', label: '/clear', description: 'Clear the session and todos' },
+  { name: 'help', label: '/help', description: 'List commands and @mentions' },
+  { name: 'export', label: '/export', description: 'Quick export', argsHint: 'ifc|dwg|pdf' },
+  { name: 'isolate', label: '/isolate', description: 'Isolate current selection', argsHint: '[category]' },
+  { name: 'hide', label: '/hide', description: 'Hide current selection' },
+  { name: 'resume', label: '/resume', description: 'Resume last session', argsHint: '[checkpoint id]' },
+  { name: 'checkpoints', label: '/checkpoints', description: 'List checkpoints' },
+  { name: 'history', label: '/history', description: 'Show history length' },
+  { name: 'models', label: '/models', description: 'List models for the current provider' },
 ];
 
 export function findSlash(input: string): { cmd: SlashCommand | null; args: string; raw: string } {

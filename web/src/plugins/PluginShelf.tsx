@@ -6,8 +6,8 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
   if (!plugins || plugins.length === 0) {
     return (
       <div style={{ padding: 8, fontSize: 11, color: '#6a6a6a' }}>
-        沒有插件。Core 工具應在重啟後出現。
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs ml-2" onClick={() => postToHost({ type: 'reloadPlugins' })}>重掃</button>
+        No plugins. Core tools should appear after restart.
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs ml-2" onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
       </div>
     );
   }
@@ -18,11 +18,11 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
   return (
     <div>
       <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
-        <span className="font-semibold">工具</span>
-        <span className="text-[10px] text-muted-foreground">{on}/{total} 開 · L3 預設關</span>
+        <span className="font-semibold">Tools</span>
+        <span className="text-[10px] text-muted-foreground">{on}/{total} on · L3 off by default</span>
         <span className="flex-1" />
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'listPlugins' })}>重新整理</button>
-        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'reloadPlugins' })}>重掃磁碟</button>
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'listPlugins' })}>Refresh</button>
+        <button type="button" className="px-2 py-1.5 border bg-white text-xs" onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan disk</button>
       </div>
       {plugins.map(p => {
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);
@@ -40,7 +40,7 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
                   ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
                   onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
                 />
-                {allOn ? '全開' : someOn ? '部分' : '全關'}
+                {allOn ? 'All on' : someOn ? 'Partial' : 'All off'}
               </label>
             </div>
             {p.tools.map(t => (
@@ -54,7 +54,7 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
                     checked={t.enabled}
                     onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })}
                   />
-                  {t.enabled ? '開' : '關'}
+                  {t.enabled ? 'On' : 'Off'}
                 </label>
               </div>
             ))}

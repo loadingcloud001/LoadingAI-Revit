@@ -26,9 +26,9 @@ Or copy by hand:
 
 5. If Revit reports **Duplicated AddInId**, delete leftover `%AppData%\Autodesk\Revit\Addins\<year>\RevitAiPoc.addin` and the `RevitAiPoc\` folder.
 6. Start Revit → open a model → **Add-Ins → LoadingAI → Open Chat**.
-7. **設定** → provider + API key. L3 tools default **off**; turn them on in the same pane. Writes: web approve, then one TaskDialog.
+7. **Settings** → provider + API key. L3 tools default **off**; turn them on in the same pane. Writes: web approve, then one TaskDialog.
 
-Releases are cut by pushing a tag (`v0.1.0`). Until the first tag, use **Actions → Release add-in → Run workflow** and download the artifacts.
+Releases are published when a `v*` tag is pushed (for example `v0.1.0`). You can also run **Actions → Release add-in → Run workflow** and download the artifacts.
 
 ## Build from source
 
@@ -49,6 +49,7 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2027
 ## Use
 
 - Slash: `/ask` `/plan` `/build`. Default mode is Build.
+- Tool lengths are millimetres, areas m², volumes m³.
 - Do not commit `models/`, `vendor/`, `local/`, API keys, `*.rvt`.
 
 ## Repo
@@ -63,10 +64,3 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2027
 | `CONTRIBUTING.md` | How to add a plugin |
 
 CI (`.github/workflows/ci.yml`) builds 2024–2027 and tests 2027.
-
-## 中文（安裝）
-
-1. 裝 WebView2 Runtime。
-2. 從 Releases 下載對應年份 zip，解壓後跑 `Install.ps1`。
-3. 若 Duplicated AddInId，刪掉舊的 `RevitAiPoc.addin`。
-4. Revit → Add-Ins → LoadingAI → Open Chat → **設定** 填 API key。L3 預設關。
