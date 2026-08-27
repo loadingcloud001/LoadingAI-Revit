@@ -1,17 +1,34 @@
-*.rvt
-*.rfa
-*.rte
+# --- build / IDE ---
 bin/
 obj/
 .vs/
 *.user
 *.suo
-src/RevitAiPoc/bin/
-src/RevitAiPoc/obj/
-src/RevitAiPoc.Tests/bin/
-src/RevitAiPoc.Tests/obj/
 web/node_modules/
 web/dist/
+artifacts/
+
+# --- local-only dumps (not the product) ---
+vendor/
+models/
+local/
+.worktrees/
+*_backup/
+*_backup/**
+
+# --- Revit / Autodesk artifacts (wherever they land) ---
+*.rvt
+*.rfa
+*.rte
+*.0001.rvt
+*.0*.rvt
+*.chm
+*.docx
+*.doc
+*.pdf
+*.rtf
+
+# --- legacy SDK dump names if unpacked at root again ---
 Add-In Manager/
 Macro Samples/
 Revit Server SDK/
@@ -19,12 +36,4 @@ Revit Structure/
 Samples/
 Steel Connections SDK/
 Structural Analysis SDK/
-*.chm
-*.docx
-*.doc
-*.pdf
-*.rtf
-*_backup/
-*_backup/**
-*.0001.rvt
-*.0*.rvt
+Revit_temp/

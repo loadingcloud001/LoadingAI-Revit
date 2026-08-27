@@ -1,0 +1,71 @@
+name: Release add-in
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    name: Pack (Revit ${{ matrix.revit }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        revit: [2024, 2025, 2026, 2027]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+            8.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Web
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build
+        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} -p:SkipCopyAddin=true
+
+      - name: Pack zip
+        shell: pwsh
+        run: ./scripts/pack-addin.ps1 -RevitVersion ${{ matrix.revit }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LoadingAI-Revit-${{ matrix.revit }}
+          path: artifacts/LoadingAI-Revit-${{ matrix.revit }}.zip
+          if-no-files-found: error
+
+  publish:
+    name: GitHub Release
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+          body: |
+            Unzip the file for your Revit year. Run `Install.ps1` (no admin).
+            Needs [WebView2 Evergreen](https://developer.microsoft.com/microsoft-edge/webview2/).
+            If Revit says Duplicated AddInId, delete leftover `RevitAiPoc.addin`.
