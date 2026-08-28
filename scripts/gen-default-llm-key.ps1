@@ -12,6 +12,7 @@ if (-not $key -and (Test-Path $jsonPath)) {
 $out = Join-Path $Root "src\LoadingAI.Core\Llm\DefaultLlmKey.g.cs"
 if ([string]::IsNullOrWhiteSpace($key)) { exit 0 }
 
+# Must match DefaultLlmKey.Salt in DefaultLlm.cs
 $salt = [System.Text.Encoding]::UTF8.GetBytes("LoadingAI.DefaultLlm.v1")
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($key)
 $parts = New-Object System.Collections.Generic.List[string]

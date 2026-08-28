@@ -219,20 +219,25 @@ public static class ProviderSettings
         else DefaultLlm.SanitizeStored(existing);
 
         var active = s.Providers.FirstOrDefault(p => p.Id == s.ActiveProviderId);
-        var activeHasOwnKey = active != null
-            && !DefaultLlm.IsBuiltin(active.Id)
-            && !string.IsNullOrWhiteSpace(active.ApiKey);
-        if (!activeHasOwnKey && (active == null || DefaultLlm.IsBuiltin(active.Id) || string.IsNullOrWhiteSpace(active.ApiKey)))
-        {
-            if (DefaultLlm.HasKey || active == null || string.IsNullOrWhiteSpace(s.ActiveProviderId)
-                || !s.Providers.Any(p => p.Id == s.ActiveProviderId))
-                s.ActiveProviderId = DefaultLlm.Id;
-        }
+        if (active != null && !DefaultLlm.IsBuiltin(active.Id) && !string.IsNullOrWhiteSpace(active.ApiKey))
+            return s;
+
+        var missingActive = active == null
+            || string.IsNullOrWhiteSpace(s.ActiveProviderId)
+            || !s.Providers.Any(p => p.Id == s.ActiveProviderId);
+        if (DefaultLlm.HasKey || missingActive)
+            s.ActiveProviderId = DefaultLlm.Id;
         return s;
     }
 
     public static ProviderConfig? GetActive(AppSettings s)
         => s.Providers.FirstOrDefault(p => p.Id == s.ActiveProviderId) ?? s.Providers.FirstOrDefault();
+
+    public static ProviderConfig? GetActiveForCall(AppSettings s)
+    {
+        var p = GetActive(s);
+        return p == null ? null : DefaultLlm.BindForCall(p);
+    }
 
     public static bool IsMaskedKey(string? key)
         => !string.IsNullOrEmpty(key) && key.All(c => c is '•' or '*');
@@ -334,11 +339,8 @@ public static class ProviderSettings
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Select(p =>
             {
-                var copy = new ProviderConfig
-                {
-                    Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = ProtectKey(p.ApiKey),
-                    ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
-                };
+                var copy = Clone(p);
+                copy.ApiKey = ProtectKey(p.ApiKey);
                 if (DefaultLlm.IsBuiltin(copy.Id)) DefaultLlm.SanitizeStored(copy);
                 return copy;
             }).ToList()

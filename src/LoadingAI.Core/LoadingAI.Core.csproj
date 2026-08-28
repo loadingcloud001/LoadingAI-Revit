@@ -16,7 +16,7 @@
 
   <Target Name="GenerateDefaultLlmKey" BeforeTargets="BeforeCompile"
           Condition="Exists('$(MSBuildThisFileDirectory)..\..\local\default-llm.json') Or '$(LOADINGAI_DEFAULT_KEY)' != ''">
-    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\gen-default-llm-key.ps1&quot;" IgnoreExitCode="true" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\gen-default-llm-key.ps1&quot;" />
   </Target>
 
 </Project>
