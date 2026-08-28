@@ -33,6 +33,12 @@ export function isBuiltinProvider(id?: string) {
   return (id ?? '').toLowerCase() === BUILTIN_PROVIDER_ID;
 }
 
+/** saveSettings is providers only; tool flags go through setPluginEnabled / saveToolSettings. */
+export function providersOnly(s: AppSettings): AppSettings {
+  const { plugins: _plugins, ...rest } = s;
+  return rest;
+}
+
 export type PluginToolInfo = {
   name: string;
   tier: string;

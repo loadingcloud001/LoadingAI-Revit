@@ -12,8 +12,12 @@ if (-not $key -and (Test-Path $jsonPath)) {
 $out = Join-Path $Root "src\LoadingAI.Core\Llm\DefaultLlmKey.g.cs"
 if ([string]::IsNullOrWhiteSpace($key)) { exit 0 }
 
-# Must match DefaultLlmKey.Salt in DefaultLlm.cs
-$salt = [System.Text.Encoding]::UTF8.GetBytes("LoadingAI.DefaultLlm.v1")
+$csPath = Join-Path $Root "src\LoadingAI.Core\Llm\DefaultLlm.cs"
+$cs = Get-Content $csPath -Raw -Encoding UTF8
+if ($cs -notmatch 'internal const string Salt = "([^"]+)"') {
+    throw "DefaultLlmKey.Salt not found in DefaultLlm.cs"
+}
+$salt = [System.Text.Encoding]::UTF8.GetBytes($Matches[1])
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($key)
 $parts = New-Object System.Collections.Generic.List[string]
 for ($i = 0; $i -lt $bytes.Length; $i++) {

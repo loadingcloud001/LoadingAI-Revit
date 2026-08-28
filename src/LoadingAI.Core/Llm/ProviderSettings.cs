@@ -202,11 +202,11 @@ public static class ProviderSettings
             Providers = new List<ProviderConfig>
             {
                 DefaultLlm.ForSettings(),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[0]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[1]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[5], "ollama"),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[3]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[4]),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("deepseek")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("openai")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("ollama")!, "ollama"),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("openrouter")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("opencode")!),
             }
         };
     }
@@ -251,17 +251,10 @@ public static class ProviderSettings
             Providers = s.Providers.Select(p =>
             {
                 if (DefaultLlm.IsBuiltin(p.Id)) return DefaultLlm.ForWeb(p);
-                return new ProviderConfig
-                {
-                    Id = p.Id,
-                    Name = p.Name,
-                    BaseUrl = p.BaseUrl,
-                    Model = p.Model,
-                    ApiKey = string.IsNullOrEmpty(p.ApiKey) ? "" : KeyMask,
-                    ApiKind = string.IsNullOrWhiteSpace(p.ApiKind) ? InferApiKind(p) : p.ApiKind,
-                    Group = p.Group,
-                    Icon = p.Icon
-                };
+                var copy = Clone(p);
+                copy.ApiKey = string.IsNullOrEmpty(p.ApiKey) ? "" : KeyMask;
+                if (string.IsNullOrWhiteSpace(copy.ApiKind)) copy.ApiKind = InferApiKind(p);
+                return copy;
             }).ToList()
         };
     }
@@ -273,9 +266,11 @@ public static class ProviderSettings
             ActiveProviderId = string.IsNullOrWhiteSpace(incoming.ActiveProviderId)
                 ? current.ActiveProviderId
                 : incoming.ActiveProviderId,
-            Plugins = incoming.Plugins != null && incoming.Plugins.Count > 0
-                ? new Dictionary<string, bool>(incoming.Plugins, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, bool>(current.Plugins, StringComparer.OrdinalIgnoreCase),
+            Plugins = new Dictionary<string, bool>(
+                current.Plugins != null && current.Plugins.Count > 0
+                    ? current.Plugins
+                    : incoming.Plugins ?? new Dictionary<string, bool>(),
+                StringComparer.OrdinalIgnoreCase),
             Providers = new List<ProviderConfig>()
         };
 
@@ -285,17 +280,14 @@ public static class ProviderSettings
             var key = inc.ApiKey;
             if (string.IsNullOrWhiteSpace(key) || IsMaskedKey(key))
                 key = prev?.ApiKey ?? "";
-            var cfg = new ProviderConfig
-            {
-                Id = inc.Id,
-                Name = inc.Name,
-                BaseUrl = inc.BaseUrl,
-                Model = inc.Model,
-                ApiKey = key,
-                ApiKind = string.IsNullOrWhiteSpace(inc.ApiKind) ? (prev?.ApiKind ?? InferApiKind(inc)) : inc.ApiKind,
-                Group = string.IsNullOrWhiteSpace(inc.Group) ? (prev?.Group ?? InferGroup(inc)) : inc.Group,
-                Icon = string.IsNullOrWhiteSpace(inc.Icon) ? (prev?.Icon ?? ProviderCatalog.Find(inc.Id)?.Icon ?? DefaultIcon(inc.Group ?? InferGroup(inc))) : inc.Icon
-            };
+            var cfg = Clone(inc);
+            cfg.ApiKey = key;
+            if (string.IsNullOrWhiteSpace(cfg.ApiKind))
+                cfg.ApiKind = prev?.ApiKind ?? InferApiKind(inc);
+            if (string.IsNullOrWhiteSpace(cfg.Group))
+                cfg.Group = prev?.Group ?? InferGroup(inc);
+            if (string.IsNullOrWhiteSpace(cfg.Icon))
+                cfg.Icon = prev?.Icon ?? ProviderCatalog.Find(inc.Id)?.Icon ?? DefaultIcon(cfg.Group ?? InferGroup(inc));
             if (DefaultLlm.IsBuiltin(cfg.Id)) DefaultLlm.SanitizeStored(cfg);
             merged.Providers.Add(cfg);
         }
@@ -354,7 +346,7 @@ public static class ProviderSettings
         return s;
     }
 
-    private static ProviderConfig Clone(ProviderConfig p) => new()
+    internal static ProviderConfig Clone(ProviderConfig p) => new()
     {
         Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = p.ApiKey,
         ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon

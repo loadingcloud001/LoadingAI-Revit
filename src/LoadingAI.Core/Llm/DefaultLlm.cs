@@ -54,17 +54,11 @@ public static class DefaultLlm
     {
         if (p == null || !IsBuiltin(p.Id))
             return Copy(p);
-        return new ProviderConfig
-        {
-            Id = Id,
-            Name = DisplayName,
-            BaseUrl = ApiBaseUrl.TrimEnd('/'),
-            Model = ApiModel,
-            ApiKey = KeySource?.Invoke() ?? "",
-            ApiKind = ApiKind,
-            Group = Group,
-            Icon = Icon
-        };
+        var c = ForSettings();
+        c.BaseUrl = ApiBaseUrl.TrimEnd('/');
+        c.Model = ApiModel;
+        c.ApiKey = KeySource?.Invoke() ?? "";
+        return c;
     }
 
     public static ProviderConfig ForWeb(ProviderConfig p)
@@ -93,11 +87,7 @@ public static class DefaultLlm
     static ProviderConfig Copy(ProviderConfig? p)
     {
         if (p == null) return ForSettings();
-        return new ProviderConfig
-        {
-            Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = p.ApiKey,
-            ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
-        };
+        return ProviderSettings.Clone(p);
     }
 }
 

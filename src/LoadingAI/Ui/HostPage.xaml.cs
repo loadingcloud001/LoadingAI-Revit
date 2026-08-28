@@ -216,7 +216,7 @@ public partial class HostPage : Page
                 if (ProviderSettings.IsMaskedKey(prov.ApiKey) || string.IsNullOrWhiteSpace(prov.ApiKey))
                 {
                     var stored = _settings.Providers.FirstOrDefault(p => p.Id.Equals(prov.Id, StringComparison.OrdinalIgnoreCase));
-                    if (stored != null && (ProviderSettings.IsMaskedKey(prov.ApiKey) || string.IsNullOrWhiteSpace(prov.ApiKey)))
+                    if (stored != null)
                         prov.ApiKey = stored.ApiKey;
                 }
                 if (string.IsNullOrWhiteSpace(prov.ApiKind)) prov.ApiKind = ProviderSettings.InferApiKind(prov);
