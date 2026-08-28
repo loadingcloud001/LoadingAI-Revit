@@ -49,10 +49,10 @@ public class DefaultLlmTests : IDisposable
     {
         var stored = DefaultLlm.ForSettings();
         var bound = DefaultLlm.BindForCall(stored);
-        Assert.Equal("https://api.minimaxi.com/v1", bound.BaseUrl);
+        Assert.Equal(DefaultLlm.ApiBaseUrl, bound.BaseUrl);
         Assert.Equal(DefaultLlm.ApiModel, bound.Model);
         Assert.Equal("sk-test-not-real", bound.ApiKey);
-        Assert.Equal("openai", bound.ApiKind);
+        Assert.Equal(DefaultLlm.ApiKind, bound.ApiKind);
         Assert.NotEqual(DefaultLlm.DisplayModel, bound.Model);
     }
 

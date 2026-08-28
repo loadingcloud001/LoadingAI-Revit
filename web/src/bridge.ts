@@ -26,6 +26,13 @@ export type AppSettings = {
   plugins?: Record<string, boolean>;
 };
 
+/** Must match DefaultLlm.Id / DisplayName in C#. */
+export const BUILTIN_PROVIDER_ID = 'loadingai';
+export const BUILTIN_PROVIDER_NAME = 'LoadingAI';
+export function isBuiltinProvider(id?: string) {
+  return (id ?? '').toLowerCase() === BUILTIN_PROVIDER_ID;
+}
+
 export type PluginToolInfo = {
   name: string;
   tier: string;
@@ -165,9 +172,9 @@ export function postToHost(msg: ToHost) {
     }
     if (msg.type === 'requestSettings') {
       const mock: AppSettings = {
-        activeProviderId: 'loadingai',
+        activeProviderId: BUILTIN_PROVIDER_ID,
         providers: [
-          { id: 'loadingai', name: 'LoadingAI', baseUrl: '', model: 'LoadingAI', apiKey: '••••••••', apiKind: 'openai', group: 'cloud', icon: '✦' },
+          { id: BUILTIN_PROVIDER_ID, name: BUILTIN_PROVIDER_NAME, baseUrl: '', model: BUILTIN_PROVIDER_NAME, apiKey: '••••••••', apiKind: 'openai', group: 'cloud', icon: '✦' },
           { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◆' },
           { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◉' },
           { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama', apiKind: 'openai', group: 'local', icon: '⬢' },

@@ -206,11 +206,7 @@ public partial class HostPage : Page
             {
                 var id = idEl.GetString() ?? "";
                 var found = _settings.Providers.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-                if (found != null) return DefaultLlm.BindForCall(new ProviderConfig
-                {
-                    Id = found.Id, Name = found.Name, BaseUrl = found.BaseUrl, Model = found.Model, ApiKey = found.ApiKey,
-                    ApiKind = found.ApiKind, Group = found.Group, Icon = found.Icon
-                });
+                if (found != null) return DefaultLlm.BindForCall(found);
             }
             if (doc.RootElement.TryGetProperty("provider", out var provEl) && provEl.ValueKind == JsonValueKind.Object)
             {

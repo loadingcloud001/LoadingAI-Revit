@@ -219,15 +219,14 @@ public static class ProviderSettings
         else DefaultLlm.SanitizeStored(existing);
 
         var active = s.Providers.FirstOrDefault(p => p.Id == s.ActiveProviderId);
-        var activeHasOwnKey = active != null
-            && !DefaultLlm.IsBuiltin(active.Id)
-            && !string.IsNullOrWhiteSpace(active.ApiKey);
-        if (!activeHasOwnKey && (active == null || DefaultLlm.IsBuiltin(active.Id) || string.IsNullOrWhiteSpace(active.ApiKey)))
-        {
-            if (DefaultLlm.HasKey || active == null || string.IsNullOrWhiteSpace(s.ActiveProviderId)
-                || !s.Providers.Any(p => p.Id == s.ActiveProviderId))
-                s.ActiveProviderId = DefaultLlm.Id;
-        }
+        if (active != null && !DefaultLlm.IsBuiltin(active.Id) && !string.IsNullOrWhiteSpace(active.ApiKey))
+            return s;
+
+        var missingActive = active == null
+            || string.IsNullOrWhiteSpace(s.ActiveProviderId)
+            || !s.Providers.Any(p => p.Id == s.ActiveProviderId);
+        if (DefaultLlm.HasKey || missingActive)
+            s.ActiveProviderId = DefaultLlm.Id;
         return s;
     }
 

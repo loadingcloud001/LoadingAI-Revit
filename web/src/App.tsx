@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -417,7 +417,7 @@ export default function App() {
   };
   const handleSave = () => {
     const cur = settingsRef.current ?? settings; if (!cur || !editing) return;
-    if (editing.id === 'loadingai') { setStatus('LoadingAI is built in — no key to save.'); return; }
+    if (isBuiltinProvider(editing.id)) { setStatus(`${BUILTIN_PROVIDER_NAME} is built in — no key to save.`); return; }
     if (!editForm.name.trim() || !editForm.baseUrl.trim() || !editForm.model.trim()) { setStatus('Name, Base URL and Model are required.'); return; }
     try { new URL(editForm.baseUrl.trim()); } catch { setStatus('Base URL is not a valid URL.'); return; }
     const upd: ProviderConfig = { ...editing, name: editForm.name.trim(), baseUrl: editForm.baseUrl.trim().replace(/\/$/, ''), model: editForm.model.trim(), apiKey: editForm.apiKey.trim(), apiKind: editForm.apiKind, group: editForm.group, icon: editForm.icon };
@@ -426,7 +426,7 @@ export default function App() {
   };
   const handleDelete = () => {
     const cur = settingsRef.current ?? settings; if (!cur || !editing) return;
-    if (editing.id === 'loadingai') { setStatus('Cannot delete the built-in LoadingAI provider.'); return; }
+    if (isBuiltinProvider(editing.id)) { setStatus(`Cannot delete the built-in ${BUILTIN_PROVIDER_NAME} provider.`); return; }
     if (cur.providers.length <= 1) { setStatus('Cannot delete the last provider.'); return; }
     const np = cur.providers.filter(p => p.id !== editing.id);
     const na = cur.activeProviderId === editing.id ? np[0].id : cur.activeProviderId;
@@ -527,9 +527,9 @@ export default function App() {
           </div>
           {editing && (
             <div className="p-2 flex flex-col gap-1.5" style={{ borderTop: '1px solid #d0d0d0', background: '#fff' }}>
-              {editing.id === 'loadingai' ? (
+              {isBuiltinProvider(editing.id) ? (
                 <>
-                  <div className="text-[11px] font-semibold">LoadingAI</div>
+                  <div className="text-[11px] font-semibold">{BUILTIN_PROVIDER_NAME}</div>
                   <div className="text-[11px] text-muted-foreground">Included free. No API key needed.</div>
                   {testState && testState.id === editing.id && <div className="text-xs px-2 py-1" style={{ border: '1px solid #d0d0d0' }}>{testState.message}</div>}
                   <div className="flex gap-1.5">

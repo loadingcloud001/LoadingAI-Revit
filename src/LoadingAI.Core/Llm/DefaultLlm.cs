@@ -98,12 +98,14 @@ public static class DefaultLlm
 
 internal static partial class DefaultLlmKey
 {
+    internal const string Salt = "LoadingAI.DefaultLlm.v1";
+
     public static string? TryGet()
     {
         byte[]? packed = null;
         GetPacked(ref packed);
         if (packed == null || packed.Length == 0) return null;
-        var salt = Encoding.UTF8.GetBytes("LoadingAI.DefaultLlm.v1");
+        var salt = Encoding.UTF8.GetBytes(Salt);
         var bytes = new byte[packed.Length];
         for (int i = 0; i < packed.Length; i++)
             bytes[i] = (byte)(packed[i] ^ salt[i % salt.Length]);
