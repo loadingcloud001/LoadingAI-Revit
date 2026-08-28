@@ -52,7 +52,8 @@ public static class DefaultLlm
 
     public static ProviderConfig BindForCall(ProviderConfig p)
     {
-        if (!IsBuiltin(p.Id)) return p;
+        if (p == null || !IsBuiltin(p.Id))
+            return Copy(p);
         return new ProviderConfig
         {
             Id = Id,
@@ -68,31 +69,35 @@ public static class DefaultLlm
 
     public static ProviderConfig ForWeb(ProviderConfig p)
     {
-        if (!IsBuiltin(p.Id)) return p;
-        return new ProviderConfig
-        {
-            Id = Id,
-            Name = DisplayName,
-            BaseUrl = "",
-            Model = DisplayModel,
-            ApiKey = HasKey ? ProviderSettings.KeyMask : "",
-            ApiKind = ApiKind,
-            Group = Group,
-            Icon = Icon
-        };
+        if (!IsBuiltin(p.Id)) return Copy(p);
+        var w = ForSettings();
+        w.ApiKey = HasKey ? ProviderSettings.KeyMask : "";
+        return w;
     }
 
     public static void SanitizeStored(ProviderConfig p)
     {
         if (p == null || !IsBuiltin(p.Id)) return;
-        p.Id = Id;
-        p.Name = DisplayName;
-        p.BaseUrl = "";
-        p.Model = DisplayModel;
-        p.ApiKey = "";
-        p.ApiKind = ApiKind;
-        p.Group = Group;
-        if (string.IsNullOrWhiteSpace(p.Icon)) p.Icon = Icon;
+        var icon = p.Icon;
+        var blank = ForSettings();
+        p.Id = blank.Id;
+        p.Name = blank.Name;
+        p.BaseUrl = blank.BaseUrl;
+        p.Model = blank.Model;
+        p.ApiKey = blank.ApiKey;
+        p.ApiKind = blank.ApiKind;
+        p.Group = blank.Group;
+        p.Icon = string.IsNullOrWhiteSpace(icon) ? blank.Icon : icon;
+    }
+
+    static ProviderConfig Copy(ProviderConfig? p)
+    {
+        if (p == null) return ForSettings();
+        return new ProviderConfig
+        {
+            Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = p.ApiKey,
+            ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
+        };
     }
 }
 

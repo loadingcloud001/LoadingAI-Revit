@@ -40,6 +40,12 @@ jobs:
       - name: Restore
         run: dotnet restore LoadingAI.sln -p:RevitVersion=${{ matrix.revit }}
 
+      - name: Require default model key
+        env:
+          LOADINGAI_DEFAULT_KEY: ${{ secrets.LOADINGAI_DEFAULT_KEY }}
+        shell: pwsh
+        run: if (-not $env:LOADINGAI_DEFAULT_KEY) { throw 'LOADINGAI_DEFAULT_KEY is empty' }
+
       - name: Build
         env:
           LOADINGAI_DEFAULT_KEY: ${{ secrets.LOADINGAI_DEFAULT_KEY }}

@@ -108,6 +108,21 @@ public class DefaultLlmTests : IDisposable
         Assert.Equal("https://api.openai.com/v1", bound.BaseUrl);
         Assert.Equal("gpt-4o-mini", bound.Model);
         Assert.Equal("sk-user", bound.ApiKey);
+        bound.ApiKey = "mutated";
+        Assert.Equal("sk-user", p.ApiKey);
+        Assert.False(ReferenceEquals(p, bound));
+    }
+
+    [Fact]
+    public void GetActiveForCall_BindsBuiltinWire()
+    {
+        var s = ProviderSettings.CreateDefault();
+        var bound = ProviderSettings.GetActiveForCall(s);
+        Assert.NotNull(bound);
+        Assert.Equal(DefaultLlm.ApiBaseUrl, bound!.BaseUrl);
+        Assert.Equal(DefaultLlm.ApiModel, bound.Model);
+        Assert.Equal("sk-test-not-real", bound.ApiKey);
+        Assert.True(string.IsNullOrEmpty(ProviderSettings.GetActive(s)!.ApiKey));
     }
 
     [Fact]
@@ -116,6 +131,8 @@ public class DefaultLlmTests : IDisposable
         Assert.Equal("loadingai", DefaultLlm.Id);
         Assert.Equal("LoadingAI", DefaultLlm.DisplayName);
         Assert.Equal("LoadingAI", DefaultLlm.DisplayModel);
+        Assert.Equal("https://api.minimaxi.com/v1", DefaultLlm.ApiBaseUrl);
+        Assert.Equal("MiniMax-M3", DefaultLlm.ApiModel);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayName, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayModel, StringComparison.OrdinalIgnoreCase);
     }

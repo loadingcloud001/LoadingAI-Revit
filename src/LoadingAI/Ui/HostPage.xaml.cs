@@ -292,10 +292,21 @@ public partial class HostPage : Page
                             {
                                 var (ok, msg, models) = await _client.TestAsync(prov);
                                 if (DefaultLlm.IsBuiltin(prov.Id))
+                                {
                                     models = new List<string> { DefaultLlm.DisplayModel };
+                                    msg = ok
+                                        ? $"{DefaultLlm.DisplayName} is reachable."
+                                        : $"{DefaultLlm.DisplayName} is unavailable.";
+                                }
                                 Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok, message = msg, models, providerId = prov.Id }));
                             }
-                            catch (Exception ex) { Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = ex.Message, providerId = prov.Id })); }
+                            catch (Exception ex)
+                            {
+                                var fail = DefaultLlm.IsBuiltin(prov.Id)
+                                    ? $"{DefaultLlm.DisplayName} is unavailable."
+                                    : ex.Message;
+                                Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = fail, providerId = prov.Id }));
+                            }
                         });
                         break;
                     }
@@ -551,16 +562,18 @@ public partial class HostPage : Page
                             break;
                         }
 
-                        var rawProvider = ProviderSettings.GetActive(_settings);
-                        if (rawProvider == null)
+                        var provider = ProviderSettings.GetActiveForCall(_settings);
+                        if (provider == null)
                         {
                             PostToWeb(new { type = "error", text = "No provider configured." });
                             break;
                         }
-                        var provider = DefaultLlm.BindForCall(rawProvider);
                         if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
                         {
-                            PostToWeb(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });
+                            var missing = DefaultLlm.IsBuiltin(provider.Id)
+                                ? $"{DefaultLlm.DisplayName} is not available in this build."
+                                : $"Provider '{provider.Name}' has no API key. Open Settings and paste your key.";
+                            PostToWeb(new { type = "error", text = missing });
                             break;
                         }
 

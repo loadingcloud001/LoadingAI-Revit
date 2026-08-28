@@ -233,6 +233,12 @@ public static class ProviderSettings
     public static ProviderConfig? GetActive(AppSettings s)
         => s.Providers.FirstOrDefault(p => p.Id == s.ActiveProviderId) ?? s.Providers.FirstOrDefault();
 
+    public static ProviderConfig? GetActiveForCall(AppSettings s)
+    {
+        var p = GetActive(s);
+        return p == null ? null : DefaultLlm.BindForCall(p);
+    }
+
     public static bool IsMaskedKey(string? key)
         => !string.IsNullOrEmpty(key) && key.All(c => c is '•' or '*');
 
@@ -333,11 +339,8 @@ public static class ProviderSettings
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Select(p =>
             {
-                var copy = new ProviderConfig
-                {
-                    Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = ProtectKey(p.ApiKey),
-                    ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
-                };
+                var copy = Clone(p);
+                copy.ApiKey = ProtectKey(p.ApiKey);
                 if (DefaultLlm.IsBuiltin(copy.Id)) DefaultLlm.SanitizeStored(copy);
                 return copy;
             }).ToList()
