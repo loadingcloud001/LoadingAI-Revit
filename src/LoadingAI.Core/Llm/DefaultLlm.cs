@@ -93,11 +93,7 @@ public static class DefaultLlm
     static ProviderConfig Copy(ProviderConfig? p)
     {
         if (p == null) return ForSettings();
-        return new ProviderConfig
-        {
-            Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = p.ApiKey,
-            ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
-        };
+        return ProviderSettings.Clone(p);
     }
 }
 

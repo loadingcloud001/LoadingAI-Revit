@@ -48,6 +48,28 @@ public class ScriptContractTests
         Assert.Contains("-m:1", yml);
         Assert.Contains("pack-addin.ps1", yml);
         Assert.Contains("-SkipBuild", yml);
+        Assert.Contains("LOADINGAI_DEFAULT_KEY", yml);
+        Assert.Contains("LOADINGAI_DEFAULT_KEY is empty", yml);
+    }
+
+    [Fact]
+    public void CoreCsproj_GenDefaultLlmKey_FailsClosed()
+    {
+        var csproj = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "LoadingAI.Core.csproj"));
+        Assert.DoesNotContain("IgnoreExitCode", csproj);
+        Assert.Contains("gen-default-llm-key.ps1", csproj);
+    }
+
+    [Fact]
+    public void GenDefaultLlmKey_ReadsSaltFromDefaultLlmCs()
+    {
+        var cs = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "DefaultLlm.cs"));
+        var ps1 = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "gen-default-llm-key.ps1"));
+        const string salt = "LoadingAI.DefaultLlm.v1";
+        Assert.Contains($"\"{salt}\"", cs);
+        Assert.Contains("DefaultLlm.cs", ps1);
+        Assert.Contains("Salt", ps1);
+        Assert.DoesNotContain($"\"{salt}\"", ps1);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -292,7 +292,7 @@ export default function App() {
     if (!active.apiKey && !active.baseUrl.includes('localhost')) { setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key.` }]); setShowSettings(true); return; }
     if (selectedProviderId && selectedProviderId !== cur.activeProviderId) {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
-      setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: ns });
+      setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
     }
     let effMode = mode;
     if (parsed.effectiveMode) effMode = parsed.effectiveMode;
@@ -407,13 +407,13 @@ export default function App() {
     const id = exists ? `${preset.id}-${Math.random().toString(36).slice(2, 4)}` : preset.id;
     const p: ProviderConfig = { id, name: preset.name, baseUrl: preset.baseUrl, model: preset.model, apiKey: '', apiKind: preset.apiKind, group: preset.group, icon: preset.icon };
     const ns: AppSettings = { ...cur, providers: [...cur.providers, p] };
-    setSettings(ns); settingsRef.current = ns; selectForEdit(p); postToHost({ type: 'saveSettings', settings: ns }); setCatalogFilter('');
+    setSettings(ns); settingsRef.current = ns; selectForEdit(p); postToHost({ type: 'saveSettings', settings: providersOnly(ns) }); setCatalogFilter('');
   };
   const handleAddCustom = () => {
     const cur = settingsRef.current ?? settings; if (!cur) return;
     const p: ProviderConfig = { id: Math.random().toString(36).slice(2, 8), name: 'Custom', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'custom', icon: '＋' };
     const ns: AppSettings = { ...cur, providers: [...cur.providers, p] };
-    setSettings(ns); settingsRef.current = ns; selectForEdit(p); postToHost({ type: 'saveSettings', settings: ns });
+    setSettings(ns); settingsRef.current = ns; selectForEdit(p); postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
   };
   const handleSave = () => {
     const cur = settingsRef.current ?? settings; if (!cur || !editing) return;
@@ -422,7 +422,7 @@ export default function App() {
     try { new URL(editForm.baseUrl.trim()); } catch { setStatus('Base URL is not a valid URL.'); return; }
     const upd: ProviderConfig = { ...editing, name: editForm.name.trim(), baseUrl: editForm.baseUrl.trim().replace(/\/$/, ''), model: editForm.model.trim(), apiKey: editForm.apiKey.trim(), apiKind: editForm.apiKind, group: editForm.group, icon: editForm.icon };
     const ns: AppSettings = { ...cur, providers: cur.providers.map(p => p.id === editing.id ? upd : p) };
-    setSettings(ns); settingsRef.current = ns; setEditing(upd); postToHost({ type: 'saveSettings', settings: ns }); setStatus(`Saved ${upd.name}`);
+    setSettings(ns); settingsRef.current = ns; setEditing(upd); postToHost({ type: 'saveSettings', settings: providersOnly(ns) }); setStatus(`Saved ${upd.name}`);
   };
   const handleDelete = () => {
     const cur = settingsRef.current ?? settings; if (!cur || !editing) return;
@@ -431,12 +431,12 @@ export default function App() {
     const np = cur.providers.filter(p => p.id !== editing.id);
     const na = cur.activeProviderId === editing.id ? np[0].id : cur.activeProviderId;
     const ns: AppSettings = { ...cur, providers: np, activeProviderId: na };
-    setSettings(ns); settingsRef.current = ns; setSelectedProviderId(na); setEditing(null); postToHost({ type: 'saveSettings', settings: ns }); setStatus(`Deleted. Active: ${np.find(p => p.id === na)?.name ?? na}`);
+    setSettings(ns); settingsRef.current = ns; setSelectedProviderId(na); setEditing(null); postToHost({ type: 'saveSettings', settings: providersOnly(ns) }); setStatus(`Deleted. Active: ${np.find(p => p.id === na)?.name ?? na}`);
   };
   const handleUse = () => {
     const cur = settingsRef.current ?? settings; if (!cur || !editing) return;
     const ns: AppSettings = { ...cur, activeProviderId: editing.id };
-    setSettings(ns); settingsRef.current = ns; setSelectedProviderId(editing.id); postToHost({ type: 'saveSettings', settings: ns }); setStatus(`Active: ${editing.name}`);
+    setSettings(ns); settingsRef.current = ns; setSelectedProviderId(editing.id); postToHost({ type: 'saveSettings', settings: providersOnly(ns) }); setStatus(`Active: ${editing.name}`);
   };
   const handleTest = () => {
     if (!editing) return;
