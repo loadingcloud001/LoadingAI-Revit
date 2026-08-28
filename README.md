@@ -4,7 +4,7 @@ In-process BIM chat add-in for Autodesk Revit 2024–2027 (anchor **2027**).
 
 LLM → DockablePane (WebView2) → ExternalEvent / Transaction. Not a generic coding agent.
 
-MIT. API keys stay in `%AppData%\LoadingAI\settings.json` (DPAPI).
+MIT. Built-in **LoadingAI** needs no API key. Extra provider keys stay in `%AppData%\LoadingAI\settings.json` (DPAPI).
 
 ## Install (no Visual Studio)
 
@@ -26,7 +26,7 @@ Or copy by hand:
 
 5. If Revit reports **Duplicated AddInId**, delete leftover `%AppData%\Autodesk\Revit\Addins\<year>\RevitAiPoc.addin` and the `RevitAiPoc\` folder.
 6. Start Revit → open a model → **Add-Ins → LoadingAI → Open Chat**.
-7. **Settings** → provider + API key. L3 tools default **off**; turn them on in the same pane. Writes: web approve, then one TaskDialog.
+7. Chat uses built-in **LoadingAI** (no API key). Other providers: Settings → paste a key. L3 tools default **off**; turn them on in the same pane. Writes: web approve, then one TaskDialog.
 
 Releases are published when a `v*` tag is pushed (for example `v0.1.0`). You can also run **Actions → Release add-in → Run workflow** and download the artifacts.
 
