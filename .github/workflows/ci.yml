@@ -28,7 +28,7 @@ jobs:
       # Build the whole solution against each Revit API. Skip host plugin
       # copy/deploy side-effects in CI (they target %AppData%).
       - name: Build
-        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} --no-restore -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+        run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} --no-restore -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true -m:1
 
   test:
     name: Test (Revit 2027 anchor)
