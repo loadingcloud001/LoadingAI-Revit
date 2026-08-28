@@ -192,7 +192,10 @@ public partial class HostPage : Page
     private string GetStatusText()
     {
         var active = ProviderSettings.GetActive(_settings);
-        return active != null ? $"Active: {active.Name} | {active.BaseUrl} | {active.Model}" : "No provider";
+        if (active == null) return "No provider";
+        if (DefaultLlm.IsBuiltin(active.Id))
+            return $"Active: {DefaultLlm.DisplayName} | {DefaultLlm.DisplayModel}";
+        return $"Active: {active.Name} | {active.BaseUrl} | {active.Model}";
     }
 
     private ProviderConfig? ResolveProviderForTest(JsonDocument doc)
@@ -203,11 +206,11 @@ public partial class HostPage : Page
             {
                 var id = idEl.GetString() ?? "";
                 var found = _settings.Providers.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-                if (found != null) return new ProviderConfig
+                if (found != null) return DefaultLlm.BindForCall(new ProviderConfig
                 {
                     Id = found.Id, Name = found.Name, BaseUrl = found.BaseUrl, Model = found.Model, ApiKey = found.ApiKey,
                     ApiKind = found.ApiKind, Group = found.Group, Icon = found.Icon
-                };
+                });
             }
             if (doc.RootElement.TryGetProperty("provider", out var provEl) && provEl.ValueKind == JsonValueKind.Object)
             {
@@ -221,7 +224,7 @@ public partial class HostPage : Page
                         prov.ApiKey = stored.ApiKey;
                 }
                 if (string.IsNullOrWhiteSpace(prov.ApiKind)) prov.ApiKind = ProviderSettings.InferApiKind(prov);
-                return prov;
+                return DefaultLlm.BindForCall(prov);
             }
         }
         catch { }
@@ -292,6 +295,8 @@ public partial class HostPage : Page
                             try
                             {
                                 var (ok, msg, models) = await _client.TestAsync(prov);
+                                if (DefaultLlm.IsBuiltin(prov.Id))
+                                    models = new List<string> { DefaultLlm.DisplayModel };
                                 Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok, message = msg, models, providerId = prov.Id }));
                             }
                             catch (Exception ex) { Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = ex.Message, providerId = prov.Id })); }
@@ -303,6 +308,11 @@ public partial class HostPage : Page
                     {
                         var prov = ResolveProviderForTest(doc);
                         if (prov == null) { PostToWeb(new { type = "models", models = Array.Empty<string>(), error = "Provider not found." }); break; }
+                        if (DefaultLlm.IsBuiltin(prov.Id))
+                        {
+                            PostToWeb(new { type = "models", providerId = prov.Id, models = new[] { DefaultLlm.DisplayModel } });
+                            break;
+                        }
                         _ = Task.Run(async () =>
                         {
                             try
@@ -545,12 +555,13 @@ public partial class HostPage : Page
                             break;
                         }
 
-                        var provider = ProviderSettings.GetActive(_settings);
-                        if (provider == null)
+                        var rawProvider = ProviderSettings.GetActive(_settings);
+                        if (rawProvider == null)
                         {
                             PostToWeb(new { type = "error", text = "No provider configured." });
                             break;
                         }
+                        var provider = DefaultLlm.BindForCall(rawProvider);
                         if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
                         {
                             PostToWeb(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });

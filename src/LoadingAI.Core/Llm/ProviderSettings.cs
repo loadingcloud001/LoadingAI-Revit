@@ -116,6 +116,7 @@ public static class ProviderSettings
         s.Plugins = s.Plugins == null
             ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase);
+        EnsureBuiltin(s);
         // Backfill new fields for old settings
         foreach (var p in s.Providers)
         {
@@ -197,9 +198,10 @@ public static class ProviderSettings
     {
         return new AppSettings
         {
-            ActiveProviderId = "deepseek",
+            ActiveProviderId = DefaultLlm.Id,
             Providers = new List<ProviderConfig>
             {
+                DefaultLlm.ForSettings(),
                 ProviderCatalog.ToConfig(ProviderCatalog.Presets[0]),
                 ProviderCatalog.ToConfig(ProviderCatalog.Presets[1]),
                 ProviderCatalog.ToConfig(ProviderCatalog.Presets[5], "ollama"),
@@ -207,6 +209,26 @@ public static class ProviderSettings
                 ProviderCatalog.ToConfig(ProviderCatalog.Presets[4]),
             }
         };
+    }
+
+    internal static AppSettings EnsureBuiltin(AppSettings s)
+    {
+        if (s.Providers == null) s.Providers = new List<ProviderConfig>();
+        var existing = s.Providers.FirstOrDefault(p => DefaultLlm.IsBuiltin(p.Id));
+        if (existing == null) s.Providers.Insert(0, DefaultLlm.ForSettings());
+        else DefaultLlm.SanitizeStored(existing);
+
+        var active = s.Providers.FirstOrDefault(p => p.Id == s.ActiveProviderId);
+        var activeHasOwnKey = active != null
+            && !DefaultLlm.IsBuiltin(active.Id)
+            && !string.IsNullOrWhiteSpace(active.ApiKey);
+        if (!activeHasOwnKey && (active == null || DefaultLlm.IsBuiltin(active.Id) || string.IsNullOrWhiteSpace(active.ApiKey)))
+        {
+            if (DefaultLlm.HasKey || active == null || string.IsNullOrWhiteSpace(s.ActiveProviderId)
+                || !s.Providers.Any(p => p.Id == s.ActiveProviderId))
+                s.ActiveProviderId = DefaultLlm.Id;
+        }
+        return s;
     }
 
     public static ProviderConfig? GetActive(AppSettings s)
@@ -221,16 +243,20 @@ public static class ProviderSettings
         {
             ActiveProviderId = s.ActiveProviderId,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
-            Providers = s.Providers.Select(p => new ProviderConfig
+            Providers = s.Providers.Select(p =>
             {
-                Id = p.Id,
-                Name = p.Name,
-                BaseUrl = p.BaseUrl,
-                Model = p.Model,
-                ApiKey = string.IsNullOrEmpty(p.ApiKey) ? "" : KeyMask,
-                ApiKind = string.IsNullOrWhiteSpace(p.ApiKind) ? InferApiKind(p) : p.ApiKind,
-                Group = p.Group,
-                Icon = p.Icon
+                if (DefaultLlm.IsBuiltin(p.Id)) return DefaultLlm.ForWeb(p);
+                return new ProviderConfig
+                {
+                    Id = p.Id,
+                    Name = p.Name,
+                    BaseUrl = p.BaseUrl,
+                    Model = p.Model,
+                    ApiKey = string.IsNullOrEmpty(p.ApiKey) ? "" : KeyMask,
+                    ApiKind = string.IsNullOrWhiteSpace(p.ApiKind) ? InferApiKind(p) : p.ApiKind,
+                    Group = p.Group,
+                    Icon = p.Icon
+                };
             }).ToList()
         };
     }
@@ -254,7 +280,7 @@ public static class ProviderSettings
             var key = inc.ApiKey;
             if (string.IsNullOrWhiteSpace(key) || IsMaskedKey(key))
                 key = prev?.ApiKey ?? "";
-            merged.Providers.Add(new ProviderConfig
+            var cfg = new ProviderConfig
             {
                 Id = inc.Id,
                 Name = inc.Name,
@@ -264,12 +290,15 @@ public static class ProviderSettings
                 ApiKind = string.IsNullOrWhiteSpace(inc.ApiKind) ? (prev?.ApiKind ?? InferApiKind(inc)) : inc.ApiKind,
                 Group = string.IsNullOrWhiteSpace(inc.Group) ? (prev?.Group ?? InferGroup(inc)) : inc.Group,
                 Icon = string.IsNullOrWhiteSpace(inc.Icon) ? (prev?.Icon ?? ProviderCatalog.Find(inc.Id)?.Icon ?? DefaultIcon(inc.Group ?? InferGroup(inc))) : inc.Icon
-            });
+            };
+            if (DefaultLlm.IsBuiltin(cfg.Id)) DefaultLlm.SanitizeStored(cfg);
+            merged.Providers.Add(cfg);
         }
 
         if (merged.Providers.Count == 0)
             merged.Providers = current.Providers.Select(Clone).ToList();
 
+        EnsureBuiltin(merged);
         return merged;
     }
 
@@ -303,10 +332,15 @@ public static class ProviderSettings
         {
             ActiveProviderId = s.ActiveProviderId,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
-            Providers = s.Providers.Select(p => new ProviderConfig
+            Providers = s.Providers.Select(p =>
             {
-                Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = ProtectKey(p.ApiKey),
-                ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
+                var copy = new ProviderConfig
+                {
+                    Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = ProtectKey(p.ApiKey),
+                    ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
+                };
+                if (DefaultLlm.IsBuiltin(copy.Id)) DefaultLlm.SanitizeStored(copy);
+                return copy;
             }).ToList()
         };
     }

@@ -165,8 +165,9 @@ export function postToHost(msg: ToHost) {
     }
     if (msg.type === 'requestSettings') {
       const mock: AppSettings = {
-        activeProviderId: 'deepseek',
+        activeProviderId: 'loadingai',
         providers: [
+          { id: 'loadingai', name: 'LoadingAI', baseUrl: '', model: 'LoadingAI', apiKey: '••••••••', apiKind: 'openai', group: 'cloud', icon: '✦' },
           { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◆' },
           { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◉' },
           { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama', apiKind: 'openai', group: 'local', icon: '⬢' },
