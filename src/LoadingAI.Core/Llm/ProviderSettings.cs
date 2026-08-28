@@ -202,11 +202,11 @@ public static class ProviderSettings
             Providers = new List<ProviderConfig>
             {
                 DefaultLlm.ForSettings(),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[0]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[1]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[5], "ollama"),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[3]),
-                ProviderCatalog.ToConfig(ProviderCatalog.Presets[4]),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("deepseek")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("openai")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("ollama")!, "ollama"),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("openrouter")!),
+                ProviderCatalog.ToConfig(ProviderCatalog.Find("opencode")!),
             }
         };
     }
@@ -280,17 +280,14 @@ public static class ProviderSettings
             var key = inc.ApiKey;
             if (string.IsNullOrWhiteSpace(key) || IsMaskedKey(key))
                 key = prev?.ApiKey ?? "";
-            var cfg = new ProviderConfig
-            {
-                Id = inc.Id,
-                Name = inc.Name,
-                BaseUrl = inc.BaseUrl,
-                Model = inc.Model,
-                ApiKey = key,
-                ApiKind = string.IsNullOrWhiteSpace(inc.ApiKind) ? (prev?.ApiKind ?? InferApiKind(inc)) : inc.ApiKind,
-                Group = string.IsNullOrWhiteSpace(inc.Group) ? (prev?.Group ?? InferGroup(inc)) : inc.Group,
-                Icon = string.IsNullOrWhiteSpace(inc.Icon) ? (prev?.Icon ?? ProviderCatalog.Find(inc.Id)?.Icon ?? DefaultIcon(inc.Group ?? InferGroup(inc))) : inc.Icon
-            };
+            var cfg = Clone(inc);
+            cfg.ApiKey = key;
+            if (string.IsNullOrWhiteSpace(cfg.ApiKind))
+                cfg.ApiKind = prev?.ApiKind ?? InferApiKind(inc);
+            if (string.IsNullOrWhiteSpace(cfg.Group))
+                cfg.Group = prev?.Group ?? InferGroup(inc);
+            if (string.IsNullOrWhiteSpace(cfg.Icon))
+                cfg.Icon = prev?.Icon ?? ProviderCatalog.Find(inc.Id)?.Icon ?? DefaultIcon(cfg.Group ?? InferGroup(inc));
             if (DefaultLlm.IsBuiltin(cfg.Id)) DefaultLlm.SanitizeStored(cfg);
             merged.Providers.Add(cfg);
         }

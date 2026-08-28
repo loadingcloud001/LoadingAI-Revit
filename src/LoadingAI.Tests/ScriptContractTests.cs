@@ -73,6 +73,22 @@ public class ScriptContractTests
     }
 
     [Fact]
+    public void CiYml_DoesNotContainDefaultKey()
+    {
+        var yml = File.ReadAllText(Path.Combine(RepoRoot(), ".github", "workflows", "ci.yml"));
+        Assert.DoesNotContain("LOADINGAI_DEFAULT_KEY", yml);
+    }
+
+    [Fact]
+    public void BridgeBuiltinId_MatchesDefaultLlm()
+    {
+        var cs = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "DefaultLlm.cs"));
+        var ts = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "bridge.ts"));
+        Assert.Contains("public const string Id = \"loadingai\"", cs);
+        Assert.Contains("export const BUILTIN_PROVIDER_ID = 'loadingai'", ts);
+    }
+
+    [Fact]
     public void CopyTargets_HonorSkipCopyAddin()
     {
         var host = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "LoadingAI.csproj"));

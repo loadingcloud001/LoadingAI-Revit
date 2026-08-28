@@ -289,7 +289,7 @@ export default function App() {
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
     if (!cur || !active) { setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open Settings to add one.' }]); setShowSettings(true); return; }
-    if (!active.apiKey && !active.baseUrl.includes('localhost')) { setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key.` }]); setShowSettings(true); return; }
+    if (!isBuiltinProvider(active.id) && !active.apiKey && !active.baseUrl.includes('localhost')) { setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key.` }]); setShowSettings(true); return; }
     if (selectedProviderId && selectedProviderId !== cur.activeProviderId) {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
       setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
