@@ -35,6 +35,7 @@ public interface IRevitQuery
     Task<IReadOnlyList<ElementQuantityDto>> GetElementQuantitiesAsync(
         IReadOnlyList<string>? elementIds = null, CancellationToken ct = default);
     Task<ActiveViewDetailsDto?> GetActiveViewDetailsAsync(int limit = 200, CancellationToken ct = default);
+    Task<IReadOnlyList<RoomDto>> GetRoomsAsync(string? levelName = null, int limit = 200, CancellationToken ct = default);
 }
 
 /// <summary>

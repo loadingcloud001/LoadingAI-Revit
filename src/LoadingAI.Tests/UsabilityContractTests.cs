@@ -100,6 +100,25 @@ public class UsabilityContractTests
         Assert.Contains("millimetres", AgentLoop.BaseSystemPrompt);
     }
 
+    [Fact]
+    public void SittingGaps_IsolateUsesSelection_RoomsOnBridge_ColorByAnyParam()
+    {
+        var view = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "ViewTools.cs"));
+        Assert.Contains("uses current selection", view);
+        Assert.Contains("Name = \"color_by_parameter\"", view);
+        Assert.DoesNotContain("new TaskDialog", view);
+        var query = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "QueryTools.cs"));
+        Assert.Contains("Name = \"get_rooms\"", query);
+        var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
+        Assert.Contains("GetRoomsAsync", bridge);
+        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        Assert.Contains("GetRoomsAsync", adapter);
+        var selector = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "ToolSelector.cs"));
+        Assert.Contains("get_rooms", selector);
+        Assert.Contains("color_by_parameter", selector);
+        Assert.Contains("get_sheets_views", selector);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

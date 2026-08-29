@@ -19,6 +19,7 @@ public static class QueryTools
         yield return CreateFindElementsByFilter(context);
         yield return CreateGetElementDetails(context);
         yield return CreateGetWarnings(context);
+        yield return CreateGetRooms(context);
         yield return CreateGetLevelsAndGrids(context);
         yield return CreateGetQuantities(context);
         yield return CreateSaveAndSyncInfo(context);
@@ -369,6 +370,67 @@ public static class QueryTools
                     }
                     if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more.";
                     return s;
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetRooms(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_rooms",
+                    Description = "List rooms: number, name, level, area (m²). Optional levelName filter. Use for 'what rooms are on this floor'.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            levelName = new { type = "string", description = "Optional exact level name" },
+                            limit = new { type = "integer", description = "Max rooms to list, default 200" }
+                        },
+                        required = Array.Empty<string>()
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string? levelName = null;
+                int limit = 200;
+                TryRead(json, d =>
+                {
+                    if (d.TryGetProperty("levelName", out var ln) && ln.ValueKind == JsonValueKind.String) levelName = ln.GetString();
+                    if (d.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+                });
+                limit = Polyfills.Clamp(limit, 1, 500);
+                try
+                {
+                    var rooms = await context.Bridge.GetRoomsAsync(levelName, limit);
+                    if (!context.Bridge.HasActiveDocument && rooms.Count == 0)
+                        return "Please open a model first.";
+                    if (!string.IsNullOrWhiteSpace(levelName) && rooms.Count == 0)
+                    {
+                        var levels = await context.Bridge.GetLevelsAsync();
+                        var names = levels.Select(l => l.Name).ToList();
+                        if (LevelNames.Resolve(levelName!, names) == null)
+                            return LevelNames.NotFound(levelName!, names);
+                    }
+                    if (rooms.Count == 0) return "No rooms.";
+                    var placed = rooms.Where(r => !r.Unplaced).ToList();
+                    var total = placed.Sum(r => r.AreaSqFt);
+                    var lines = rooms.Select(r =>
+                    {
+                        var tag = string.IsNullOrWhiteSpace(r.Number) ? r.Name : $"{r.Number} {r.Name}".Trim();
+                        var extra = r.Unplaced ? " unplaced" : "";
+                        return $"  {r.Id} \"{tag}\" Level:{r.LevelName} Area:{Metric.Area(r.AreaSqFt)}{extra}";
+                    });
+                    return $"Rooms: {rooms.Count} Total area: {Metric.Area(total)}\n" + string.Join("\n", lines);
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
             }
