@@ -117,6 +117,7 @@ public static class ProviderSettings
             ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase);
         EnsureBuiltin(s);
+        DropUpstreamRows(s);
         // Backfill new fields for old settings
         foreach (var p in s.Providers)
         {
@@ -142,6 +143,13 @@ public static class ProviderSettings
             p.Id = id;
         }
         return s;
+    }
+
+    static void DropUpstreamRows(AppSettings s)
+    {
+        s.Providers.RemoveAll(DefaultLlm.ExposesUpstream);
+        if (!s.Providers.Any(p => p.Id == s.ActiveProviderId))
+            s.ActiveProviderId = DefaultLlm.Id;
     }
 
     public static string InferApiKind(ProviderConfig p)
@@ -248,7 +256,7 @@ public static class ProviderSettings
         {
             ActiveProviderId = s.ActiveProviderId,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
-            Providers = s.Providers.Select(p =>
+            Providers = s.Providers.Where(p => !DefaultLlm.ExposesUpstream(p)).Select(p =>
             {
                 if (DefaultLlm.IsBuiltin(p.Id)) return DefaultLlm.ForWeb(p);
                 var copy = Clone(p);
@@ -296,6 +304,7 @@ public static class ProviderSettings
             merged.Providers = current.Providers.Select(Clone).ToList();
 
         EnsureBuiltin(merged);
+        DropUpstreamRows(merged);
         return merged;
     }
 

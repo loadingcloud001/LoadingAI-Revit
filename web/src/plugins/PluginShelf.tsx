@@ -24,6 +24,7 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
   const l1 = tierStats(plugins, 'L1');
   const l2 = tierStats(plugins, 'L2');
   const l3 = tierStats(plugins, 'L3');
+  const l3On = plugins.flatMap(p => p.tools).filter(t => t.tier === 'L3' && t.enabled).map(t => t.name);
 
   const toggleTier = (tier: string, allOn: boolean) =>
     postToHost({ type: 'setPluginTierEnabled', tier, enabled: !allOn });
@@ -33,8 +34,6 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
       <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
         <span className="font-semibold">Tools</span>
         <span className="text-[10px] text-muted-foreground">{on}/{total} on</span>
-        <span className="flex-1" />
-        <button type="button" className={btn} onClick={() => postToHost({ type: 'saveToolSettings' })}>Save</button>
       </div>
       <div className="px-2 py-1.5 flex flex-wrap gap-1" style={{ borderBottom: '1px solid #d0d0d0' }}>
         <button type="button" className={btn} onClick={() => toggleTier('L1', l1.allOn)}>L1 {l1.allOn ? 'all off' : 'all on'} · {l1.on}/{l1.total}</button>
@@ -42,7 +41,7 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
         <button type="button" className={btn} style={{ color: '#8a1f11' }} onClick={() => toggleTier('L3', l3.allOn)}>L3 {l3.allOn ? 'all off' : 'all on'} · {l3.on}/{l3.total}</button>
       </div>
       <div className="px-2 py-1 text-[10px]" style={{ color: '#6a6a6a', borderBottom: '1px solid #ececec' }}>
-        Ticks save immediately. Save rebuilds the tool list for chat. L3 (delete/move/create/save) default off.
+        Ticks apply to chat immediately. {l3On.length > 0 ? `L3 on (${l3On.length}): ${l3On.slice(0, 8).join(', ')}${l3On.length > 8 ? '…' : ''}.` : 'L3 (delete/move/create/save) default off.'}
       </div>
       {plugins.map(p => {
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);

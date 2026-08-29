@@ -23,6 +23,19 @@ public static class DefaultLlm
     public static bool IsBuiltin(string? id)
         => Id.Equals(id, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Non-builtin row that would show the upstream vendor in Settings.</summary>
+    public static bool ExposesUpstream(ProviderConfig? p)
+    {
+        if (p == null || IsBuiltin(p.Id)) return false;
+        return NamesUpstream(p.Name) || NamesUpstream(p.Model) || NamesUpstream(p.BaseUrl);
+    }
+
+    static bool NamesUpstream(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        return s!.IndexOf("minimax", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     public static bool HasKey
     {
         get

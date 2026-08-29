@@ -461,7 +461,7 @@ export default function App() {
   }, [catalog, catalogFilter]);
   const editingModels = editing ? (modelsMap[editing.id] ?? []) : [];
 
-  const connected = !!(activeProvider?.apiKey || activeProvider?.baseUrl.includes('localhost'));
+  const connected = !!(isBuiltinProvider(activeProvider?.id) || activeProvider?.apiKey || activeProvider?.baseUrl.includes('localhost'));
   const ctxLine = context
     ? `Sel ${context.selectionCount}${context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 40)}` : ''} · ${context.activeView} · warnings ${context.warningCount ?? 0}`
     : status;
