@@ -71,9 +71,14 @@ public class UsabilityContractTests
         Assert.Contains("PluginShelf", app);
         Assert.Contains("listPlugins", app);
         Assert.Contains("type === 'plugins'", app);
+        Assert.Contains("isBuiltinProvider(activeProvider", app);
+        Assert.DoesNotContain("MiniMax", app);
+        Assert.DoesNotContain("minimaxi", app);
         var shelf = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "plugins", "PluginShelf.tsx"));
         Assert.Contains("setPluginTierEnabled", shelf);
-        Assert.Contains("saveToolSettings", shelf);
+        Assert.DoesNotContain("saveToolSettings", shelf);
+        Assert.DoesNotContain(">Save<", shelf);
+        Assert.Contains("immediately", shelf);
         Assert.Contains("L3", shelf);
     }
 

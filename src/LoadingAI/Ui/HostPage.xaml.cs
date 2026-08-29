@@ -389,7 +389,11 @@ public partial class HostPage : Page
                             ProviderSettings.Save(_settings);
                             RebuildRegistry();
                             PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
-                            PostToWeb(new { type = "status", text = enabled ? $"Enabled {n} {tier} tools. Click Save if chat still misses them." : $"Disabled {n} {tier} tools." });
+                            var l3 = _registry.Entries.Where(e => e.Tier == ToolTier.L3).Select(e => e.Definition.Function.Name).OrderBy(s => s).ToList();
+                            var msg = enabled ? $"Enabled {n} {tier} tools." : $"Disabled {n} {tier} tools.";
+                            if (l3.Count > 0) msg += " L3: " + string.Join(", ", l3) + ".";
+                            else if (string.Equals(tier, "L3", StringComparison.OrdinalIgnoreCase)) msg += " No L3 tools on.";
+                            PostToWeb(new { type = "status", text = msg });
                         }
                         break;
                     }
@@ -402,7 +406,7 @@ public partial class HostPage : Page
                         var l3 = _registry.Entries.Where(e => e.Tier == ToolTier.L3).Select(e => e.Definition.Function.Name).OrderBy(s => s).ToList();
                         var msg = $"Saved. {_registry.GetToolDefinitions().Count} tools on.";
                         if (l3.Count > 0) msg += " L3: " + string.Join(", ", l3) + ".";
-                        else msg += " No L3 tools on — use L3 all on, then Save.";
+                        else msg += " No L3 tools on — use L3 all on.";
                         PostToWeb(new { type = "status", text = msg });
                         break;
                     }

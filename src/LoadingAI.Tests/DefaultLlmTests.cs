@@ -136,4 +136,32 @@ public class DefaultLlmTests : IDisposable
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayName, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayModel, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Normalize_DropsProvidersThatNameTheUpstream()
+    {
+        var s = new AppSettings
+        {
+            ActiveProviderId = "minimax-custom",
+            Providers = new List<ProviderConfig>
+            {
+                new() { Id = "deepseek", Name = "DeepSeek", ApiKey = "sk-user", BaseUrl = "https://api.deepseek.com", Model = "deepseek-chat" },
+                new() { Id = "minimax-custom", Name = "MiniMax", BaseUrl = DefaultLlm.ApiBaseUrl, Model = DefaultLlm.ApiModel, ApiKey = "sk-user" }
+            }
+        };
+        ProviderSettings.Normalize(s);
+        Assert.DoesNotContain(s.Providers, p => p.Id == "minimax-custom");
+        Assert.DoesNotContain(s.Providers, p => (p.Name + p.Model + p.BaseUrl).IndexOf("minimax", StringComparison.OrdinalIgnoreCase) >= 0);
+        Assert.Equal(DefaultLlm.Id, s.ActiveProviderId);
+        Assert.Contains(s.Providers, p => p.Id == "deepseek");
+    }
+
+    [Fact]
+    public void RedactForWeb_OmitsProvidersThatNameTheUpstream()
+    {
+        var s = ProviderSettings.CreateDefault();
+        s.Providers.Add(new ProviderConfig { Id = "leak", Name = "MiniMax", BaseUrl = DefaultLlm.ApiBaseUrl, Model = DefaultLlm.ApiModel });
+        var redacted = ProviderSettings.RedactForWeb(s);
+        Assert.DoesNotContain(redacted.Providers, p => (p.Name + p.Model + p.BaseUrl).IndexOf("minimax", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
 }
