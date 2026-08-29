@@ -12,7 +12,8 @@ public static class ToolSelector
         "hide_in_view", "isolate_in_view", "reset_temporary_view",
         "get_visible_elements_in_view", "get_selection_summary",
         "get_warnings", "delete_elements", "move_elements", "save_document",
-        "create_wall", "set_comments_on_selection"
+        "create_wall", "set_comments_on_selection",
+        "get_rooms", "get_sheets_views", "color_by_parameter"
     };
 
     private static readonly (string Needle, string Token)[] Aliases =
@@ -22,6 +23,10 @@ public static class ToolSelector
         ("存檔", "save"), ("存档", "save"),
         ("建牆", "wall"), ("建墙", "wall"),
         ("警告", "warning"),
+        ("隔離", "isolate"), ("隔离", "isolate"),
+        ("房間", "room"), ("房间", "room"),
+        ("圖紙", "sheet"), ("图纸", "sheet"),
+        ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)

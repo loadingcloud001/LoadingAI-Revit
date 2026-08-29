@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using LoadingAI.Tools;
 
@@ -141,6 +142,31 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 .Select(l => new LevelDto(l.Name, l.Elevation, l.Id.ToString()))
                 .ToList();
             return (IReadOnlyList<LevelDto>)list;
+        }, ct);
+    }
+
+    public Task<IReadOnlyList<RoomDto>> GetRoomsAsync(string? levelName = null, int limit = 200, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return (IReadOnlyList<RoomDto>)Array.Empty<RoomDto>();
+            limit = Polyfills.Clamp(limit, 1, 500);
+            var list = new List<RoomDto>();
+            foreach (var el in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType())
+            {
+                if (el is not Room r) continue;
+                var lvl = doc.GetElement(r.LevelId) as Level;
+                var lvlName = lvl?.Name ?? "";
+                if (!string.IsNullOrWhiteSpace(levelName) && !lvlName.Equals(levelName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var number = r.Number ?? "";
+                var name = r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? r.Name ?? "";
+                var unplaced = r.Location == null;
+                list.Add(new RoomDto(r.Id.ToString(), number, name, lvlName, r.Area, unplaced));
+                if (list.Count >= limit) break;
+            }
+            return (IReadOnlyList<RoomDto>)list;
         }, ct);
     }
 

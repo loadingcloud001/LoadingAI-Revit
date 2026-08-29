@@ -16,6 +16,7 @@ public static class ViewTools
         yield return CreateResetTemporaryView(context);
         yield return CreateOverrideColorInView(context);
         yield return CreateColorByConstructionSchedule(context);
+        yield return CreateColorByParameter(context);
     }
 
     internal static ToolEntry CreateIsolateInView(IPluginContext context)
@@ -29,13 +30,13 @@ public static class ViewTools
                 Function = new ToolFunction
                 {
                     Name = "isolate_in_view",
-                    Description = "Temporarily isolate elements or a whole category in the active view. Use for 'isolate the walls'. Requires confirm if many.",
+                    Description = "Temporarily isolate elements or a whole category in the active view. Use for 'isolate the walls' or 'isolate selection'.",
                     Parameters = new
                     {
                         type = "object",
                         properties = new
                         {
-                            elementIds = new { type = "array", items = new { type = "string" }, description = "ElementIds to isolate. If omitted and category given, isolates category." },
+                            elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                             category = new { type = "string", description = "Category to isolate, e.g. Walls. Alternative to elementIds." },
                             isolate = new { type = "boolean", description = "True to isolate, false to undo isolate. Default true." }
                         },
@@ -56,7 +57,12 @@ public static class ViewTools
                     if (d.RootElement.TryGetProperty("isolate", out var iso) && iso.ValueKind is JsonValueKind.True or JsonValueKind.False) isolate = iso.GetBoolean();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Please select elements first.";
                 var result = await context.Bridge.IsolateInViewAsync(eids, cat, isolate);
                 return result.Message;
             }
@@ -79,7 +85,7 @@ public static class ViewTools
                         type = "object",
                         properties = new
                         {
-                            elementIds = new { type = "array", items = new { type = "string" }, description = "Ids to hide" },
+                            elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                             category = new { type = "string", description = "Category to hide" }
                         },
                         required = Array.Empty<string>()
@@ -97,7 +103,12 @@ public static class ViewTools
                     if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Please select elements first.";
                 var result = await context.Bridge.HideInViewAsync(eids, cat);
                 return result.Message;
             }
@@ -142,7 +153,7 @@ public static class ViewTools
                         type = "object",
                         properties = new
                         {
-                            elementIds = new { type = "array", items = new { type = "string" }, description = "Ids to color" },
+                            elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                             category = new { type = "string", description = "Category to color. Alternative to elementIds." },
                             color = new { type = "string", description = "Color name (red, blue, green, yellow, orange) or hex #RRGGBB" },
                             reset = new { type = "boolean", description = "True to reset override. Default false." }
@@ -165,7 +176,12 @@ public static class ViewTools
                     if (d.RootElement.TryGetProperty("reset", out var r) && r.ValueKind is JsonValueKind.True or JsonValueKind.False) reset = r.GetBoolean();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Provide elementIds or category.";
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    eids = sel.ElementIds.ToList();
+                }
+                if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Please select elements first.";
                 var result = await context.FullAccess!.RunRevitAsync(session =>
                 {
                     var uiApp = session.As<UIApplication>();
@@ -398,6 +414,138 @@ public static class ViewTools
                 return result;
             }
         };
+    }
+
+    internal static ToolEntry CreateColorByParameter(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "color_by_parameter",
+                    Description = "Color elements in the active view by any instance parameter value (Mark, Comments, Type, Level, …). One color per distinct value. Optional category; if omitted uses current selection, else Walls.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            paramName = new { type = "string", description = "Parameter name, e.g. Mark, Comments, Level" },
+                            category = new { type = "string", description = "Optional category. If omitted: selection, else Walls." },
+                            palette = new { type = "string", description = "Palette: rainbow, blue_red, heat. Default rainbow." }
+                        },
+                        required = new[] { "paramName" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string paramName = "";
+                string? cat = null;
+                string palette = "rainbow";
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    if (d.RootElement.TryGetProperty("paramName", out var pn) && pn.ValueKind == JsonValueKind.String) paramName = pn.GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
+                    if (d.RootElement.TryGetProperty("palette", out var pal) && pal.ValueKind == JsonValueKind.String) palette = pal.GetString() ?? palette;
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                if (string.IsNullOrWhiteSpace(paramName)) return "Provide paramName.";
+                List<string>? selIds = null;
+                if (string.IsNullOrWhiteSpace(cat))
+                {
+                    var sel = await context.Bridge.GetSelectionSummaryAsync();
+                    if (sel.ElementCount > 0) selIds = sel.ElementIds.ToList();
+                }
+                return await context.FullAccess!.RunRevitAsync(session =>
+                {
+                    var uiApp = session.As<UIApplication>();
+                    var doc = uiApp.ActiveUIDocument?.Document;
+                    if (doc == null) return "Please open a model first.";
+                    var view = doc.ActiveView;
+                    if (view == null) return "No active view.";
+                    if (view.IsTemplate) return "Cannot color in view template.";
+                    try
+                    {
+                        List<Element> elems;
+                        if (selIds != null)
+                        {
+                            elems = selIds.Select(id => doc.GetElement(AllTools.ParseEid(id))).Where(e => e != null).Cast<Element>().ToList();
+                        }
+                        else
+                        {
+                            var bic = AllTools.ParseCategory(string.IsNullOrWhiteSpace(cat) ? "Walls" : cat);
+                            if (bic == null) return $"Unknown category '{cat}'.";
+                            elems = new FilteredElementCollector(doc, view.Id).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().ToList();
+                        }
+                        var groups = new SortedDictionary<string, List<ElementId>>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var el in elems)
+                        {
+                            var key = ReadParam(el, paramName);
+                            if (!groups.TryGetValue(key, out var ids)) { ids = new List<ElementId>(); groups[key] = ids; }
+                            ids.Add(el.Id);
+                        }
+                        if (groups.Count == 0) return "No elements to color.";
+                        var colors = GeneratePalette(groups.Count, palette);
+                        using var tx = new Transaction(doc, $"LoadingAI for Revit: color by {paramName}");
+                        tx.Start();
+                        try
+                        {
+                            int i = 0, total = 0;
+                            var legend = new List<string>();
+                            foreach (var kv in groups)
+                            {
+                                var clr = colors[i];
+                                var ogs = new OverrideGraphicSettings();
+                                ogs.SetProjectionLineColor(clr);
+                                ogs.SetSurfaceForegroundPatternColor(clr);
+                                ogs.SetCutForegroundPatternColor(clr);
+                                foreach (var id in kv.Value) { view.SetElementOverrides(id, ogs); total++; }
+                                legend.Add($"{kv.Key} ({kv.Value.Count}) -> #{clr.Red:X2}{clr.Green:X2}{clr.Blue:X2}");
+                                i++;
+                            }
+                            tx.Commit();
+                            return $"Colored {total} element(s) in '{view.Name}' by '{paramName}' ({groups.Count} values). Palette {palette}.\nLegend:\n" + string.Join("\n", legend);
+                        }
+                        catch
+                        {
+                            try { tx.RollBack(); } catch { }
+                            throw;
+                        }
+                    }
+                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                });
+            }
+        };
+    }
+
+    static string ReadParam(Element el, string paramName)
+    {
+        var p = el.LookupParameter(paramName);
+        if (p == null)
+        {
+            foreach (Parameter q in el.Parameters)
+            {
+                if (q?.Definition?.Name != null && q.Definition.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase))
+                { p = q; break; }
+            }
+        }
+        if (p == null) return "(none)";
+        var vs = p.AsValueString();
+        if (!string.IsNullOrWhiteSpace(vs)) return vs.Trim();
+        if (p.StorageType == StorageType.String) return string.IsNullOrWhiteSpace(p.AsString()) ? "(empty)" : p.AsString()!.Trim();
+        if (p.StorageType == StorageType.Integer) return p.AsInteger().ToString();
+        if (p.StorageType == StorageType.Double) return p.AsDouble().ToString("G4");
+        if (p.StorageType == StorageType.ElementId)
+        {
+            var id = p.AsElementId();
+            if (id == ElementId.InvalidElementId) return "(none)";
+            return el.Document.GetElement(id)?.Name ?? id.ToString();
+        }
+        return "(none)";
     }
 
     private static List<Color> GeneratePalette(int n, string palette)

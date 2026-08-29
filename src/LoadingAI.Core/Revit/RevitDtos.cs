@@ -117,6 +117,14 @@ public sealed record ActiveViewDetailsDto(
     IReadOnlyList<CategoryCountDto> TopCategories,
     IReadOnlyList<string> SampleIds);
 
+public sealed record RoomDto(
+    string Id,
+    string Number,
+    string Name,
+    string LevelName,
+    double AreaSqFt,
+    bool Unplaced);
+
 public sealed record CommandResultDto(
     bool Ok,
     string Message,

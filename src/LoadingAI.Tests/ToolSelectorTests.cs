@@ -62,4 +62,31 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, "把選取的牆往 Y 移 300mm", 8);
         Assert.Contains(selected, t => t.Function.Name == "move_elements");
     }
+
+    [Fact]
+    public void ChineseIsolate_KeepsIsolateInView()
+    {
+        var tools = new List<ToolDefinition> { T("isolate_in_view", "Temporarily isolate elements") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "隔離這些", 8);
+        Assert.Contains(selected, t => t.Function.Name == "isolate_in_view");
+    }
+
+    [Fact]
+    public void ChineseRooms_KeepsGetRooms()
+    {
+        var tools = new List<ToolDefinition> { T("get_rooms", "List rooms with area") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "有哪些房間", 8);
+        Assert.Contains(selected, t => t.Function.Name == "get_rooms");
+    }
+
+    [Fact]
+    public void ChineseColorByParam_KeepsColorByParameter()
+    {
+        var tools = new List<ToolDefinition> { T("color_by_parameter", "Color elements by any parameter") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
+        Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
+    }
 }
