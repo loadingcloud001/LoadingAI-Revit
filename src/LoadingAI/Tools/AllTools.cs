@@ -19,6 +19,7 @@ public static class AllTools
         foreach (var t in GeometryCreateTools.Create(context)) yield return t;
         foreach (var t in WorksharingTools.Create(context)) yield return t;
         foreach (var t in IfcCostTools.Create(context)) yield return t;
+        foreach (var t in OpeningTools.Create(context)) yield return t;
     }
 
     public static BuiltInCategory? ParseCategory(string? name) => RevitParse.ParseCategory(name);

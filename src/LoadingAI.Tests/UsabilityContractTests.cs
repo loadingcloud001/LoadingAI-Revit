@@ -119,6 +119,26 @@ public class UsabilityContractTests
         Assert.Contains("get_sheets_views", selector);
     }
 
+    [Fact]
+    public void OpeningTools_CutWallsByOpenings_AndFseVoidsToOpenings()
+    {
+        var all = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "AllTools.cs"));
+        Assert.Contains("OpeningTools.Create", all);
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "OpeningTools.cs"));
+        Assert.Contains("Name = \"cut_walls_by_openings\"", src);
+        Assert.Contains("Name = \"fse_voids_to_openings\"", src);
+        Assert.Contains("uses current selection", src);
+        Assert.Contains("familyName", src);
+        Assert.Contains("levelName", src);
+        Assert.Contains("LevelNames.Resolve", src);
+        Assert.Contains("Did you mean", src);
+        Assert.DoesNotContain("new TaskDialog", src);
+        Assert.DoesNotContain("explorer", src);
+        var selector = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "ToolSelector.cs"));
+        Assert.Contains("cut_walls_by_openings", selector);
+        Assert.Contains("fse_voids_to_openings", selector);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

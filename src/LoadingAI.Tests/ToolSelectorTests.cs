@@ -89,4 +89,30 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
+
+    [Fact]
+    public void ChineseOpeningCut_KeepsCutWallsByOpenings()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("aaa_first", "nothing"),
+            T("cut_walls_by_openings", "Cut intersecting walls by Generic Model openings")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "開口切牆", 1);
+        Assert.Contains(selected, t => t.Function.Name == "cut_walls_by_openings");
+    }
+
+    [Fact]
+    public void ChineseFse_KeepsFseVoidsToOpenings()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("aaa_first", "nothing"),
+            T("fse_voids_to_openings", "Place opening family at MagiCAD/FSE voids")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "把 MagiCAD void 轉成開口", 1);
+        Assert.Contains(selected, t => t.Function.Name == "fse_voids_to_openings");
+    }
 }
