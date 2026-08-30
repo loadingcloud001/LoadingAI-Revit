@@ -340,30 +340,20 @@ internal static class ClashProbe
         try { geo = el.get_Geometry(opt); }
         catch { yield break; }
         if (geo == null) yield break;
-        // SDK ComputedSymbolGeometry: GeometryElement.GetTransformed(instance transform)
-        // then walk solids. Do not also CreateTransformed — that doubles the link placement.
-        var extra = toHost;
-        if (!toHost.IsIdentity)
-        {
-            try
-            {
-                var xf = geo.GetTransformed(toHost);
-                if (xf != null)
-                {
-                    geo = xf;
-                    extra = Transform.Identity;
-                }
-            }
-            catch { /* fall through to per-solid CreateTransformed */ }
-        }
+        // XML GeometryInstance.GetInstanceGeometry: geometry is in the coordinate system of
+        // the model that owns this instance (the link document). Instance.GetTotalTransform
+        // maps link -> host (includes true north for import-like instances; for RevitLinkInstance
+        // it is the placement transform). Apply that ONCE with SolidUtils.CreateTransformed.
+        // Do not GeometryElement.GetTransformed then GetInstanceGeometry — Autodesk forum:
+        // GetTransformed does not apply to nested GeometryInstance, and mixing both doubles.
         foreach (var s in Walk(geo))
         {
             if (s.Volume <= 1e-9) continue;
-            if (extra.IsIdentity) yield return s;
+            if (toHost.IsIdentity) yield return s;
             else
             {
                 Solid? xf = null;
-                try { xf = SolidUtils.CreateTransformed(s, extra); }
+                try { xf = SolidUtils.CreateTransformed(s, toHost); }
                 catch { }
                 if (xf != null) yield return xf;
             }

@@ -171,6 +171,7 @@ public class UsabilityContractTests
         Assert.Contains("Please select MEP elements first.", all);
         Assert.Contains("FamilyContract", all);
         Assert.Contains("instance params", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
+        Assert.Contains("OpValue", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
         Assert.DoesNotContain("Width={w}", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
         Assert.DoesNotContain("new TaskDialog", all);
         Assert.DoesNotContain("NewOpening", all);
@@ -244,15 +245,22 @@ public class UsabilityContractTests
         Assert.Contains("AddMepByIdFromLinks", probe);
         Assert.Contains("SnapToHost", probe);
         Assert.Contains("ModelCentroid", probe);
-        Assert.Contains("GetTransformed", probe);
+        Assert.Contains("CreateTransformed", probe);
+        Assert.Contains("GetInstanceGeometry", probe);
+        Assert.DoesNotContain("geo.GetTransformed", probe);
+        Assert.Contains("the model that owns this instance", probe);
 
         Assert.Contains("ShareWidth", place);
         Assert.Contains("AlreadyPlaced", place);
         Assert.Contains("OneLevelBasedHosted", place);
         Assert.Contains("WorkPlaneBased", place);
+        Assert.Contains(" ft)", place);
+        Assert.Contains("OpValue", place);
 
         Assert.Contains("OpeningsForHosts", cut);
         Assert.Contains("AllPluginOpenings", cut);
+        Assert.Contains("OpValue", cut);
+        Assert.Contains("IncludeNonVisibleObjects = true", cut);
 
         Assert.Contains("clearanceMm\", 25", plugin);
     }

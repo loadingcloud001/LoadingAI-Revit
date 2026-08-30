@@ -26,7 +26,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place opening voids where ducts/pipes/flex/trays/conduits solid-intersect local walls/floors/beams/columns/roofs. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam/column/roof the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit.",
+                Description = "Place opening voids where ducts/pipes/flex/trays/conduits solid-intersect local walls/floors/beams/columns/roofs. Includes MEP inside loaded RVT links (GetTotalTransform once into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam/column/roof the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. The result lists instance ids and XYZ in host feet — isolate those ids plus the host; do not isolate only the wall (openings are Generic Models, not hosted). Do not search a Family Name parameter. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit.",
                 Parameters = new
                 {
                     type = "object",
@@ -79,7 +79,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "cut_hosts_by_openings",
-                Description = "Cut local hosts with opening voids. Uses current selection, or openings tagged to the selected wall/floor/beam, or all LoadingAI_Opening instances. Linked hosts are skipped, not cut.",
+                Description = "Cut local hosts with opening voids. Uses current selection, or openings tagged to the selected wall/floor/beam (OP_HostId on the instance or in Comments), or all LoadingAI_Opening instances. Linked hosts are skipped, not cut.",
                 Parameters = new
                 {
                     type = "object",

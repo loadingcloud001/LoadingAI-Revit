@@ -9,7 +9,7 @@
     {
       "name": "create_openings_from_clash",
       "tier": "L3",
-      "description": "Place opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host.",
+      "description": "Place opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
       "enabledByDefault": false
     },
     {

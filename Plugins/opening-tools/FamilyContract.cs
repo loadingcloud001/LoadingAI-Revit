@@ -17,6 +17,24 @@ internal static class FamilyContract
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;
 
+    /// <summary>
+    /// OP_* live on the instance when the family has the parameter; otherwise PlaceOpenings
+    /// writes them into Comments as "OP_HostId=587487". Cut must read both.
+    /// </summary>
+    public static string? OpValue(Element el, string name)
+    {
+        var p = el.LookupParameter(name)?.AsString();
+        if (!string.IsNullOrWhiteSpace(p)) return p;
+        var comments = el.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString() ?? "";
+        var key = name + "=";
+        var i = comments.IndexOf(key, StringComparison.Ordinal);
+        if (i < 0) return null;
+        var rest = comments.Substring(i + key.Length);
+        var end = rest.IndexOf(';');
+        var val = (end < 0 ? rest : rest.Substring(0, end)).Trim();
+        return string.IsNullOrWhiteSpace(val) ? null : val;
+    }
+
     public static FamilySymbol? Find(Document doc, string? familyName, string shape)
     {
         var wanted = string.IsNullOrWhiteSpace(familyName) ? DefaultFamilyName : familyName.Trim();

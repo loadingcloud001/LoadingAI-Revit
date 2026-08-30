@@ -48,6 +48,7 @@ internal static class PlaceOpenings
         var placed = 0;
         var failed = 0;
         var skipped = 0;
+        var placedAt = new List<string>();
         var tx = new Transaction(doc, "LoadingAI for Revit: create openings from clash");
         tx.Start();
         try
@@ -74,6 +75,11 @@ internal static class PlaceOpenings
                     }
                     ApplySize(inst, hit);
                     WriteOp(inst, hit);
+                    var loc = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
+                    placedAt.Add(inst.Id.ToString() + "(" +
+                        loc.X.ToString("F1", CultureInfo.InvariantCulture) + ", " +
+                        loc.Y.ToString("F1", CultureInfo.InvariantCulture) + ", " +
+                        loc.Z.ToString("F1", CultureInfo.InvariantCulture) + " ft)");
                     placed++;
                 }
                 catch
@@ -92,7 +98,8 @@ internal static class PlaceOpenings
 
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
         var extra = skipped > 0 ? $" Skipped {skipped} already placed." : "";
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}. Failed {failed}.{extra}";
+        var where = placedAt.Count == 0 ? "" : " " + string.Join("; ", placedAt) + ".";
+        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}.{where} Failed {failed}.{extra}";
     }
 
     static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
@@ -146,16 +153,8 @@ internal static class PlaceOpenings
             .OfClass(typeof(FamilyInstance))
             .Cast<FamilyInstance>())
         {
-            var src = fi.LookupParameter("OP_SourceId")?.AsString();
-            var host = fi.LookupParameter("OP_HostId")?.AsString();
-            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(host))
-            {
-                var comments = fi.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString() ?? "";
-                if (src == null && comments.IndexOf("OP_SourceId=" + wantSrc, StringComparison.Ordinal) >= 0)
-                    src = wantSrc;
-                if (host == null && comments.IndexOf("OP_HostId=" + wantHost, StringComparison.Ordinal) >= 0)
-                    host = wantHost;
-            }
+            var src = FamilyContract.OpValue(fi, "OP_SourceId");
+            var host = FamilyContract.OpValue(fi, "OP_HostId");
             if (src == wantSrc && host == wantHost) return true;
         }
         return false;

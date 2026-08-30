@@ -130,7 +130,7 @@ internal static class CutLocal
         var list = new List<FamilyInstance>();
         foreach (var fi in AllPluginOpenings(doc))
         {
-            var hp = fi.LookupParameter("OP_HostId")?.AsString();
+            var hp = FamilyContract.OpValue(fi, "OP_HostId");
             if (hp != null && want.Contains(hp)) { list.Add(fi); continue; }
             foreach (var host in hosts)
             {
@@ -176,7 +176,7 @@ internal static class CutLocal
     {
         if (hinted.Count == 0) return HostsFor(doc, opening);
         var matched = new List<Element>();
-        var hostParam = opening.LookupParameter("OP_HostId")?.AsString();
+        var hostParam = FamilyContract.OpValue(opening, "OP_HostId");
         ElementId? want = null;
         if (!string.IsNullOrWhiteSpace(hostParam))
         {
@@ -215,7 +215,7 @@ internal static class CutLocal
     static List<Element> HostsFor(Document doc, FamilyInstance opening)
     {
         var list = new List<Element>();
-        var hostParam = opening.LookupParameter("OP_HostId")?.AsString();
+        var hostParam = FamilyContract.OpValue(opening, "OP_HostId");
         if (!string.IsNullOrWhiteSpace(hostParam))
         {
             try
@@ -247,7 +247,7 @@ internal static class CutLocal
 
     static IEnumerable<Solid> Solids(Element el)
     {
-        var opt = new Options { ComputeReferences = false };
+        var opt = new Options { ComputeReferences = false, IncludeNonVisibleObjects = true };
         GeometryElement? geo;
         try { geo = el.get_Geometry(opt); }
         catch { yield break; }
