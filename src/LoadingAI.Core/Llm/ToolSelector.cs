@@ -13,7 +13,8 @@ public static class ToolSelector
         "get_visible_elements_in_view", "get_selection_summary",
         "get_warnings", "delete_elements", "move_elements", "save_document",
         "create_wall", "set_comments_on_selection",
-        "get_rooms", "get_sheets_views", "color_by_parameter"
+        "get_rooms", "get_sheets_views", "color_by_parameter",
+        "create_openings_from_clash", "cut_hosts_by_openings"
     };
 
     private static readonly (string Needle, string Token)[] Aliases =
@@ -27,6 +28,8 @@ public static class ToolSelector
         ("房間", "room"), ("房间", "room"),
         ("圖紙", "sheet"), ("图纸", "sheet"),
         ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
+        ("開口", "opening"), ("开洞", "opening"), ("開洞", "opening"),
+        ("切洞", "cut"), ("切牆", "cut"), ("切墙", "cut"),
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
@@ -81,6 +84,7 @@ public static class ToolSelector
         "number","create","rotate","mirror","join","purge","ifc","takeoff","color","construction",
         "schedule","tag","dimension","crop","template","comment","delete","move","hide","isolate",
         "link","rvt","revit","cad","dwg","pdf","family","type","instance","selection","element",
-        "category","visible","active","temporary","override","reset","save","warning"
+        "category","visible","active","temporary","override","reset","save","warning",
+        "opening","cut","clash","void"
     };
 }

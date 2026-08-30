@@ -89,4 +89,32 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
+
+    [Fact]
+    public void ChineseOpeningFromClash_KeepsCreateOpenings()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("aaa_first", "noise"),
+            T("create_openings_from_clash", "Place opening voids from MEP-host clash. Uses current selection."),
+            T("cut_hosts_by_openings", "Cut local hosts with opening voids. Uses current selection.")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "用風管跟牆開洞", 1);
+        Assert.Contains(selected, t => t.Function.Name == "create_openings_from_clash");
+    }
+
+    [Fact]
+    public void ChineseCutByOpenings_KeepsCutHosts()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("aaa_first", "noise"),
+            T("create_openings_from_clash", "Place opening voids from MEP-host clash. Uses current selection."),
+            T("cut_hosts_by_openings", "Cut local hosts with opening voids. Uses current selection.")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "用開口切牆", 1);
+        Assert.Contains(selected, t => t.Function.Name == "cut_hosts_by_openings");
+    }
 }

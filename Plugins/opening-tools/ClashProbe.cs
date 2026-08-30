@@ -7,17 +7,35 @@ namespace LoadingAI.Plugins.OpeningTools;
 
 internal readonly struct ClashHit
 {
-    public ElementId MepId { get; init; }
-    public ElementId HostId { get; init; }
-    public bool HostLinked { get; init; }
-    public bool SourceLinked { get; init; }
-    public XYZ Centroid { get; init; }
-    public XYZ HostDir { get; init; }
-    public double WidthFt { get; init; }
-    public double HeightFt { get; init; }
-    public double DepthFt { get; init; }
-    public string Shape { get; init; }
-    public ElementId LevelId { get; init; }
+    public readonly ElementId MepId;
+    public readonly ElementId HostId;
+    public readonly bool HostLinked;
+    public readonly bool SourceLinked;
+    public readonly XYZ Centroid;
+    public readonly XYZ HostDir;
+    public readonly double WidthFt;
+    public readonly double HeightFt;
+    public readonly double DepthFt;
+    public readonly string Shape;
+    public readonly ElementId LevelId;
+
+    public ClashHit(
+        ElementId mepId, ElementId hostId, bool hostLinked, bool sourceLinked,
+        XYZ centroid, XYZ hostDir, double widthFt, double heightFt, double depthFt,
+        string shape, ElementId levelId)
+    {
+        MepId = mepId;
+        HostId = hostId;
+        HostLinked = hostLinked;
+        SourceLinked = sourceLinked;
+        Centroid = centroid;
+        HostDir = hostDir;
+        WidthFt = widthFt;
+        HeightFt = heightFt;
+        DepthFt = depthFt;
+        Shape = shape;
+        LevelId = levelId;
+    }
 }
 
 internal static class ClashProbe
@@ -84,20 +102,9 @@ internal static class ClashProbe
                 var depth = HostThickness(host) + Metric.MmToFt(50);
                 if (width < Metric.MmToFt(20) || height < Metric.MmToFt(20)) continue;
                 var resolved = ResolveShape(shape, width, height);
-                hits.Add(new ClashHit
-                {
-                    MepId = mep.Element.Id,
-                    HostId = host.Id,
-                    HostLinked = false,
-                    SourceLinked = mep.Linked,
-                    Centroid = centroid,
-                    HostDir = dir,
-                    WidthFt = width,
-                    HeightFt = height,
-                    DepthFt = depth,
-                    Shape = resolved,
-                    LevelId = host.LevelId
-                });
+                hits.Add(new ClashHit(
+                    mep.Element.Id, host.Id, false, mep.Linked,
+                    centroid, dir, width, height, depth, resolved, host.LevelId));
             }
         }
 
@@ -106,9 +113,15 @@ internal static class ClashProbe
 
     readonly struct MepRef
     {
-        public Element Element { get; init; }
-        public Transform ToHost { get; init; }
-        public bool Linked { get; init; }
+        public readonly Element Element;
+        public readonly Transform ToHost;
+        public readonly bool Linked;
+        public MepRef(Element element, Transform toHost, bool linked)
+        {
+            Element = element;
+            ToHost = toHost;
+            Linked = linked;
+        }
     }
 
     static List<MepRef> ResolveMep(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
@@ -140,10 +153,10 @@ internal static class ClashProbe
                 if (ldoc == null) continue;
                 var xf = link.GetTotalTransform();
                 foreach (var mep in Collector(ldoc, MepCats))
-                    list.Add(new MepRef { Element = mep, ToHost = xf, Linked = true });
+                    list.Add(new MepRef(mep, xf, true));
             }
             else if (IsMep(el))
-                list.Add(new MepRef { Element = el, ToHost = Transform.Identity, Linked = false });
+                list.Add(new MepRef(el, Transform.Identity, false));
         }
         return list;
     }
