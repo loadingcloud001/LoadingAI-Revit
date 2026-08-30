@@ -119,6 +119,28 @@ public class UsabilityContractTests
         Assert.Contains("get_sheets_views", selector);
     }
 
+    [Fact]
+    public void OpeningPlugin_IsIndependentPackage()
+    {
+        var root = RepoRoot();
+        var csproj = File.ReadAllText(Path.Combine(root, "Plugins", "opening-tools", "OpeningToolsPlugin.csproj"));
+        Assert.DoesNotContain("LoadingAI.csproj", csproj);
+        Assert.Contains("LoadingAI.Core.csproj", csproj);
+        Assert.Contains("LoadingAI.RevitUtil.csproj", csproj);
+        var src = File.ReadAllText(Path.Combine(root, "Plugins", "opening-tools", "OpeningToolsPlugin.cs"));
+        Assert.Contains("create_openings_from_clash", src);
+        Assert.Contains("cut_hosts_by_openings", src);
+        Assert.DoesNotContain("new TaskDialog", src);
+        Assert.DoesNotContain("fse_voids", src);
+        Assert.DoesNotContain("NewOpening", src);
+        var json = File.ReadAllText(Path.Combine(root, "Plugins", "opening-tools", "plugin.json"));
+        Assert.Contains("\"id\": \"opening-tools\"", json);
+        Assert.Contains("\"tier\": \"L3\"", json);
+        var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*.cs", SearchOption.AllDirectories);
+        foreach (var f in hostTools)
+            Assert.DoesNotContain("create_openings_from_clash", File.ReadAllText(f));
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

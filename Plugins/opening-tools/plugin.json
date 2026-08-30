@@ -1,0 +1,23 @@
+{
+  "id": "opening-tools",
+  "name": "Opening Tools",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.OpeningTools.dll",
+  "tools": [
+    {
+      "name": "create_openings_from_clash",
+      "tier": "L3",
+      "description": "Place opening voids from MEP-host clash. Uses current selection. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
+      "enabledByDefault": false
+    },
+    {
+      "name": "cut_hosts_by_openings",
+      "tier": "L3",
+      "description": "Cut local hosts with opening voids. Uses current selection. Linked hosts are skipped, not cut.",
+      "enabledByDefault": false
+    }
+  ],
+  "verified": true
+}
