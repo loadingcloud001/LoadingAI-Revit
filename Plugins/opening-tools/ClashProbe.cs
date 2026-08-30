@@ -56,6 +56,38 @@ internal static class ClashProbe
     public static bool AnyMep(Document doc, UIDocument uidoc, IReadOnlyList<string> mepIds)
         => ResolveMep(doc, uidoc, mepIds).Count > 0;
 
+    /// <summary>
+    /// Whole-model HostsOverlapping is allowed only when the user named hosts, selected a host,
+    /// selected MEP, or selected a Revit link. A section box / empty selection must not spray
+    /// openings across the first N linked-MEP hits in the building.
+    /// </summary>
+    public static string? ScopeFail(
+        Document doc, UIDocument uidoc, IReadOnlyList<string> mepIds, IReadOnlyList<string> hostIds)
+    {
+        if (ResolveHosts(doc, uidoc, hostIds).Count > 0) return null;
+        if (mepIds.Count > 0) return null;
+        foreach (var id in uidoc.Selection.GetElementIds())
+        {
+            var el = doc.GetElement(id);
+            if (el == null) continue;
+            if (el is RevitLinkInstance || IsMep(el)) return null;
+        }
+        try
+        {
+            var refs = uidoc.Selection.GetReferences();
+            if (refs != null)
+            {
+                foreach (var rf in refs)
+                {
+                    if (rf.LinkedElementId != ElementId.InvalidElementId) return null;
+                }
+            }
+        }
+        catch { /* GetReferences not available */ }
+
+        return "Please select a wall, floor, or beam (or pass hostIds). Linked MEP is found automatically against that host; query tools cannot see it.";
+    }
+
     public static List<ClashHit> Find(
         Document doc,
         UIDocument uidoc,

@@ -160,6 +160,9 @@ public class UsabilityContractTests
         Assert.Contains("GetReferences", all);
         Assert.Contains("AddMepFromLink", all);
         Assert.Contains("do not ask to bind links", all);
+        Assert.Contains("Please select a wall, floor, or beam", all);
+        Assert.Contains("on host(s)", all);
+        Assert.Contains("ScopeFail", all);
         Assert.Contains("OP_SourceId", all);
         Assert.Contains("OP_HostId", all);
         Assert.Contains("OP_HostLinked", all);
@@ -200,6 +203,8 @@ public class UsabilityContractTests
 
         Assert.DoesNotContain("foreach (var mep in Collector(ldoc, MepCats))", probe);
         Assert.Contains("AddMepFromLink", probe);
+        Assert.Contains("ScopeFail", probe);
+        Assert.Contains("section box", probe);
         Assert.Contains("mep.Element.Document", probe);
         Assert.DoesNotContain("else if (mepBox != null && BoxOf(host", probe);
         Assert.Contains("is Floor", probe);

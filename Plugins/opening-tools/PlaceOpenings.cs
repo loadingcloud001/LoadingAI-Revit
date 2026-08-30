@@ -35,6 +35,9 @@ internal static class PlaceOpenings
             if (forced == null) return LevelNames.NotFound(levelName, names);
         }
 
+        var scope = ClashProbe.ScopeFail(doc, uidoc, mepIds, hostIds);
+        if (scope != null) return scope;
+
         if (!ClashProbe.AnyMep(doc, uidoc, mepIds))
             return "Please select MEP elements first.";
 
@@ -80,7 +83,8 @@ internal static class PlaceOpenings
             return $"Failed: {ex.Message}";
         }
 
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}). Failed {failed}. Linked MEP uses GetTotalTransform + CreateTransformed.";
+        var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
+        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}. Failed {failed}.";
     }
 
     static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
@@ -100,6 +104,11 @@ internal static class PlaceOpenings
         var level = forced ?? doc.GetElement(hit.LevelId) as Level ?? NearestLevel(doc, hit.Centroid);
         if (level == null) return null;
         var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
+        if (inst.Location is LocationPoint lp)
+        {
+            try { lp.Point = hit.Centroid; }
+            catch { /* level-based origin may reject Z */ }
+        }
         RotateToHost(doc, inst, hit);
         return inst;
     }

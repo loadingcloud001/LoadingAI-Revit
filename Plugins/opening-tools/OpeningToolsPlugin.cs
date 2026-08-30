@@ -26,14 +26,14 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place opening voids where ducts/pipes/trays/conduits solid-intersect local walls/floors/beams. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Uses current selection as hosts and/or MEP. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
+                Description = "Place opening voids where ducts/pipes/trays/conduits solid-intersect local walls/floors/beams. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         mepIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
-                        hostIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection or bbox-overlap hosts." },
+                        hostIds = new { type = "array", items = new { type = "string" }, description = "Wall/floor/beam ids to clash against. Pass the user's selected host. If omitted, uses current selection; does not scan the whole model unless MEP or a Revit link is selected." },
                         shape = new { type = "string", description = "rectangle | circle | auto" },
                         clearanceMm = new { type = "number" },
                         familyName = new { type = "string" },

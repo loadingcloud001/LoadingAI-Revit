@@ -9,7 +9,7 @@
     {
       "name": "create_openings_from_clash",
       "tier": "L3",
-      "description": "Place opening voids where ducts/pipes/trays/conduits solid-intersect local walls/floors/beams. Includes MEP inside loaded RVT links. Call immediately; do not ask to bind links. Uses current selection.",
+      "description": "Place opening voids where linked or local MEP solid-intersects a selected wall/floor/beam. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host.",
       "enabledByDefault": false
     },
     {
