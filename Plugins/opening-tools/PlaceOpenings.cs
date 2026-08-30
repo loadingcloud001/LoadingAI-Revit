@@ -1,6 +1,5 @@
 using System.Globalization;
 using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
@@ -48,21 +47,30 @@ internal static class PlaceOpenings
         tx.Start();
         try
         {
-            if (!symbol!.IsActive) symbol.Activate();
+            if (!symbol!.IsActive)
+            {
+                symbol.Activate();
+                doc.Regenerate();
+            }
             foreach (var hit in hits)
             {
                 try
                 {
-                    var level = forced ?? doc.GetElement(hit.LevelId) as Level;
-                    if (level == null)
+                    if (forced != null && hit.LevelId != ElementId.InvalidElementId && hit.LevelId != forced.Id)
                     {
                         failed++;
                         continue;
                     }
-                    var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
+                    var host = doc.GetElement(hit.HostId);
+                    if (host == null || !TryHostFace(host, hit.Centroid, out var face, out var loc, out var normal))
+                    {
+                        failed++;
+                        continue;
+                    }
+                    var dir = ReferenceDir(hit.HostDir, normal);
+                    var inst = doc.Create.NewFamilyInstance(face, loc, dir, symbol);
                     ApplySize(inst, hit);
                     WriteOp(inst, hit);
-                    RotateToHost(doc, inst, hit);
                     placed++;
                 }
                 catch
@@ -81,11 +89,127 @@ internal static class PlaceOpenings
         return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}). Failed {failed}. Linked MEP uses GetTotalTransform + CreateTransformed.";
     }
 
+    static bool TryHostFace(Element host, XYZ centroid, out Face face, out XYZ loc, out XYZ normal)
+    {
+        face = null!;
+        loc = centroid;
+        normal = XYZ.BasisZ;
+        var fromRefs = FacesFromHostUtils(host).ToList();
+        if (Pick(fromRefs, centroid, out face, out loc, out normal)) return true;
+        return Pick(GeometryFaces(host).ToList(), centroid, out face, out loc, out normal);
+    }
+
+    static IEnumerable<Face> FacesFromHostUtils(Element host)
+    {
+        if (host is not HostObject ho) yield break;
+        var refs = new List<Reference>();
+        try
+        {
+            if (host is Floor)
+            {
+                foreach (var r in HostObjectUtils.GetTopFaces(ho)) refs.Add(r);
+            }
+            else
+            {
+                try { foreach (var r in HostObjectUtils.GetSideFaces(ho, ShellLayerType.Exterior)) refs.Add(r); }
+                catch { /* host has no exterior side */ }
+                try { foreach (var r in HostObjectUtils.GetSideFaces(ho, ShellLayerType.Interior)) refs.Add(r); }
+                catch { /* host has no interior side */ }
+            }
+        }
+        catch { yield break; }
+
+        foreach (var r in refs)
+        {
+            Face? f = null;
+            try { f = host.GetGeometryObjectFromReference(r) as Face; }
+            catch { }
+            if (f != null) yield return f;
+        }
+    }
+
+    static IEnumerable<Face> GeometryFaces(Element host)
+    {
+        var opt = new Options { ComputeReferences = true, IncludeNonVisibleObjects = false };
+        GeometryElement? geo;
+        try { geo = host.get_Geometry(opt); }
+        catch { yield break; }
+        if (geo == null) yield break;
+        foreach (var f in FacesIn(geo)) yield return f;
+    }
+
+    static IEnumerable<Face> FacesIn(GeometryElement geo)
+    {
+        foreach (var obj in geo)
+        {
+            if (obj is Solid solid && solid.Faces != null)
+            {
+                foreach (Face f in solid.Faces)
+                {
+                    if (f != null) yield return f;
+                }
+            }
+            else if (obj is GeometryInstance gi)
+            {
+                GeometryElement? inst = null;
+                try { inst = gi.GetInstanceGeometry(); }
+                catch { }
+                if (inst == null) continue;
+                foreach (var inner in FacesIn(inst)) yield return inner;
+            }
+        }
+    }
+
+    static bool Pick(List<Face> faces, XYZ centroid, out Face face, out XYZ loc, out XYZ normal)
+    {
+        face = null!;
+        loc = centroid;
+        normal = XYZ.BasisZ;
+        Face? best = null;
+        var bestDist = double.PositiveInfinity;
+        var bestLoc = centroid;
+        var bestN = XYZ.BasisZ;
+        foreach (var f in faces)
+        {
+            if (f.Reference == null) continue;
+            IntersectionResult? ir;
+            try { ir = f.Project(centroid); }
+            catch { continue; }
+            if (ir == null) continue;
+            var d = Math.Abs(ir.Distance);
+            if (d >= bestDist) continue;
+            XYZ n;
+            try { n = f.ComputeNormal(ir.UVPoint); }
+            catch { continue; }
+            if (n.GetLength() < 1e-9) continue;
+            best = f;
+            bestDist = d;
+            bestLoc = ir.XYZPoint;
+            bestN = n.Normalize();
+        }
+        if (best == null) return false;
+        face = best;
+        loc = bestLoc;
+        normal = bestN;
+        return true;
+    }
+
+    static XYZ ReferenceDir(XYZ preferred, XYZ normal)
+    {
+        var n = normal.Normalize();
+        var d = preferred.GetLength() < 1e-9 ? XYZ.BasisX : preferred.Normalize();
+        if (Math.Abs(d.DotProduct(n)) > 0.99)
+            d = Math.Abs(n.DotProduct(XYZ.BasisZ)) > 0.9 ? XYZ.BasisX : XYZ.BasisZ;
+        var tan = d - n.Multiply(d.DotProduct(n));
+        if (tan.GetLength() < 1e-9) tan = n.CrossProduct(XYZ.BasisX);
+        if (tan.GetLength() < 1e-9) tan = n.CrossProduct(XYZ.BasisY);
+        return tan.Normalize();
+    }
+
     static void ApplySize(FamilyInstance inst, ClashHit hit)
     {
         var widthMm = Metric.FtToMm(hit.WidthFt);
         var heightMm = Metric.FtToMm(hit.HeightFt);
-        var depthMm = Metric.FtToMm(hit.DepthFt);
         if (hit.Shape == "circle")
         {
             var r = Math.Max(widthMm, heightMm) / 2;
@@ -94,7 +218,6 @@ internal static class PlaceOpenings
         SetLengthFt(inst, "Width", hit.WidthFt);
         SetLengthFt(inst, "Height", hit.HeightFt);
         SetLengthFt(inst, "Depth", hit.DepthFt);
-        _ = depthMm;
     }
 
     static void WriteOp(FamilyInstance inst, ClashHit hit)
@@ -123,16 +246,5 @@ internal static class PlaceOpenings
         var cur = comments.AsString() ?? "";
         var bit = name + "=" + value;
         comments.Set(string.IsNullOrWhiteSpace(cur) ? bit : cur + "; " + bit);
-    }
-
-    static void RotateToHost(Document doc, FamilyInstance inst, ClashHit hit)
-    {
-        if (hit.HostDir.GetLength() < 1e-9) return;
-        var loc = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
-        var axis = Line.CreateBound(loc, loc + XYZ.BasisZ);
-        var angle = XYZ.BasisX.AngleOnPlaneTo(hit.HostDir, XYZ.BasisZ);
-        if (Math.Abs(angle) < 1e-6) return;
-        try { ElementTransformUtils.RotateElement(doc, inst.Id, axis, angle); }
-        catch { }
     }
 }

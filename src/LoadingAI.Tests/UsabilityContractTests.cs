@@ -196,10 +196,20 @@ public class UsabilityContractTests
         Assert.DoesNotContain("else if (mepBox != null && BoxOf(host", probe);
         Assert.Contains("is Floor", probe);
         Assert.Contains("XYZ.BasisY", probe);
+        Assert.DoesNotContain("static IEnumerable<Element> Collector(", probe);
 
         var start = place.IndexOf("tx.Start()", StringComparison.Ordinal);
         var activate = place.IndexOf("Activate()", StringComparison.Ordinal);
+        var regen = place.IndexOf("Regenerate()", StringComparison.Ordinal);
         Assert.True(start >= 0 && activate > start, "FamilySymbol.Activate must run inside the transaction");
+        Assert.True(regen > activate, "Regenerate must follow Activate in the same transaction");
+        Assert.Contains("GetSideFaces", place);
+        Assert.Contains("GetTopFaces", place);
+        Assert.Contains("ComputeReferences = true", place);
+        Assert.Contains("NewFamilyInstance(face, loc, dir, symbol)", place);
+        Assert.DoesNotContain("StructuralType.NonStructural", place);
+        Assert.DoesNotContain("RotateElement", place);
+        Assert.Contains("WorkPlaneBased", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
 
         Assert.Contains("SolidIntersects", cut);
         Assert.DoesNotContain("hostsHint.Count > 0 ? hostsHint : HostsFor", cut);

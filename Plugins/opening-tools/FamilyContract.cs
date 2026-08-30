@@ -9,7 +9,9 @@ internal static class FamilyContract
     public static string? FailReason(FamilySymbol? symbol)
     {
         if (symbol == null)
-            return "Opening family is missing. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius).";
+            return "Opening family is missing. Load LoadingAI_Opening (Work Plane Based, Cut with Voids When Loaded, Width+Height or Radius).";
+        if (symbol.Family.FamilyPlacementType != FamilyPlacementType.WorkPlaneBased)
+            return "Opening family must be Work Plane Based. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius).";
         var w = Has(symbol, "Width");
         var h = Has(symbol, "Height");
         var r = Has(symbol, "Radius");

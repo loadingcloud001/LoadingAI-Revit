@@ -203,12 +203,6 @@ internal static class ClashProbe
         return found.Values.ToList();
     }
 
-    static IEnumerable<Element> Collector(Document d, BuiltInCategory[] cats)
-        => new FilteredElementCollector(d)
-            .WherePasses(new ElementMulticategoryFilter(cats))
-            .WhereElementIsNotElementType()
-            .ToElements();
-
     static bool IsMep(Element el) => Matches(el, MepCats);
     static bool IsHost(Element el) => Matches(el, HostCats);
 
