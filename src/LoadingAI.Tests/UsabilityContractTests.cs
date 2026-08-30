@@ -141,6 +141,32 @@ public class UsabilityContractTests
             Assert.DoesNotContain("create_openings_from_clash", File.ReadAllText(f));
     }
 
+    [Fact]
+    public void OpeningPlugin_ClashPlacesVoidInHostDocument()
+    {
+        var root = RepoRoot();
+        var dir = Path.Combine(root, "Plugins", "opening-tools");
+        var all = string.Join("\n", Directory.GetFiles(dir, "*.cs").Select(File.ReadAllText));
+        Assert.Contains("uses current selection", all);
+        Assert.Contains("mepIds", all);
+        Assert.Contains("hostIds", all);
+        Assert.Contains("clearanceMm", all);
+        Assert.Contains("familyName", all);
+        Assert.Contains("levelName", all);
+        Assert.Contains("GetTotalTransform", all);
+        Assert.Contains("CreateTransformed", all);
+        Assert.Contains("OP_SourceId", all);
+        Assert.Contains("OP_HostId", all);
+        Assert.Contains("OP_HostLinked", all);
+        Assert.Contains("OP_Shape", all);
+        Assert.Contains("LevelNames.Resolve", all);
+        Assert.Contains("Please select MEP elements first.", all);
+        Assert.Contains("FamilyContract", all);
+        Assert.DoesNotContain("new TaskDialog", all);
+        Assert.DoesNotContain("NewOpening", all);
+        Assert.DoesNotContain("fse_voids", all);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

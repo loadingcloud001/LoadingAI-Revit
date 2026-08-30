@@ -1,3 +1,4 @@
+using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Tools;
@@ -43,7 +44,30 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 }
             }
         },
-        Handler = _ => Task.FromResult("Not implemented: select MEP and host, then retry after Step 1 ships.")
+        Handler = async json =>
+        {
+            var args = OpeningArgs.Parse(json);
+            var mepIds = args.Strings("mepIds");
+            var hostIds = args.Strings("hostIds");
+            var shape = args.Str("shape") ?? "auto";
+            var clearanceMm = args.Dbl("clearanceMm", 0);
+            var familyName = args.Str("familyName");
+            var levelName = args.Str("levelName");
+            var limit = args.Int("limit", 50);
+            if (limit < 1) limit = 50;
+            if (limit > 200) limit = 200;
+            return await context.FullAccess!.RunRevitAsync(session =>
+            {
+                var uidoc = session.As<UIApplication>().ActiveUIDocument;
+                var doc = uidoc?.Document;
+                if (doc == null) return "Please open a model first.";
+                try
+                {
+                    return PlaceOpenings.Run(doc, uidoc!, mepIds, hostIds, shape, clearanceMm, familyName, levelName, limit);
+                }
+                catch (Exception ex) { return "Failed: " + ex.Message; }
+            });
+        }
     };
 
     private static ToolEntry CutHostsByOpenings(IPluginContext context) => new()
