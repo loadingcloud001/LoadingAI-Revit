@@ -216,6 +216,7 @@ public class UsabilityContractTests
         Assert.DoesNotContain("StructuralType.NonStructural", place);
         Assert.DoesNotContain("RotateElement", place);
         Assert.Contains("WorkPlaneBased", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
+        Assert.Contains("Family Category and Parameters", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
 
         Assert.Contains("SolidIntersects", cut);
         Assert.DoesNotContain("hostsHint.Count > 0 ? hostsHint : HostsFor", cut);
