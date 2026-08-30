@@ -92,6 +92,22 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 }
             }
         },
-        Handler = _ => Task.FromResult("Not implemented: select openings and local hosts, then retry after Step 2 ships.")
+        Handler = async json =>
+        {
+            var args = OpeningArgs.Parse(json);
+            var openingIds = args.Strings("openingIds");
+            var hostIds = args.Strings("hostIds");
+            return await context.FullAccess!.RunRevitAsync(session =>
+            {
+                var uidoc = session.As<UIApplication>().ActiveUIDocument;
+                var doc = uidoc?.Document;
+                if (doc == null) return "Please open a model first.";
+                try
+                {
+                    return CutLocal.Run(doc, uidoc!, openingIds, hostIds);
+                }
+                catch (Exception ex) { return "Failed: " + ex.Message; }
+            });
+        }
     };
 }

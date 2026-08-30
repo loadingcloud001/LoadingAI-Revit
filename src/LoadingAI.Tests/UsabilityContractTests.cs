@@ -167,6 +167,21 @@ public class UsabilityContractTests
         Assert.DoesNotContain("fse_voids", all);
     }
 
+    [Fact]
+    public void OpeningPlugin_CutsLocalHostsOnly()
+    {
+        var root = RepoRoot();
+        var dir = Path.Combine(root, "Plugins", "opening-tools");
+        var all = string.Join("\n", Directory.GetFiles(dir, "*.cs").Select(File.ReadAllText));
+        Assert.Contains("cut_hosts_by_openings", all);
+        Assert.Contains("InstanceVoidCutUtils", all);
+        Assert.Contains("CanBeCutWithVoid", all);
+        Assert.Contains("AddInstanceVoidCut", all);
+        Assert.Contains("host is linked — not cut", all);
+        Assert.DoesNotContain("new TaskDialog", all);
+        Assert.DoesNotContain("NewOpening", all);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
