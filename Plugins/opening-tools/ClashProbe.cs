@@ -120,11 +120,11 @@ internal static class ClashProbe
                 if (!IsHost(host)) continue;
                 var hostSolids = SolidsOf(host, Transform.Identity).ToList();
                 var inter = FirstIntersect(mepSolids, hostSolids);
-                if (inter == null || !WorldBox(inter, out var min, out var max)) continue;
-
-                var centroid = new XYZ((min.X + max.X) / 2, (min.Y + max.Y) / 2, (min.Z + max.Z) / 2);
+                if (inter == null) continue;
+                if (!ModelCentroid(inter, out var centroid)) continue;
+                if (!SnapToHost(host, centroid, out centroid)) continue;
                 HostFrame(host, out var dir, out var up, out _);
-                ProjectExtents(min, max, centroid, dir, up, out var width, out var height);
+                ExtentsFromSolid(inter, centroid, dir, up, out var width, out var height);
                 width += 2 * clearanceFt;
                 height += 2 * clearanceFt;
                 var depth = HostThickness(host) + Metric.MmToFt(50);
@@ -340,14 +340,30 @@ internal static class ClashProbe
         try { geo = el.get_Geometry(opt); }
         catch { yield break; }
         if (geo == null) yield break;
+        // SDK ComputedSymbolGeometry: GeometryElement.GetTransformed(instance transform)
+        // then walk solids. Do not also CreateTransformed — that doubles the link placement.
+        var extra = toHost;
+        if (!toHost.IsIdentity)
+        {
+            try
+            {
+                var xf = geo.GetTransformed(toHost);
+                if (xf != null)
+                {
+                    geo = xf;
+                    extra = Transform.Identity;
+                }
+            }
+            catch { /* fall through to per-solid CreateTransformed */ }
+        }
         foreach (var s in Walk(geo))
         {
             if (s.Volume <= 1e-9) continue;
-            if (toHost.IsIdentity) yield return s;
+            if (extra.IsIdentity) yield return s;
             else
             {
                 Solid? xf = null;
-                try { xf = SolidUtils.CreateTransformed(s, toHost); }
+                try { xf = SolidUtils.CreateTransformed(s, extra); }
                 catch { }
                 if (xf != null) yield return xf;
             }
@@ -403,6 +419,111 @@ internal static class ClashProbe
         }
         if (mn == null || mx == null) return null;
         return new BoundingBoxXYZ { Min = mn, Max = mx };
+    }
+
+    /// <summary>
+    /// SDK Solid.GetBoundingBox is local bounds + Transform, unlike Element.BoundingBox
+    /// which is already model coordinates. Edge tessellation is 3d model points.
+    /// </summary>
+    static bool ModelCentroid(Solid s, out XYZ c)
+    {
+        c = XYZ.Zero;
+        var acc = XYZ.Zero;
+        var n = 0;
+        try
+        {
+            foreach (Edge e in s.Edges)
+            {
+                IList<XYZ>? pts;
+                try { pts = e.Tessellate(); }
+                catch { continue; }
+                if (pts == null) continue;
+                foreach (var p in pts)
+                {
+                    acc = acc + p;
+                    n++;
+                }
+            }
+        }
+        catch { return false; }
+        if (n == 0) return WorldBox(s, out var min, out var max) && Mid(min, max, out c);
+        c = new XYZ(acc.X / n, acc.Y / n, acc.Z / n);
+        return true;
+    }
+
+    static bool Mid(XYZ min, XYZ max, out XYZ c)
+    {
+        c = new XYZ((min.X + max.X) / 2, (min.Y + max.Y) / 2, (min.Z + max.Z) / 2);
+        return true;
+    }
+
+    /// <summary>
+    /// A clash centroid that is not on the host bbox is not this host — skip it.
+    /// Autodesk wall-opening samples snap p1/p2 onto the wall, not a free XYZ.
+    /// </summary>
+    static bool SnapToHost(Element host, XYZ p, out XYZ snapped)
+    {
+        snapped = p;
+        var pad = HostThickness(host) + Metric.MmToFt(300);
+        BoundingBoxXYZ? bb;
+        try { bb = host.get_BoundingBox(null); }
+        catch { bb = null; }
+        if (bb != null)
+        {
+            if (p.X < bb.Min.X - pad || p.X > bb.Max.X + pad) return false;
+            if (p.Y < bb.Min.Y - pad || p.Y > bb.Max.Y + pad) return false;
+            if (p.Z < bb.Min.Z - pad || p.Z > bb.Max.Z + pad) return false;
+        }
+        if (host is Wall wall && wall.Location is LocationCurve lc)
+        {
+            IntersectionResult? ir;
+            try { ir = lc.Curve.Project(p); }
+            catch { return bb != null; }
+            if (ir == null) return false;
+            var on = ir.XYZPoint;
+            var dxy = new XYZ(p.X - on.X, p.Y - on.Y, 0).GetLength();
+            if (dxy > wall.Width + Metric.MmToFt(300)) return false;
+            snapped = new XYZ(on.X, on.Y, p.Z);
+            return true;
+        }
+        snapped = p;
+        return true;
+    }
+
+    static void ExtentsFromSolid(Solid s, XYZ origin, XYZ dir, XYZ up, out double width, out double height)
+    {
+        double minD = double.PositiveInfinity, maxD = double.NegativeInfinity;
+        double minU = double.PositiveInfinity, maxU = double.NegativeInfinity;
+        var any = false;
+        try
+        {
+            foreach (Edge e in s.Edges)
+            {
+                IList<XYZ>? pts;
+                try { pts = e.Tessellate(); }
+                catch { continue; }
+                if (pts == null) continue;
+                foreach (var p in pts)
+                {
+                    any = true;
+                    var v = p - origin;
+                    var d = v.DotProduct(dir);
+                    var u = v.DotProduct(up);
+                    if (d < minD) minD = d;
+                    if (d > maxD) maxD = d;
+                    if (u < minU) minU = u;
+                    if (u > maxU) maxU = u;
+                }
+            }
+        }
+        catch { }
+        if (!any)
+        {
+            width = height = Metric.MmToFt(20);
+            return;
+        }
+        width = Math.Max(maxD - minD, Metric.MmToFt(20));
+        height = Math.Max(maxU - minU, Metric.MmToFt(20));
     }
 
     static bool WorldBox(Solid s, out XYZ min, out XYZ max)

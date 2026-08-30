@@ -169,7 +169,6 @@ internal static class CutLocal
     {
         var fam = fi.Symbol?.FamilyName ?? "";
         if (fam.Equals(FamilyContract.DefaultFamilyName, StringComparison.OrdinalIgnoreCase)) return true;
-        if (fam.IndexOf("Opening", StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return FamilyContract.Has(fi, "OP_HostId") || FamilyContract.Has(fi, "OP_SourceId");
     }
 

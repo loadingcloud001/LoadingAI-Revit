@@ -242,8 +242,9 @@ public class UsabilityContractTests
         Assert.Contains("OST_FlexPipe", probe);
         Assert.Contains("OST_StructuralColumns", probe);
         Assert.Contains("AddMepByIdFromLinks", probe);
-        Assert.Contains("hostsInScope", probe);
-        Assert.Contains("OST_StructuralColumns", cut);
+        Assert.Contains("SnapToHost", probe);
+        Assert.Contains("ModelCentroid", probe);
+        Assert.Contains("GetTransformed", probe);
 
         Assert.Contains("ShareWidth", place);
         Assert.Contains("AlreadyPlaced", place);
