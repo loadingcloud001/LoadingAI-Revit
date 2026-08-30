@@ -9,13 +9,10 @@ internal static class FamilyContract
     public static string? FailReason(FamilySymbol? symbol)
     {
         if (symbol == null)
-            return "Opening family is missing. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius). Level-based Generic Model copies between models.";
-
-        var w = Has(symbol, "Width");
-        var h = Has(symbol, "Height");
-        var r = Has(symbol, "Radius");
-        if ((w && h) || r) return null;
-        return $"Opening family '{symbol.FamilyName}' needs Width+Height or Radius. Width={w} Height={h} Radius={r} placement={symbol.Family.FamilyPlacementType}.";
+            return "Opening family is missing. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius instance parameters). Level-based Generic Model copies between models.";
+        // Width/Height/Radius on LoadingAI_Opening are instance params.
+        // FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
+        return null;
     }
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;

@@ -167,6 +167,8 @@ public class UsabilityContractTests
         Assert.Contains("LevelNames.Resolve", all);
         Assert.Contains("Please select MEP elements first.", all);
         Assert.Contains("FamilyContract", all);
+        Assert.Contains("instance params", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
+        Assert.DoesNotContain("Width={w}", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
         Assert.DoesNotContain("new TaskDialog", all);
         Assert.DoesNotContain("NewOpening", all);
         Assert.DoesNotContain("fse_voids", all);
