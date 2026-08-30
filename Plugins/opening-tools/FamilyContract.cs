@@ -9,20 +9,13 @@ internal static class FamilyContract
     public static string? FailReason(FamilySymbol? symbol)
     {
         if (symbol == null)
-            return "Opening family is missing. Load LoadingAI_Opening (Work Plane Based, Cut with Voids When Loaded, Width+Height or Radius).";
+            return "Opening family is missing. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius). Level-based Generic Model copies between models.";
 
-        var place = symbol.Family.FamilyPlacementType;
         var w = Has(symbol, "Width");
         var h = Has(symbol, "Height");
         var r = Has(symbol, "Radius");
-        var sizeOk = (w && h) || r;
-
-        if (place != FamilyPlacementType.WorkPlaneBased)
-            return $"Opening family '{symbol.FamilyName}' placement is {place}, need WorkPlaneBased. Family Editor: Create → Family Category and Parameters → tick Work Plane-Based → Load into Project. Width={w} Height={h} Radius={r}.";
-
-        if (!sizeOk)
-            return $"Opening family '{symbol.FamilyName}' needs Width+Height or Radius. Width={w} Height={h} Radius={r}.";
-        return null;
+        if ((w && h) || r) return null;
+        return $"Opening family '{symbol.FamilyName}' needs Width+Height or Radius. Width={w} Height={h} Radius={r} placement={symbol.Family.FamilyPlacementType}.";
     }
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;

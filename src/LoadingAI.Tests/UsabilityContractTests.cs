@@ -213,10 +213,9 @@ public class UsabilityContractTests
         Assert.Contains("GetTopFaces", place);
         Assert.Contains("ComputeReferences = true", place);
         Assert.Contains("NewFamilyInstance(face, loc, dir, symbol)", place);
-        Assert.DoesNotContain("StructuralType.NonStructural", place);
-        Assert.DoesNotContain("RotateElement", place);
-        Assert.Contains("WorkPlaneBased", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
-        Assert.Contains("Family Category and Parameters", File.ReadAllText(Path.Combine(dir, "FamilyContract.cs")));
+        Assert.Contains("StructuralType.NonStructural", place);
+        Assert.Contains("RotateElement", place);
+        Assert.Contains("WorkPlaneBased", place);
 
         Assert.Contains("SolidIntersects", cut);
         Assert.DoesNotContain("hostsHint.Count > 0 ? hostsHint : HostsFor", cut);

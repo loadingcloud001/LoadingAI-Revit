@@ -1,5 +1,6 @@
 using System.Globalization;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
@@ -56,19 +57,12 @@ internal static class PlaceOpenings
             {
                 try
                 {
-                    if (forced != null && hit.LevelId != ElementId.InvalidElementId && hit.LevelId != forced.Id)
+                    var inst = PlaceOne(doc, symbol, hit, forced);
+                    if (inst == null)
                     {
                         failed++;
                         continue;
                     }
-                    var host = doc.GetElement(hit.HostId);
-                    if (host == null || !TryHostFace(host, hit.Centroid, out var face, out var loc, out var normal))
-                    {
-                        failed++;
-                        continue;
-                    }
-                    var dir = ReferenceDir(hit.HostDir, normal);
-                    var inst = doc.Create.NewFamilyInstance(face, loc, dir, symbol);
                     ApplySize(inst, hit);
                     WriteOp(inst, hit);
                     placed++;
@@ -86,7 +80,53 @@ internal static class PlaceOpenings
             return $"Failed: {ex.Message}";
         }
 
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}). Failed {failed}. Linked MEP uses GetTotalTransform + CreateTransformed.";
+        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}). Failed {failed}. Linked MEP uses GetTotalTransform + CreateTransformed.";
+    }
+
+    static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
+    {
+        if (forced != null && hit.LevelId != ElementId.InvalidElementId && hit.LevelId != forced.Id)
+            return null;
+        var host = doc.GetElement(hit.HostId);
+        if (host == null) return null;
+
+        if (symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased
+            && TryHostFace(host, hit.Centroid, out var face, out var loc, out var normal))
+        {
+            var dir = ReferenceDir(hit.HostDir, normal);
+            return doc.Create.NewFamilyInstance(face, loc, dir, symbol);
+        }
+
+        var level = forced ?? doc.GetElement(hit.LevelId) as Level ?? NearestLevel(doc, hit.Centroid);
+        if (level == null) return null;
+        var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
+        RotateToHost(doc, inst, hit);
+        return inst;
+    }
+
+    static Level? NearestLevel(Document doc, XYZ p)
+    {
+        Level? best = null;
+        var bestD = double.PositiveInfinity;
+        foreach (var lv in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>())
+        {
+            var d = Math.Abs(lv.Elevation - p.Z);
+            if (d >= bestD) continue;
+            bestD = d;
+            best = lv;
+        }
+        return best;
+    }
+
+    static void RotateToHost(Document doc, FamilyInstance inst, ClashHit hit)
+    {
+        if (hit.HostDir.GetLength() < 1e-9) return;
+        var loc = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
+        var axis = Line.CreateBound(loc, loc + XYZ.BasisZ);
+        var angle = XYZ.BasisX.AngleOnPlaneTo(hit.HostDir, XYZ.BasisZ);
+        if (Math.Abs(angle) < 1e-6) return;
+        try { ElementTransformUtils.RotateElement(doc, inst.Id, axis, angle); }
+        catch { }
     }
 
     static bool TryHostFace(Element host, XYZ centroid, out Face face, out XYZ loc, out XYZ normal)
