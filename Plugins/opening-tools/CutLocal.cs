@@ -34,7 +34,7 @@ internal static class CutLocal
                     continue;
                 }
 
-                var hosts = hostsHint.Count > 0 ? hostsHint : HostsFor(doc, opening);
+                var hosts = HostsForOpening(doc, opening, hostsHint);
                 if (hosts.Count == 0)
                 {
                     cannot++;
@@ -121,6 +121,46 @@ internal static class CutLocal
         if (fam.Equals(FamilyContract.DefaultFamilyName, StringComparison.OrdinalIgnoreCase)) return true;
         if (fam.IndexOf("Opening", StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return FamilyContract.Has(fi, "OP_HostId") || FamilyContract.Has(fi, "OP_SourceId");
+    }
+
+    static List<Element> HostsForOpening(Document doc, FamilyInstance opening, List<Element> hinted)
+    {
+        if (hinted.Count == 0) return HostsFor(doc, opening);
+        var matched = new List<Element>();
+        var hostParam = opening.LookupParameter("OP_HostId")?.AsString();
+        ElementId? want = null;
+        if (!string.IsNullOrWhiteSpace(hostParam))
+        {
+            try { want = RevitParse.ParseEid(hostParam); }
+            catch { }
+        }
+        foreach (var host in hinted)
+        {
+            if (!Equals(host.Document, doc) || host is RevitLinkInstance) continue;
+            if (want != null)
+            {
+                if (host.Id == want) matched.Add(host);
+                continue;
+            }
+            if (SolidIntersects(opening, host)) matched.Add(host);
+        }
+        return matched;
+    }
+
+    static bool SolidIntersects(Element a, Element b)
+    {
+        foreach (var solid in Solids(a))
+        {
+            try
+            {
+                foreach (var _ in new FilteredElementCollector(a.Document)
+                    .WherePasses(new ElementIdSetFilter(new[] { b.Id }))
+                    .WherePasses(new ElementIntersectsSolidFilter(solid)))
+                    return true;
+            }
+            catch { }
+        }
+        return false;
     }
 
     static List<Element> HostsFor(Document doc, FamilyInstance opening)

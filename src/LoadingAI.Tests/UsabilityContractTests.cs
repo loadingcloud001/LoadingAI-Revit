@@ -182,6 +182,29 @@ public class UsabilityContractTests
         Assert.DoesNotContain("NewOpening", all);
     }
 
+    [Fact]
+    public void OpeningPlugin_ReviewFixes_NoLinkScanSolidOnlyFloorFrame()
+    {
+        var root = RepoRoot();
+        var dir = Path.Combine(root, "Plugins", "opening-tools");
+        var probe = File.ReadAllText(Path.Combine(dir, "ClashProbe.cs"));
+        var place = File.ReadAllText(Path.Combine(dir, "PlaceOpenings.cs"));
+        var cut = File.ReadAllText(Path.Combine(dir, "CutLocal.cs"));
+
+        Assert.DoesNotContain("foreach (var mep in Collector(ldoc, MepCats))", probe);
+        Assert.Contains("mep.Element.Document", probe);
+        Assert.DoesNotContain("else if (mepBox != null && BoxOf(host", probe);
+        Assert.Contains("is Floor", probe);
+        Assert.Contains("XYZ.BasisY", probe);
+
+        var start = place.IndexOf("tx.Start()", StringComparison.Ordinal);
+        var activate = place.IndexOf("Activate()", StringComparison.Ordinal);
+        Assert.True(start >= 0 && activate > start, "FamilySymbol.Activate must run inside the transaction");
+
+        Assert.Contains("SolidIntersects", cut);
+        Assert.DoesNotContain("hostsHint.Count > 0 ? hostsHint : HostsFor", cut);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

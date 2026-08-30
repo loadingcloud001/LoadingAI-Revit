@@ -82,17 +82,11 @@ internal static class ClashProbe
             foreach (var host in candidates)
             {
                 if (hits.Count >= limit) break;
-                if (host.Id == mep.Element.Id) continue;
+                if (Equals(host.Document, mep.Element.Document) && host.Id == mep.Element.Id) continue;
                 if (!IsHost(host)) continue;
                 var hostSolids = SolidsOf(host, Transform.Identity).ToList();
-                Solid? inter = FirstIntersect(mepSolids, hostSolids);
-                XYZ min, max;
-                if (inter != null && WorldBox(inter, out min, out max))
-                { }
-                else if (mepBox != null && BoxOf(host, Transform.Identity) is { } hb && Overlap(mepBox, hb, out min, out max))
-                { }
-                else
-                    continue;
+                var inter = FirstIntersect(mepSolids, hostSolids);
+                if (inter == null || !WorldBox(inter, out var min, out var max)) continue;
 
                 var centroid = new XYZ((min.X + max.X) / 2, (min.Y + max.Y) / 2, (min.Z + max.Z) / 2);
                 HostFrame(host, out var dir, out var up, out _);
@@ -147,16 +141,11 @@ internal static class ClashProbe
         var list = new List<MepRef>();
         foreach (var el in seeds)
         {
-            if (el is RevitLinkInstance link)
-            {
-                var ldoc = link.GetLinkDocument();
-                if (ldoc == null) continue;
-                var xf = link.GetTotalTransform();
-                foreach (var mep in Collector(ldoc, MepCats))
-                    list.Add(new MepRef(mep, xf, true));
-            }
-            else if (IsMep(el))
-                list.Add(new MepRef(el, Transform.Identity, false));
+            if (el is RevitLinkInstance)
+                continue;
+            if (!IsMep(el)) continue;
+            var xf = ToHostSpace(doc, el);
+            list.Add(new MepRef(el, xf, !Equals(el.Document, doc)));
         }
         return list;
     }
@@ -323,11 +312,16 @@ internal static class ClashProbe
         return true;
     }
 
-    static bool Overlap(BoundingBoxXYZ a, BoundingBoxXYZ b, out XYZ min, out XYZ max)
+    static Transform ToHostSpace(Document hostDoc, Element el)
     {
-        min = new XYZ(Math.Max(a.Min.X, b.Min.X), Math.Max(a.Min.Y, b.Min.Y), Math.Max(a.Min.Z, b.Min.Z));
-        max = new XYZ(Math.Min(a.Max.X, b.Max.X), Math.Min(a.Max.Y, b.Max.Y), Math.Min(a.Max.Z, b.Max.Z));
-        return min.X < max.X && min.Y < max.Y && min.Z < max.Z;
+        if (Equals(el.Document, hostDoc)) return Transform.Identity;
+        foreach (var link in new FilteredElementCollector(hostDoc)
+            .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+        {
+            if (link.GetLinkDocument() != null && Equals(link.GetLinkDocument(), el.Document))
+                return link.GetTotalTransform();
+        }
+        return Transform.Identity;
     }
 
     static void HostFrame(Element host, out XYZ dir, out XYZ up, out XYZ norm)
@@ -347,13 +341,24 @@ internal static class ClashProbe
             if (cross.GetLength() > 1e-9) up = cross.Normalize();
             return;
         }
+        if (host is Floor)
+        {
+            dir = XYZ.BasisX;
+            up = XYZ.BasisY;
+            norm = XYZ.BasisZ;
+            return;
+        }
         if (host.Location is LocationCurve curveLoc)
         {
             var tan = curveLoc.Curve.ComputeDerivatives(0.5, true).BasisX;
             if (tan.GetLength() > 1e-9) dir = tan.Normalize();
-            norm = XYZ.BasisZ.CrossProduct(dir);
-            if (norm.GetLength() < 1e-9) norm = XYZ.BasisY;
-            else norm = norm.Normalize();
+            up = XYZ.BasisZ;
+            if (Math.Abs(dir.DotProduct(up)) > 0.9) up = XYZ.BasisY;
+            up = up - dir.Multiply(up.DotProduct(dir));
+            if (up.GetLength() < 1e-9) up = XYZ.BasisY;
+            else up = up.Normalize();
+            var n = dir.CrossProduct(up);
+            norm = n.GetLength() < 1e-9 ? XYZ.BasisY : n.Normalize();
         }
     }
 

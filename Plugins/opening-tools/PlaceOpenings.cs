@@ -23,7 +23,6 @@ internal static class PlaceOpenings
         var symbol = FamilyContract.Find(doc, familyName, shape);
         var fail = FamilyContract.FailReason(symbol);
         if (fail != null) return fail;
-        if (!symbol!.IsActive) symbol.Activate();
 
         Level? forced = null;
         if (!string.IsNullOrWhiteSpace(levelName))
@@ -49,6 +48,7 @@ internal static class PlaceOpenings
         tx.Start();
         try
         {
+            if (!symbol!.IsActive) symbol.Activate();
             foreach (var hit in hits)
             {
                 try
