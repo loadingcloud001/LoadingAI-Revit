@@ -26,7 +26,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place opening voids from MEP-host clash. Uses current selection. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
+                Description = "Place opening voids where ducts/pipes/trays/conduits solid-intersect local walls/floors/beams. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Uses current selection as hosts and/or MEP. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
                 Parameters = new
                 {
                     type = "object",

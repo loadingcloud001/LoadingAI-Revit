@@ -155,6 +155,11 @@ public class UsabilityContractTests
         Assert.Contains("levelName", all);
         Assert.Contains("GetTotalTransform", all);
         Assert.Contains("CreateTransformed", all);
+        Assert.Contains("GetLinkDocument", all);
+        Assert.Contains("LinkedElementId", all);
+        Assert.Contains("GetReferences", all);
+        Assert.Contains("AddMepFromLink", all);
+        Assert.Contains("do not ask to bind links", all);
         Assert.Contains("OP_SourceId", all);
         Assert.Contains("OP_HostId", all);
         Assert.Contains("OP_HostLinked", all);
@@ -192,6 +197,7 @@ public class UsabilityContractTests
         var cut = File.ReadAllText(Path.Combine(dir, "CutLocal.cs"));
 
         Assert.DoesNotContain("foreach (var mep in Collector(ldoc, MepCats))", probe);
+        Assert.Contains("AddMepFromLink", probe);
         Assert.Contains("mep.Element.Document", probe);
         Assert.DoesNotContain("else if (mepBox != null && BoxOf(host", probe);
         Assert.Contains("is Floor", probe);

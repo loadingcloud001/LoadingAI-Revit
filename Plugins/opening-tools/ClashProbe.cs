@@ -120,6 +120,8 @@ internal static class ClashProbe
 
     static List<MepRef> ResolveMep(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
     {
+        var list = new List<MepRef>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var seeds = new List<Element>();
         if (ids.Count > 0)
         {
@@ -136,18 +138,77 @@ internal static class ClashProbe
                 var el = doc.GetElement(id);
                 if (el != null) seeds.Add(el);
             }
+            AddMepFromLinkedSelection(list, seen, doc, uidoc);
         }
 
-        var list = new List<MepRef>();
         foreach (var el in seeds)
         {
-            if (el is RevitLinkInstance)
+            if (el is RevitLinkInstance link)
+            {
+                AddMepFromLink(list, seen, link);
                 continue;
+            }
             if (!IsMep(el)) continue;
-            var xf = ToHostSpace(doc, el);
-            list.Add(new MepRef(el, xf, !Equals(el.Document, doc)));
+            TryAddMep(list, seen, el, ToHostSpace(doc, el), !Equals(el.Document, doc));
         }
+
+        if (list.Count == 0 && ids.Count == 0)
+            AddMepFromAllLinks(list, seen, doc);
+
         return list;
+    }
+
+    static void AddMepFromLinkedSelection(List<MepRef> list, HashSet<string> seen, Document doc, UIDocument uidoc)
+    {
+        IList<Reference>? refs;
+        try { refs = uidoc.Selection.GetReferences(); }
+        catch { return; }
+        if (refs == null) return;
+        foreach (var rf in refs)
+        {
+            if (rf.LinkedElementId == ElementId.InvalidElementId) continue;
+            var link = doc.GetElement(rf.ElementId) as RevitLinkInstance;
+            if (link == null) continue;
+            var ldoc = link.GetLinkDocument();
+            var el = ldoc?.GetElement(rf.LinkedElementId);
+            if (el == null || !IsMep(el)) continue;
+            TryAddMep(list, seen, el, link.GetTotalTransform(), true);
+        }
+    }
+
+    static void AddMepFromAllLinks(List<MepRef> list, HashSet<string> seen, Document hostDoc)
+    {
+        foreach (var link in new FilteredElementCollector(hostDoc)
+            .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+            AddMepFromLink(list, seen, link);
+    }
+
+    static void AddMepFromLink(List<MepRef> list, HashSet<string> seen, RevitLinkInstance link)
+    {
+        var ldoc = link.GetLinkDocument();
+        if (ldoc == null) return;
+        var xf = link.GetTotalTransform();
+        IList<Element> meps;
+        try
+        {
+            meps = new FilteredElementCollector(ldoc)
+                .WherePasses(new ElementMulticategoryFilter(MepCats))
+                .WhereElementIsNotElementType()
+                .ToElements();
+        }
+        catch { return; }
+        foreach (var el in meps)
+        {
+            if (!IsMep(el)) continue;
+            TryAddMep(list, seen, el, xf, true);
+        }
+    }
+
+    static void TryAddMep(List<MepRef> list, HashSet<string> seen, Element el, Transform xf, bool linked)
+    {
+        var key = el.Document.Title + ":" + el.Id.ToString();
+        if (!seen.Add(key)) return;
+        list.Add(new MepRef(el, xf, linked));
     }
 
     static List<Element> ResolveHosts(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
