@@ -160,7 +160,7 @@ public class UsabilityContractTests
         Assert.Contains("GetReferences", all);
         Assert.Contains("AddMepFromLink", all);
         Assert.Contains("do not ask to bind links", all);
-        Assert.Contains("Please select a wall, floor, or beam", all);
+        Assert.Contains("Please select a wall, floor, beam, column, or roof", all);
         Assert.Contains("on host(s)", all);
         Assert.Contains("ScopeFail", all);
         Assert.Contains("OP_SourceId", all);
@@ -226,6 +226,34 @@ public class UsabilityContractTests
 
         Assert.Contains("SolidIntersects", cut);
         Assert.DoesNotContain("hostsHint.Count > 0 ? hostsHint : HostsFor", cut);
+    }
+
+    [Fact]
+    public void OpeningPlugin_AllCases_HostMepFamilyAndCut()
+    {
+        var root = RepoRoot();
+        var dir = Path.Combine(root, "Plugins", "opening-tools");
+        var probe = File.ReadAllText(Path.Combine(dir, "ClashProbe.cs"));
+        var place = File.ReadAllText(Path.Combine(dir, "PlaceOpenings.cs"));
+        var cut = File.ReadAllText(Path.Combine(dir, "CutLocal.cs"));
+        var plugin = File.ReadAllText(Path.Combine(dir, "OpeningToolsPlugin.cs"));
+
+        Assert.Contains("OST_FlexDuct", probe);
+        Assert.Contains("OST_FlexPipe", probe);
+        Assert.Contains("OST_StructuralColumns", probe);
+        Assert.Contains("AddMepByIdFromLinks", probe);
+        Assert.Contains("hostsInScope", probe);
+        Assert.Contains("OST_StructuralColumns", cut);
+
+        Assert.Contains("ShareWidth", place);
+        Assert.Contains("AlreadyPlaced", place);
+        Assert.Contains("OneLevelBasedHosted", place);
+        Assert.Contains("WorkPlaneBased", place);
+
+        Assert.Contains("OpeningsForHosts", cut);
+        Assert.Contains("AllPluginOpenings", cut);
+
+        Assert.Contains("clearanceMm\", 25", plugin);
     }
 
     private static string RepoRoot()

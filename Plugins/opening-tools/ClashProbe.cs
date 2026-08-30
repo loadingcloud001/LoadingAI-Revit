@@ -43,18 +43,20 @@ internal static class ClashProbe
     static readonly BuiltInCategory[] MepCats =
     {
         BuiltInCategory.OST_DuctCurves, BuiltInCategory.OST_DuctFitting,
+        BuiltInCategory.OST_FlexDuctCurves, BuiltInCategory.OST_FlexPipeCurves,
         BuiltInCategory.OST_PipeCurves, BuiltInCategory.OST_PipeFitting,
         BuiltInCategory.OST_CableTray, BuiltInCategory.OST_CableTrayFitting,
         BuiltInCategory.OST_Conduit, BuiltInCategory.OST_ConduitFitting
     };
 
-    static readonly BuiltInCategory[] HostCats =
+    internal static readonly BuiltInCategory[] HostCategories =
     {
-        BuiltInCategory.OST_Walls, BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_Floors
+        BuiltInCategory.OST_Walls, BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_Floors,
+        BuiltInCategory.OST_StructuralColumns, BuiltInCategory.OST_Roofs
     };
 
-    public static bool AnyMep(Document doc, UIDocument uidoc, IReadOnlyList<string> mepIds)
-        => ResolveMep(doc, uidoc, mepIds).Count > 0;
+    public static bool AnyMep(Document doc, UIDocument uidoc, IReadOnlyList<string> mepIds, IReadOnlyList<string> hostIds)
+        => ResolveMep(doc, uidoc, mepIds, hostIds).Count > 0;
 
     /// <summary>
     /// Whole-model HostsOverlapping is allowed only when the user named hosts, selected a host,
@@ -85,7 +87,7 @@ internal static class ClashProbe
         }
         catch { /* GetReferences not available */ }
 
-        return "Please select a wall, floor, or beam (or pass hostIds). Linked MEP is found automatically against that host; query tools cannot see it.";
+        return "Please select a wall, floor, beam, column, or roof (or pass hostIds). Linked MEP is found automatically against that host; query tools cannot see it.";
     }
 
     public static List<ClashHit> Find(
@@ -97,7 +99,7 @@ internal static class ClashProbe
         string shape,
         int limit)
     {
-        var meps = ResolveMep(doc, uidoc, mepIds);
+        var meps = ResolveMep(doc, uidoc, mepIds, hostIds);
         var hosts = ResolveHosts(doc, uidoc, hostIds);
         var hits = new List<ClashHit>();
         if (meps.Count == 0) return hits;
@@ -150,7 +152,7 @@ internal static class ClashProbe
         }
     }
 
-    static List<MepRef> ResolveMep(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
+    static List<MepRef> ResolveMep(Document doc, UIDocument uidoc, IReadOnlyList<string> ids, IReadOnlyList<string> hostIds)
     {
         var list = new List<MepRef>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -159,7 +161,13 @@ internal static class ClashProbe
         {
             foreach (var s in ids)
             {
-                try { var el = doc.GetElement(RevitParse.ParseEid(s)); if (el != null) seeds.Add(el); }
+                try
+                {
+                    var eid = RevitParse.ParseEid(s);
+                    var el = doc.GetElement(eid);
+                    if (el != null) seeds.Add(el);
+                    else AddMepByIdFromLinks(list, seen, doc, eid);
+                }
                 catch { /* skip bad id */ }
             }
         }
@@ -184,8 +192,12 @@ internal static class ClashProbe
             TryAddMep(list, seen, el, ToHostSpace(doc, el), !Equals(el.Document, doc));
         }
 
-        if (list.Count == 0 && ids.Count == 0)
-            AddMepFromAllLinks(list, seen, doc);
+        if (list.Count == 0)
+        {
+            var hostsInScope = ResolveHosts(doc, uidoc, hostIds).Count > 0;
+            if (ids.Count == 0 || hostsInScope)
+                AddMepFromAllLinks(list, seen, doc);
+        }
 
         return list;
     }
@@ -236,6 +248,18 @@ internal static class ClashProbe
         }
     }
 
+    static void AddMepByIdFromLinks(List<MepRef> list, HashSet<string> seen, Document hostDoc, ElementId eid)
+    {
+        foreach (var link in new FilteredElementCollector(hostDoc)
+            .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+        {
+            var ldoc = link.GetLinkDocument();
+            var el = ldoc?.GetElement(eid);
+            if (el == null || !IsMep(el)) continue;
+            TryAddMep(list, seen, el, link.GetTotalTransform(), true);
+        }
+    }
+
     static void TryAddMep(List<MepRef> list, HashSet<string> seen, Element el, Transform xf, bool linked)
     {
         var key = el.Document.Title + ":" + el.Id.ToString();
@@ -273,7 +297,7 @@ internal static class ClashProbe
             try
             {
                 foreach (var el in new FilteredElementCollector(doc)
-                    .WherePasses(new ElementMulticategoryFilter(HostCats))
+                    .WherePasses(new ElementMulticategoryFilter(HostCategories))
                     .WherePasses(new ElementIntersectsSolidFilter(solid))
                     .WhereElementIsNotElementType())
                     found[el.Id] = el;
@@ -286,7 +310,7 @@ internal static class ClashProbe
             try
             {
                 foreach (var el in new FilteredElementCollector(doc)
-                    .WherePasses(new ElementMulticategoryFilter(HostCats))
+                    .WherePasses(new ElementMulticategoryFilter(HostCategories))
                     .WherePasses(new BoundingBoxIntersectsFilter(outline))
                     .WhereElementIsNotElementType())
                     found[el.Id] = el;
@@ -297,7 +321,7 @@ internal static class ClashProbe
     }
 
     static bool IsMep(Element el) => Matches(el, MepCats);
-    static bool IsHost(Element el) => Matches(el, HostCats);
+    internal static bool IsHost(Element el) => Matches(el, HostCategories);
 
     static bool Matches(Element el, BuiltInCategory[] cats)
     {
@@ -368,13 +392,17 @@ internal static class ClashProbe
         catch { return null; }
         if (bb == null) return null;
         if (toHost.IsIdentity) return bb;
-        var min = toHost.OfPoint(bb.Min);
-        var max = toHost.OfPoint(bb.Max);
-        return new BoundingBoxXYZ
+        XYZ? mn = null, mx = null;
+        foreach (var cx in new[] { bb.Min.X, bb.Max.X })
+        foreach (var cy in new[] { bb.Min.Y, bb.Max.Y })
+        foreach (var cz in new[] { bb.Min.Z, bb.Max.Z })
         {
-            Min = new XYZ(Math.Min(min.X, max.X), Math.Min(min.Y, max.Y), Math.Min(min.Z, max.Z)),
-            Max = new XYZ(Math.Max(min.X, max.X), Math.Max(min.Y, max.Y), Math.Max(min.Z, max.Z))
-        };
+            var p = toHost.OfPoint(new XYZ(cx, cy, cz));
+            mn = mn == null ? p : new XYZ(Math.Min(mn.X, p.X), Math.Min(mn.Y, p.Y), Math.Min(mn.Z, p.Z));
+            mx = mx == null ? p : new XYZ(Math.Max(mx.X, p.X), Math.Max(mx.Y, p.Y), Math.Max(mx.Z, p.Z));
+        }
+        if (mn == null || mx == null) return null;
+        return new BoundingBoxXYZ { Min = mn, Max = mx };
     }
 
     static bool WorldBox(Solid s, out XYZ min, out XYZ max)
@@ -428,11 +456,18 @@ internal static class ClashProbe
             if (cross.GetLength() > 1e-9) up = cross.Normalize();
             return;
         }
-        if (host is Floor)
+        if (host is Floor || host is RoofBase)
         {
             dir = XYZ.BasisX;
             up = XYZ.BasisY;
             norm = XYZ.BasisZ;
+            return;
+        }
+        if (host.Category != null && host.Category.Id == new ElementId(BuiltInCategory.OST_StructuralColumns))
+        {
+            dir = XYZ.BasisX;
+            up = XYZ.BasisZ;
+            norm = XYZ.BasisY;
             return;
         }
         if (host.Location is LocationCurve curveLoc)

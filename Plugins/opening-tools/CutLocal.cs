@@ -15,6 +15,10 @@ internal static class CutLocal
         IReadOnlyList<string> hostIds)
     {
         var openings = ResolveOpenings(doc, uidoc, openingIds);
+        if (openings.Count == 0)
+            openings = OpeningsForHosts(doc, Seeds(doc, uidoc, openingIds, hostIds));
+        if (openings.Count == 0)
+            openings = AllPluginOpenings(doc);
         if (openings.Count == 0) return "Please select opening instances first.";
         var hostsHint = ResolveHosts(doc, hostIds);
 
@@ -100,6 +104,52 @@ internal static class CutLocal
         return seeds.OfType<FamilyInstance>().Where(IsOpening).ToList();
     }
 
+    static List<Element> Seeds(Document doc, UIDocument uidoc, IReadOnlyList<string> openingIds, IReadOnlyList<string> hostIds)
+    {
+        var seeds = new List<Element>();
+        foreach (var s in hostIds.Concat(openingIds))
+        {
+            try { var el = doc.GetElement(RevitParse.ParseEid(s)); if (el != null) seeds.Add(el); }
+            catch { }
+        }
+        if (seeds.Count == 0)
+        {
+            foreach (var id in uidoc.Selection.GetElementIds())
+            {
+                var el = doc.GetElement(id);
+                if (el != null) seeds.Add(el);
+            }
+        }
+        return seeds.Where(ClashProbe.IsHost).ToList();
+    }
+
+    static List<FamilyInstance> OpeningsForHosts(Document doc, List<Element> hosts)
+    {
+        if (hosts.Count == 0) return new List<FamilyInstance>();
+        var want = new HashSet<string>(hosts.Select(h => h.Id.ToString()), StringComparer.Ordinal);
+        var list = new List<FamilyInstance>();
+        foreach (var fi in AllPluginOpenings(doc))
+        {
+            var hp = fi.LookupParameter("OP_HostId")?.AsString();
+            if (hp != null && want.Contains(hp)) { list.Add(fi); continue; }
+            foreach (var host in hosts)
+            {
+                if (SolidIntersects(fi, host)) { list.Add(fi); break; }
+            }
+        }
+        return list;
+    }
+
+    static List<FamilyInstance> AllPluginOpenings(Document doc)
+    {
+        return new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilyInstance))
+            .Cast<FamilyInstance>()
+            .Where(IsOpening)
+            .Take(200)
+            .ToList();
+    }
+
     static List<Element> ResolveHosts(Document doc, IReadOnlyList<string> ids)
     {
         var list = new List<Element>();
@@ -183,12 +233,7 @@ internal static class CutLocal
             try
             {
                 foreach (var el in new FilteredElementCollector(doc)
-                    .WherePasses(new ElementMulticategoryFilter(new[]
-                    {
-                        BuiltInCategory.OST_Walls,
-                        BuiltInCategory.OST_StructuralFraming,
-                        BuiltInCategory.OST_Floors
-                    }))
+                    .WherePasses(new ElementMulticategoryFilter(ClashProbe.HostCategories)) // OST_StructuralColumns + roofs
                     .WherePasses(new ElementIntersectsSolidFilter(solid))
                     .WhereElementIsNotElementType())
                 {

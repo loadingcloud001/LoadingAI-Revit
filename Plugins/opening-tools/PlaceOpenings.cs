@@ -38,7 +38,7 @@ internal static class PlaceOpenings
         var scope = ClashProbe.ScopeFail(doc, uidoc, mepIds, hostIds);
         if (scope != null) return scope;
 
-        if (!ClashProbe.AnyMep(doc, uidoc, mepIds))
+        if (!ClashProbe.AnyMep(doc, uidoc, mepIds, hostIds))
             return "Please select MEP elements first.";
 
         var hits = ClashProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
@@ -47,6 +47,7 @@ internal static class PlaceOpenings
 
         var placed = 0;
         var failed = 0;
+        var skipped = 0;
         var tx = new Transaction(doc, "LoadingAI for Revit: create openings from clash");
         tx.Start();
         try
@@ -60,6 +61,11 @@ internal static class PlaceOpenings
             {
                 try
                 {
+                    if (AlreadyPlaced(doc, hit))
+                    {
+                        skipped++;
+                        continue;
+                    }
                     var inst = PlaceOne(doc, symbol, hit, forced);
                     if (inst == null)
                     {
@@ -75,6 +81,7 @@ internal static class PlaceOpenings
                     failed++;
                 }
             }
+            doc.Regenerate();
             tx.Commit();
         }
         catch (Exception ex)
@@ -84,7 +91,8 @@ internal static class PlaceOpenings
         }
 
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}. Failed {failed}.";
+        var extra = skipped > 0 ? $" Skipped {skipped} already placed." : "";
+        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}. Failed {failed}.{extra}";
     }
 
     static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
@@ -94,11 +102,28 @@ internal static class PlaceOpenings
         var host = doc.GetElement(hit.HostId);
         if (host == null) return null;
 
-        if (symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased
-            && TryHostFace(host, hit.Centroid, out var face, out var loc, out var normal))
+        var pt = symbol.Family.FamilyPlacementType;
+        if (pt == FamilyPlacementType.WorkPlaneBased)
         {
+            if (!TryHostFace(host, hit.Centroid, out var face, out var loc, out var normal))
+                return null;
             var dir = ReferenceDir(hit.HostDir, normal);
             return doc.Create.NewFamilyInstance(face, loc, dir, symbol);
+        }
+        if (pt == FamilyPlacementType.ViewBased
+            || pt == FamilyPlacementType.CurveBased
+            || pt == FamilyPlacementType.CurveBasedDetail
+            || pt == FamilyPlacementType.Adaptive
+            || pt == FamilyPlacementType.CurveDrivenStructural)
+            return null;
+
+        if (pt == FamilyPlacementType.OneLevelBasedHosted)
+        {
+            try
+            {
+                return doc.Create.NewFamilyInstance(hit.Centroid, symbol, host, StructuralType.NonStructural);
+            }
+            catch { /* Generic Model void is not wall-hosted; fall through to level */ }
         }
 
         var level = forced ?? doc.GetElement(hit.LevelId) as Level ?? NearestLevel(doc, hit.Centroid);
@@ -111,6 +136,29 @@ internal static class PlaceOpenings
         }
         RotateToHost(doc, inst, hit);
         return inst;
+    }
+
+    static bool AlreadyPlaced(Document doc, ClashHit hit)
+    {
+        var wantSrc = hit.MepId.ToString();
+        var wantHost = hit.HostId.ToString();
+        foreach (var fi in new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilyInstance))
+            .Cast<FamilyInstance>())
+        {
+            var src = fi.LookupParameter("OP_SourceId")?.AsString();
+            var host = fi.LookupParameter("OP_HostId")?.AsString();
+            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(host))
+            {
+                var comments = fi.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString() ?? "";
+                if (src == null && comments.IndexOf("OP_SourceId=" + wantSrc, StringComparison.Ordinal) >= 0)
+                    src = wantSrc;
+                if (host == null && comments.IndexOf("OP_HostId=" + wantHost, StringComparison.Ordinal) >= 0)
+                    host = wantHost;
+            }
+            if (src == wantSrc && host == wantHost) return true;
+        }
+        return false;
     }
 
     static Level? NearestLevel(Document doc, XYZ p)
@@ -154,7 +202,7 @@ internal static class PlaceOpenings
         var refs = new List<Reference>();
         try
         {
-            if (host is Floor)
+            if (host is Floor || host is RoofBase)
             {
                 foreach (var r in HostObjectUtils.GetTopFaces(ho)) refs.Add(r);
             }
@@ -282,9 +330,13 @@ internal static class PlaceOpenings
 
     static void SetLengthFt(Element el, string name, double ft)
     {
-        var p = el.LookupParameter(name);
-        if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) return;
-        try { p.Set(ft); } catch { }
+        // Width may be formula-driven; try ShareWidth / ShareHeight / ShareDepth.
+        foreach (var n in new[] { name, "Share" + name })
+        {
+            var p = el.LookupParameter(n);
+            if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
+            try { p.Set(ft); return; } catch { }
+        }
     }
 
     static void SetOrComment(Element el, string name, string value)

@@ -26,14 +26,14 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place opening voids where ducts/pipes/trays/conduits solid-intersect local walls/floors/beams. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm, familyName, levelName, limit.",
+                Description = "Place opening voids where ducts/pipes/flex/trays/conduits solid-intersect local walls/floors/beams/columns/roofs. Includes MEP inside loaded RVT links (transformed into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam/column/roof the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         mepIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
-                        hostIds = new { type = "array", items = new { type = "string" }, description = "Wall/floor/beam ids to clash against. Pass the user's selected host. If omitted, uses current selection; does not scan the whole model unless MEP or a Revit link is selected." },
+                        hostIds = new { type = "array", items = new { type = "string" }, description = "Wall/floor/beam/column/roof ids to clash against. Pass the user's selected host. If omitted, uses current selection; does not scan the whole model unless MEP or a Revit link is selected." },
                         shape = new { type = "string", description = "rectangle | circle | auto" },
                         clearanceMm = new { type = "number" },
                         familyName = new { type = "string" },
@@ -50,7 +50,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var mepIds = args.Strings("mepIds");
             var hostIds = args.Strings("hostIds");
             var shape = args.Str("shape") ?? "auto";
-            var clearanceMm = args.Dbl("clearanceMm", 0);
+            var clearanceMm = args.Dbl("clearanceMm", 25);
             var familyName = args.Str("familyName");
             var levelName = args.Str("levelName");
             var limit = args.Int("limit", 50);
@@ -79,7 +79,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "cut_hosts_by_openings",
-                Description = "Cut local hosts with opening voids. Uses current selection. Linked hosts are skipped, not cut.",
+                Description = "Cut local hosts with opening voids. Uses current selection, or openings tagged to the selected wall/floor/beam, or all LoadingAI_Opening instances. Linked hosts are skipped, not cut.",
                 Parameters = new
                 {
                     type = "object",
