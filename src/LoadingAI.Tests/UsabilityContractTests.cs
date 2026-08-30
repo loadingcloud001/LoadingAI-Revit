@@ -244,6 +244,10 @@ public class UsabilityContractTests
         Assert.Contains("OST_StructuralColumns", probe);
         Assert.Contains("AddMepByIdFromLinks", probe);
         Assert.Contains("SnapToHost", probe);
+        Assert.Contains("Evaluate(t, false)", probe);
+        Assert.Contains("never a free XYZ", probe);
+        Assert.Contains("InsideHost", probe);
+        Assert.Contains("WorldMinMax", probe);
         Assert.Contains("ModelCentroid", probe);
         Assert.Contains("CreateTransformed", probe);
         Assert.Contains("GetInstanceGeometry", probe);

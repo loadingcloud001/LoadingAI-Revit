@@ -142,6 +142,13 @@ internal static class PlaceOpenings
             catch { /* level-based origin may reject Z */ }
         }
         RotateToHost(doc, inst, hit);
+        var xyz = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
+        if (!ClashProbe.InsideHost(host, xyz))
+        {
+            try { doc.Delete(inst.Id); }
+            catch { }
+            return null;
+        }
         return inst;
     }
 

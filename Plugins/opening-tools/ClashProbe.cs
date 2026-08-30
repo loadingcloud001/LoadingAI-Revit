@@ -448,34 +448,80 @@ internal static class ClashProbe
     }
 
     /// <summary>
-    /// A clash centroid that is not on the host bbox is not this host — skip it.
-    /// Autodesk wall-opening samples snap p1/p2 onto the wall, not a free XYZ.
+    /// Element.BoundingBox Min/Max are in the box's Transform. Apply it (identity for most
+    /// elements). Live dogfood: wall 587487 world X ≈ -40, clash centroid X ≈ -80 (2×).
+    /// </summary>
+    static bool WorldMinMax(BoundingBoxXYZ bb, out XYZ min, out XYZ max)
+    {
+        min = max = XYZ.Zero;
+        var t = bb.Transform ?? Transform.Identity;
+        XYZ? mn = null, mx = null;
+        foreach (var cx in new[] { bb.Min.X, bb.Max.X })
+        foreach (var cy in new[] { bb.Min.Y, bb.Max.Y })
+        foreach (var cz in new[] { bb.Min.Z, bb.Max.Z })
+        {
+            var q = t.OfPoint(new XYZ(cx, cy, cz));
+            mn = mn == null ? q : new XYZ(Math.Min(mn.X, q.X), Math.Min(mn.Y, q.Y), Math.Min(mn.Z, q.Z));
+            mx = mx == null ? q : new XYZ(Math.Max(mx.X, q.X), Math.Max(mx.Y, q.Y), Math.Max(mx.Z, q.Z));
+        }
+        if (mn == null || mx == null) return false;
+        min = mn;
+        max = mx;
+        return true;
+    }
+
+    internal static bool InsideHost(Element host, XYZ p)
+    {
+        var pad = HostThickness(host) + Metric.MmToFt(300);
+        BoundingBoxXYZ? bb;
+        try { bb = host.get_BoundingBox(null); }
+        catch { return false; }
+        if (bb == null || !WorldMinMax(bb, out var mn, out var mx)) return false;
+        if (p.X < mn.X - pad || p.X > mx.X + pad) return false;
+        if (p.Y < mn.Y - pad || p.Y > mx.Y + pad) return false;
+        if (p.Z < mn.Z - pad || p.Z > mx.Z + pad) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Autodesk wall samples / ShaftHolePuncher put p1/p2 on the wall curve — never a free XYZ.
+    /// A doubled GetTotalTransform puts the clash centroid at ~2× wall X; still snap onto the host.
+    /// Do not keep the raw centroid. Do not skip the wall because the centroid is far.
     /// </summary>
     static bool SnapToHost(Element host, XYZ p, out XYZ snapped)
     {
         snapped = p;
-        var pad = HostThickness(host) + Metric.MmToFt(300);
-        BoundingBoxXYZ? bb;
-        try { bb = host.get_BoundingBox(null); }
-        catch { bb = null; }
-        if (bb != null)
+        if (host is Wall wall && wall.Location is LocationCurve lc && lc.Curve != null)
         {
-            if (p.X < bb.Min.X - pad || p.X > bb.Max.X + pad) return false;
-            if (p.Y < bb.Min.Y - pad || p.Y > bb.Max.Y + pad) return false;
-            if (p.Z < bb.Min.Z - pad || p.Z > bb.Max.Z + pad) return false;
+            var curve = lc.Curve;
+            IntersectionResult? ir = null;
+            try { ir = curve.Project(p); }
+            catch { ir = null; }
+            try
+            {
+                var t0 = curve.GetEndParameter(0);
+                var t1 = curve.GetEndParameter(1);
+                var lo = Math.Min(t0, t1);
+                var hi = Math.Max(t0, t1);
+                var t = ir != null ? ir.Parameter : (lo + hi) / 2;
+                if (t < lo) t = lo;
+                if (t > hi) t = hi;
+                var on = curve.Evaluate(t, false);
+                var z = p.Z;
+                BoundingBoxXYZ? bb;
+                try { bb = host.get_BoundingBox(null); }
+                catch { bb = null; }
+                if (bb != null && WorldMinMax(bb, out var mn, out var mx))
+                {
+                    if (z < mn.Z) z = mn.Z;
+                    if (z > mx.Z) z = mx.Z;
+                }
+                snapped = new XYZ(on.X, on.Y, z);
+                return true;
+            }
+            catch { return false; }
         }
-        if (host is Wall wall && wall.Location is LocationCurve lc)
-        {
-            IntersectionResult? ir;
-            try { ir = lc.Curve.Project(p); }
-            catch { return bb != null; }
-            if (ir == null) return false;
-            var on = ir.XYZPoint;
-            var dxy = new XYZ(p.X - on.X, p.Y - on.Y, 0).GetLength();
-            if (dxy > wall.Width + Metric.MmToFt(300)) return false;
-            snapped = new XYZ(on.X, on.Y, p.Z);
-            return true;
-        }
+        if (!InsideHost(host, p)) return false;
         snapped = p;
         return true;
     }
