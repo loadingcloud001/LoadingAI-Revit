@@ -147,7 +147,7 @@ internal static class PlaceOpenings
         {
             try { doc.Delete(inst.Id); }
             catch { }
-            return null;
+            return null; // OneLevelBased Z is on the level; XY must sit on the wall
         }
         return inst;
     }

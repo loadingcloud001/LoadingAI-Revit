@@ -248,6 +248,8 @@ public class UsabilityContractTests
         Assert.Contains("never a free XYZ", probe);
         Assert.Contains("InsideHost", probe);
         Assert.Contains("WorldMinMax", probe);
+        Assert.Contains("Do not OfPoint Min through Transform", probe);
+        Assert.Contains("do not reject Z", probe);
         Assert.Contains("ModelCentroid", probe);
         Assert.Contains("CreateTransformed", probe);
         Assert.Contains("GetInstanceGeometry", probe);

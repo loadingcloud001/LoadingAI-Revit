@@ -620,38 +620,43 @@ internal static class ClashProbe
     }
 
     /// <summary>
-    /// Element.BoundingBox Min/Max are in the box's Transform. Apply it (identity for most
-    /// elements). Live dogfood: wall 587487 world X ≈ -40, clash centroid X ≈ -80 (2×).
+    /// XML: Element.BoundingBox stores bounds in modeling coordinates with an identity
+    /// transform. Do not OfPoint Min through Transform — that 2× the origin and PlaceOne
+    /// InsideHost then deletes snaps that already sit on the wall (live: Failed 6).
     /// </summary>
     static bool WorldMinMax(BoundingBoxXYZ bb, out XYZ min, out XYZ max)
     {
-        min = max = XYZ.Zero;
-        var t = bb.Transform ?? Transform.Identity;
-        XYZ? mn = null, mx = null;
-        foreach (var cx in new[] { bb.Min.X, bb.Max.X })
-        foreach (var cy in new[] { bb.Min.Y, bb.Max.Y })
-        foreach (var cz in new[] { bb.Min.Z, bb.Max.Z })
-        {
-            var q = t.OfPoint(new XYZ(cx, cy, cz));
-            mn = mn == null ? q : new XYZ(Math.Min(mn.X, q.X), Math.Min(mn.Y, q.Y), Math.Min(mn.Z, q.Z));
-            mx = mx == null ? q : new XYZ(Math.Max(mx.X, q.X), Math.Max(mx.Y, q.Y), Math.Max(mx.Z, q.Z));
-        }
-        if (mn == null || mx == null) return false;
-        min = mn;
-        max = mx;
+        min = bb.Min;
+        max = bb.Max;
         return true;
     }
 
+    /// <summary>
+    /// OneLevelBased NewFamilyInstance keeps Z on the level; do not reject Z.
+    /// Walls: XY must sit on the location curve (width + 300 mm).
+    /// </summary>
     internal static bool InsideHost(Element host, XYZ p)
     {
-        var pad = HostThickness(host) + Metric.MmToFt(300);
+        if (host is Wall wall && wall.Location is LocationCurve lc && lc.Curve != null)
+        {
+            try
+            {
+                var ir = lc.Curve.Project(p);
+                if (ir == null) return false;
+                var on = ir.XYZPoint;
+                var dxy = new XYZ(p.X - on.X, p.Y - on.Y, 0).GetLength();
+                return dxy <= wall.Width + Metric.MmToFt(300);
+            }
+            catch { return false; }
+        }
         BoundingBoxXYZ? bb;
         try { bb = host.get_BoundingBox(null); }
         catch { return false; }
-        if (bb == null || !WorldMinMax(bb, out var mn, out var mx)) return false;
-        if (p.X < mn.X - pad || p.X > mx.X + pad) return false;
-        if (p.Y < mn.Y - pad || p.Y > mx.Y + pad) return false;
-        if (p.Z < mn.Z - pad || p.Z > mx.Z + pad) return false;
+        if (bb == null) return false;
+        var pad = HostThickness(host) + Metric.MmToFt(300);
+        if (p.X < bb.Min.X - pad || p.X > bb.Max.X + pad) return false;
+        if (p.Y < bb.Min.Y - pad || p.Y > bb.Max.Y + pad) return false;
+        if (p.Z < bb.Min.Z - pad || p.Z > bb.Max.Z + pad) return false;
         return true;
     }
 
