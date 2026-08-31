@@ -253,6 +253,12 @@ public class UsabilityContractTests
         Assert.Contains("GetInstanceGeometry", probe);
         Assert.DoesNotContain("geo.GetTransformed", probe);
         Assert.Contains("the model that owns this instance", probe);
+        Assert.Contains("ClashPoint", probe);
+        Assert.Contains("TryCurveHit", probe);
+        Assert.Contains("LooksDoubled", probe);
+        Assert.Contains("BoxOnceHit", probe);
+        Assert.Contains("CreateTransformed(toHost)", probe);
+        Assert.Contains("trust curve/bbox-once", probe);
 
         Assert.Contains("ShareWidth", place);
         Assert.Contains("AlreadyPlaced", place);

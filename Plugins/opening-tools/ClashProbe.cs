@@ -121,7 +121,9 @@ internal static class ClashProbe
                 var hostSolids = SolidsOf(host, Transform.Identity).ToList();
                 var inter = FirstIntersect(mepSolids, hostSolids);
                 if (inter == null) continue;
-                if (!ModelCentroid(inter, out var centroid)) continue;
+                // POINT from curve ∩ host (transform once). SnapToHost still runs after.
+                if (!ClashPoint(mep.Element, mep.ToHost, mepBox, host, hostSolids, inter, out var centroid))
+                    continue;
                 if (!SnapToHost(host, centroid, out centroid)) continue;
                 HostFrame(host, out var dir, out var up, out _);
                 ExtentsFromSolid(inter, centroid, dir, up, out var width, out var height);
@@ -388,6 +390,176 @@ internal static class ClashProbe
             }
             catch { /* disjoint or non-manifold */ }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Clash POINT at the source. Autodesk MEP practice (AvoidObstruction): transform the
+    /// MEP LocationCurve by GetTotalTransform once, Face.Intersect host solids, place there.
+    /// If ModelCentroid of a CreateTransformed solid is ~2× BoxOf(mep, xf) mid — or far from
+    /// that once-transformed bbox — trust curve/bbox-once, not the solid centroid.
+    /// </summary>
+    static bool ClashPoint(
+        Element mep, Transform toHost, BoundingBoxXYZ? mepBox,
+        Element host, List<Solid> hostSolids, Solid inter, out XYZ point)
+    {
+        if (TryCurveHit(mep, toHost, host, hostSolids, out point))
+            return true;
+
+        XYZ solidC;
+        var haveSolid = ModelCentroid(inter, out solidC);
+        XYZ? boxMidN = null;
+        if (mepBox != null && Mid(mepBox.Min, mepBox.Max, out var boxMid))
+            boxMidN = boxMid;
+
+        if (haveSolid && !LooksDoubled(solidC, mepBox, boxMidN))
+        {
+            point = solidC;
+            return true;
+        }
+
+        if (mepBox != null && BoxOnceHit(mepBox, host, out point))
+            return true;
+
+        if (haveSolid)
+        {
+            point = solidC;
+            return true;
+        }
+
+        point = XYZ.Zero;
+        return false;
+    }
+
+    static bool LooksDoubled(XYZ centroid, BoundingBoxXYZ? mepBox, XYZ? boxMid)
+    {
+        if (mepBox == null) return false;
+        var pad = Metric.MmToFt(300);
+        var far = centroid.X < mepBox.Min.X - pad || centroid.X > mepBox.Max.X + pad
+               || centroid.Y < mepBox.Min.Y - pad || centroid.Y > mepBox.Max.Y + pad
+               || centroid.Z < mepBox.Min.Z - pad || centroid.Z > mepBox.Max.Z + pad;
+        if (boxMid == null) return far;
+        var doubled = new XYZ(boxMid.X * 2.0, boxMid.Y * 2.0, boxMid.Z * 2.0);
+        var dBox = centroid.DistanceTo(boxMid);
+        var d2 = centroid.DistanceTo(doubled);
+        var twice = dBox > Metric.MmToFt(500) && d2 <= dBox * 0.5 + Metric.MmToFt(50);
+        return twice || (far && d2 < dBox);
+    }
+
+    static bool BoxOnceHit(BoundingBoxXYZ mepBox, Element host, out XYZ point)
+    {
+        point = XYZ.Zero;
+        BoundingBoxXYZ? hbb;
+        try { hbb = host.get_BoundingBox(null); }
+        catch { return false; }
+        if (hbb == null || !WorldMinMax(hbb, out var hmin, out var hmax)) return false;
+        var minx = Math.Max(mepBox.Min.X, hmin.X);
+        var miny = Math.Max(mepBox.Min.Y, hmin.Y);
+        var minz = Math.Max(mepBox.Min.Z, hmin.Z);
+        var maxx = Math.Min(mepBox.Max.X, hmax.X);
+        var maxy = Math.Min(mepBox.Max.Y, hmax.Y);
+        var maxz = Math.Min(mepBox.Max.Z, hmax.Z);
+        if (minx > maxx || miny > maxy || minz > maxz)
+        {
+            if (!Mid(mepBox.Min, mepBox.Max, out var mid)) return false;
+            return SnapToHost(host, mid, out point);
+        }
+        return Mid(new XYZ(minx, miny, minz), new XYZ(maxx, maxy, maxz), out point);
+    }
+
+    static bool TryCurveHit(Element mep, Transform toHost, Element host, List<Solid> hostSolids, out XYZ point)
+    {
+        point = XYZ.Zero;
+        var curve = MepLocationCurve(mep);
+        if (curve == null) return false;
+        if (!toHost.IsIdentity)
+        {
+            try { curve = curve.CreateTransformed(toHost); }
+            catch { return false; }
+        }
+
+        var pts = new List<XYZ>();
+        foreach (var solid in hostSolids)
+        {
+            FaceArray? faces;
+            try { faces = solid.Faces; }
+            catch { continue; }
+            if (faces == null) continue;
+            foreach (Face f in faces)
+            {
+                IntersectionResultArray ira;
+                SetComparisonResult scr;
+                try { scr = f.Intersect(curve, out ira); }
+                catch { continue; }
+                if (scr != SetComparisonResult.Overlap || ira == null) continue;
+                foreach (IntersectionResult ir in ira)
+                {
+                    XYZ p;
+                    try { p = ir.XYZPoint; }
+                    catch { continue; }
+                    if (p == null) continue;
+                    if (!InsideHost(host, p)) continue;
+                    pts.Add(p);
+                }
+            }
+        }
+        if (pts.Count == 0) return SampleCurveInHost(curve, host, out point);
+        return AveragePts(pts, out point);
+    }
+
+    static bool SampleCurveInHost(Curve curve, Element host, out XYZ point)
+    {
+        point = XYZ.Zero;
+        var pts = new List<XYZ>();
+        try
+        {
+            for (var i = 0; i <= 16; i++)
+            {
+                var p = curve.Evaluate(i / 16.0, true);
+                if (InsideHost(host, p)) pts.Add(p);
+            }
+        }
+        catch { return false; }
+        return pts.Count > 0 && AveragePts(pts, out point);
+    }
+
+    static bool AveragePts(List<XYZ> pts, out XYZ point)
+    {
+        point = XYZ.Zero;
+        if (pts.Count == 0) return false;
+        var acc = XYZ.Zero;
+        foreach (var p in pts) acc = acc + p;
+        var n = pts.Count;
+        point = new XYZ(acc.X / n, acc.Y / n, acc.Z / n);
+        return true;
+    }
+
+    static Curve? MepLocationCurve(Element mep)
+    {
+        try
+        {
+            if (mep.Location is LocationCurve lc && lc.Curve != null)
+                return lc.Curve;
+        }
+        catch { }
+
+        try
+        {
+            if (mep is FamilyInstance fi && fi.MEPModel != null && fi.MEPModel.ConnectorManager != null)
+            {
+                Connector? a = null;
+                Connector? b = null;
+                foreach (Connector c in fi.MEPModel.ConnectorManager.Connectors)
+                {
+                    if (c == null) continue;
+                    if (a == null) a = c;
+                    else { b = c; break; }
+                }
+                if (a != null && b != null && a.Origin.DistanceTo(b.Origin) > 1e-9)
+                    return Line.CreateBound(a.Origin, b.Origin);
+            }
+        }
+        catch { }
         return null;
     }
 
