@@ -429,12 +429,34 @@ internal static class PlaceOpenings
 
     static void SetLengthFt(Element el, string name, double ft)
     {
-        // Width may be formula-driven (Share Width = Width). ShareWidth compact alias. Names have spaces in Family Types.
-        foreach (var n in new[] { name, "Share " + name, "Share" + name.Replace(" ", ""), name.Replace(" ", "") })
+        // Live: Width set, Outer Width stayed 1000 mm. LookupParameter("Outer Width") misses;
+        // walk Parameters and match names with spaces stripped (Outer Width == OuterWidth).
+        // ShareWidth / Share Height are formulas (= Width/Height) — skip via IsReadOnly.
+        var compact = CompactName(name);
+        foreach (var p in AllLengthParams(el))
         {
-            var p = el.LookupParameter(n);
-            if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
+            var n = p.Definition?.Name;
+            if (n == null || CompactName(n) != compact) continue;
+            if (p.IsReadOnly || p.StorageType != StorageType.Double) continue;
             try { p.Set(ft); return; } catch { }
+        }
+    }
+
+    static string CompactName(string s)
+        => s.Replace(" ", "").Replace("_", "").ToUpperInvariant();
+
+    static IEnumerable<Parameter> AllLengthParams(Element el)
+    {
+        foreach (Parameter p in el.Parameters)
+        {
+            if (p != null) yield return p;
+        }
+        if (el is FamilyInstance fi && fi.Symbol != null)
+        {
+            foreach (Parameter p in fi.Symbol.Parameters)
+            {
+                if (p != null) yield return p;
+            }
         }
     }
 

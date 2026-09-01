@@ -304,6 +304,8 @@ public class UsabilityContractTests
         Assert.Contains("INSTANCE_FREE_HOST_OFFSET_PARAM", place);
         Assert.Contains("Outer Width", place);
         Assert.Contains("Outer Height", place);
+        Assert.Contains("el.Parameters", place);
+        Assert.Contains("ToUpperInvariant", place);
         Assert.Contains("opening bottom is the family origin", place);
         Assert.Contains("HeightFt / 2", place);
 
