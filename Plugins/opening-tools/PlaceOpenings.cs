@@ -397,9 +397,9 @@ internal static class PlaceOpenings
         SetLengthFt(inst, "Width", hit.WidthFt);
         SetLengthFt(inst, "Height", hit.HeightFt);
         SetLengthFt(inst, "Depth", hit.DepthFt);
-        // Through-host: Width = OuterWidth. Outer* is for front/back (recess) cases.
-        SetLengthFt(inst, "OuterWidth", hit.WidthFt);
-        SetLengthFt(inst, "OuterHeight", hit.HeightFt);
+        // Family Types names have spaces. Through-host: Outer Width = Width (not a front/back recess).
+        SetLengthFt(inst, "Outer Width", hit.WidthFt);
+        SetLengthFt(inst, "Outer Height", hit.HeightFt);
     }
 
     /// <summary>
@@ -429,8 +429,8 @@ internal static class PlaceOpenings
 
     static void SetLengthFt(Element el, string name, double ft)
     {
-        // Width may be formula-driven; try ShareWidth / ShareHeight / ShareDepth.
-        foreach (var n in new[] { name, "Share" + name })
+        // Width may be formula-driven (Share Width = Width). ShareWidth compact alias. Names have spaces in Family Types.
+        foreach (var n in new[] { name, "Share " + name, "Share" + name.Replace(" ", ""), name.Replace(" ", "") })
         {
             var p = el.LookupParameter(n);
             if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
