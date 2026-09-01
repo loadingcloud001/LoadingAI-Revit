@@ -48,7 +48,9 @@ internal static class PlaceOpenings
         var placed = 0;
         var failed = 0;
         var skipped = 0;
+        var punched = 0;
         var placedAt = new List<string>();
+        var pending = new List<Pending>();
         var tx = new Transaction(doc, "LoadingAI for Revit: create openings from clash");
         tx.Start();
         try
@@ -75,19 +77,39 @@ internal static class PlaceOpenings
                     }
                     ApplySize(inst, hit);
                     WriteOp(inst, hit);
-                    var loc = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
-                    placedAt.Add(inst.Id.ToString() + "(" +
-                        loc.X.ToString("F1", CultureInfo.InvariantCulture) + ", " +
-                        loc.Y.ToString("F1", CultureInfo.InvariantCulture) + ", " +
-                        loc.Z.ToString("F1", CultureInfo.InvariantCulture) + " ft)");
-                    placed++;
+                    var host = doc.GetElement(hit.HostId);
+                    if (host != null) pending.Add(new Pending { Inst = inst, Host = host, Hit = hit });
+                    else
+                    {
+                        try { doc.Delete(inst.Id); } catch { }
+                        failed++;
+                    }
                 }
                 catch
                 {
                     failed++;
                 }
             }
+            // Tammik: place all, then regenerate, then cut all
             doc.Regenerate();
+            foreach (var row in pending)
+            {
+                if (CutLocal.TryPunch(doc, row.Host, row.Inst))
+                {
+                    punched++;
+                    placed++;
+                    var loc = (row.Inst.Location as LocationPoint)?.Point ?? row.Hit.Centroid;
+                    placedAt.Add(row.Inst.Id.ToString() + "(" +
+                        loc.X.ToString("F1", CultureInfo.InvariantCulture) + ", " +
+                        loc.Y.ToString("F1", CultureInfo.InvariantCulture) + ", " +
+                        loc.Z.ToString("F1", CultureInfo.InvariantCulture) + " ft)");
+                }
+                else
+                {
+                    try { doc.Delete(row.Inst.Id); } catch { }
+                    failed++; // no-punch
+                }
+            }
             tx.Commit();
         }
         catch (Exception ex)
@@ -99,7 +121,14 @@ internal static class PlaceOpenings
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
         var extra = skipped > 0 ? $" Skipped {skipped} already placed." : "";
         var where = placedAt.Count == 0 ? "" : " " + string.Join("; ", placedAt) + ".";
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}.{where} Failed {failed}.{extra}";
+        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}";
+    }
+
+    struct Pending
+    {
+        public FamilyInstance Inst;
+        public Element Host;
+        public ClashHit Hit;
     }
 
     static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
@@ -156,10 +185,13 @@ internal static class PlaceOpenings
     {
         var wantSrc = hit.MepId.ToString();
         var wantHost = hit.HostId.ToString();
+        var wantKey = hit.Key ?? "";
         foreach (var fi in new FilteredElementCollector(doc)
             .OfClass(typeof(FamilyInstance))
             .Cast<FamilyInstance>())
         {
+            var key = FamilyContract.OpValue(fi, "OP_Key");
+            if (!string.IsNullOrEmpty(wantKey) && key == wantKey) return true;
             var src = FamilyContract.OpValue(fi, "OP_SourceId");
             var host = FamilyContract.OpValue(fi, "OP_HostId");
             if (src == wantSrc && host == wantHost) return true;
@@ -327,6 +359,7 @@ internal static class PlaceOpenings
     {
         SetOrComment(inst, "OP_SourceId", hit.MepId.ToString());
         SetOrComment(inst, "OP_HostId", hit.HostId.ToString());
+        if (!string.IsNullOrEmpty(hit.Key)) SetOrComment(inst, "OP_Key", hit.Key);
         SetOrComment(inst, "OP_HostLinked", hit.HostLinked ? "true" : "false");
         SetOrComment(inst, "OP_Shape", hit.Shape);
         SetOrComment(inst, "OP_WidthMm", Metric.FtToMm(hit.WidthFt).ToString("F0", CultureInfo.InvariantCulture));

@@ -9,13 +9,13 @@
     {
       "name": "create_openings_from_clash",
       "tier": "L3",
-      "description": "Place opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
+      "description": "Place and punch opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
       "enabledByDefault": false
     },
     {
       "name": "cut_hosts_by_openings",
       "tier": "L3",
-      "description": "Cut local hosts with opening voids. Uses current selection. Linked hosts are skipped, not cut.",
+      "description": "Repair cut of local hosts with opening voids after a family reload. Linked hosts are skipped, not cut.",
       "enabledByDefault": false
     }
   ],

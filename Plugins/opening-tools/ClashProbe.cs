@@ -18,11 +18,12 @@ internal readonly struct ClashHit
     public readonly double DepthFt;
     public readonly string Shape;
     public readonly ElementId LevelId;
+    public readonly string Key;
 
     public ClashHit(
         ElementId mepId, ElementId hostId, bool hostLinked, bool sourceLinked,
         XYZ centroid, XYZ hostDir, double widthFt, double heightFt, double depthFt,
-        string shape, ElementId levelId)
+        string shape, ElementId levelId, string key)
     {
         MepId = mepId;
         HostId = hostId;
@@ -35,6 +36,7 @@ internal readonly struct ClashHit
         DepthFt = depthFt;
         Shape = shape;
         LevelId = levelId;
+        Key = key;
     }
 }
 
@@ -121,9 +123,10 @@ internal static class ClashProbe
                 var hostSolids = SolidsOf(host, Transform.Identity).ToList();
                 var inter = FirstIntersect(mepSolids, hostSolids);
                 if (inter == null) continue;
-                // POINT from curve ∩ host (transform once). SnapToHost still runs after.
+                // PointHost = MEP curve × xf ∩ host Face (host coords). Boolean volume only confirms the pair.
                 if (!ClashPoint(mep.Element, mep.ToHost, mepBox, host, hostSolids, inter, out var centroid))
                     continue;
+                if (!InsideHost(host, centroid)) continue;
                 if (!SnapToHost(host, centroid, out centroid)) continue;
                 HostFrame(host, out var dir, out var up, out _);
                 ExtentsFromSolid(inter, centroid, dir, up, out var width, out var height);
@@ -132,9 +135,10 @@ internal static class ClashProbe
                 var depth = HostThickness(host) + Metric.MmToFt(50);
                 if (width < Metric.MmToFt(20) || height < Metric.MmToFt(20)) continue;
                 var resolved = ResolveShape(shape, width, height);
+                var key = host.UniqueId + "|" + mep.Element.UniqueId;
                 hits.Add(new ClashHit(
                     mep.Element.Id, host.Id, false, mep.Linked,
-                    centroid, dir, width, height, depth, resolved, host.LevelId));
+                    centroid, dir, width, height, depth, resolved, host.LevelId, key));
             }
         }
 
@@ -662,12 +666,12 @@ internal static class ClashProbe
 
     /// <summary>
     /// Autodesk wall samples / ShaftHolePuncher put p1/p2 on the wall curve — never a free XYZ.
-    /// A doubled GetTotalTransform puts the clash centroid at ~2× wall X; still snap onto the host.
-    /// Do not keep the raw centroid. Do not skip the wall because the centroid is far.
+    /// PointHost must already InsideHost; never snap a far centroid onto a wall end.
     /// </summary>
     static bool SnapToHost(Element host, XYZ p, out XYZ snapped)
     {
         snapped = p;
+        if (!InsideHost(host, p)) return false;
         if (host is Wall wall && wall.Location is LocationCurve lc && lc.Curve != null)
         {
             var curve = lc.Curve;
@@ -698,7 +702,6 @@ internal static class ClashProbe
             }
             catch { return false; }
         }
-        if (!InsideHost(host, p)) return false;
         snapped = p;
         return true;
     }

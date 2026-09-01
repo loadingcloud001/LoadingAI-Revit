@@ -277,6 +277,41 @@ public class UsabilityContractTests
         Assert.Contains("clearanceMm\", 25", plugin);
     }
 
+    [Fact]
+    public void OpeningPlugin_PlaceAndPunchInOneTransaction()
+    {
+        var root = RepoRoot();
+        var dir = Path.Combine(root, "Plugins", "opening-tools");
+        var probe = File.ReadAllText(Path.Combine(dir, "ClashProbe.cs"));
+        var place = File.ReadAllText(Path.Combine(dir, "PlaceOpenings.cs"));
+        var cut = File.ReadAllText(Path.Combine(dir, "CutLocal.cs"));
+        var plugin = File.ReadAllText(Path.Combine(dir, "OpeningToolsPlugin.cs"));
+        var json = File.ReadAllText(Path.Combine(dir, "plugin.json"));
+
+        Assert.Contains("never snap a far centroid onto a wall end", probe);
+        Assert.Contains("host.UniqueId", probe);
+        Assert.Contains("mep.Element.UniqueId", probe);
+        Assert.Contains("PointHost", probe);
+
+        Assert.Contains("CutLocal.TryPunch", place);
+        Assert.Contains("GetCuttingVoidInstances", cut);
+        Assert.Contains("no-punch", place);
+        Assert.Contains("place all, then regenerate, then cut all", place);
+        Assert.Contains("Punched", place);
+        Assert.Contains("TryPunch", place);
+
+        Assert.Contains("GetCuttingVoidInstances", cut);
+        Assert.Contains("TryPunch", cut);
+        Assert.Contains("no-punch", cut);
+
+        Assert.Contains("Place and punch", plugin);
+        Assert.Contains("one transaction", plugin);
+        Assert.Contains("Repair", plugin);
+        Assert.Contains("Place and punch", json);
+        Assert.Contains("Repair", json);
+        Assert.DoesNotContain("NewOpening", place + cut + plugin);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

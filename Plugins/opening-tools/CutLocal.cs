@@ -57,15 +57,12 @@ internal static class CutLocal
                         cannot++;
                         continue;
                     }
-                    try
+                    if (!CutLocal.TryPunch(doc, host, opening))
                     {
-                        InstanceVoidCutUtils.AddInstanceVoidCut(doc, host, opening);
-                        cut++;
+                        failed++; // no-punch
+                        continue;
                     }
-                    catch
-                    {
-                        failed++;
-                    }
+                    cut++;
                 }
             }
             tx.Commit();
@@ -79,6 +76,45 @@ internal static class CutLocal
         var msg = $"Cut {cut}. Skipped linked: {linked}. Skipped cannot-cut: {cannot}. Failed {failed}.";
         if (linked > 0) msg += " " + LinkedSkip;
         return msg;
+    }
+
+    /// <summary>
+    /// Tammik: CanBeCutWithVoid is category-only. Require the opening on the host (InsideHost)
+    /// then AddInstanceVoidCut. GetCuttingVoidInstances confirms the relationship. no-punch otherwise.
+    /// </summary>
+    internal static bool TryPunch(Document doc, Element host, FamilyInstance opening)
+    {
+        if (!Equals(host.Document, doc) || host is RevitLinkInstance) return false;
+        var xyz = (opening.Location as LocationPoint)?.Point;
+        if (xyz != null && !ClashProbe.InsideHost(host, xyz)) return false;
+        if (!InstanceVoidCutUtils.CanBeCutWithVoid(host)) return false;
+        try
+        {
+            var existing = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
+            if (existing != null)
+            {
+                foreach (ElementId id in existing)
+                {
+                    if (id == opening.Id) return true;
+                }
+            }
+        }
+        catch { /* not yet cutting */ }
+        try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, host, opening); }
+        catch { return false; }
+        try
+        {
+            var after = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
+            if (after != null)
+            {
+                foreach (ElementId id in after)
+                {
+                    if (id == opening.Id) return true;
+                }
+            }
+        }
+        catch { }
+        return false; // no-punch
     }
 
     static List<FamilyInstance> ResolveOpenings(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
