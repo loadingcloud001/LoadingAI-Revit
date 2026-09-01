@@ -299,6 +299,9 @@ public class UsabilityContractTests
         Assert.Contains("place all, then regenerate, then cut all", place);
         Assert.Contains("Punched", place);
         Assert.Contains("TryPunch", place);
+        Assert.Contains("PinToPointHost", place);
+        Assert.Contains("MoveElement", place);
+        Assert.Contains("INSTANCE_FREE_HOST_OFFSET_PARAM", place);
 
         Assert.Contains("GetCuttingVoidInstances", cut);
         Assert.Contains("TryPunch", cut);

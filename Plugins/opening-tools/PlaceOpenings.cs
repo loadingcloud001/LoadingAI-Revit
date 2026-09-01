@@ -165,11 +165,7 @@ internal static class PlaceOpenings
         var level = forced ?? doc.GetElement(hit.LevelId) as Level ?? NearestLevel(doc, hit.Centroid);
         if (level == null) return null;
         var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
-        if (inst.Location is LocationPoint lp)
-        {
-            try { lp.Point = hit.Centroid; }
-            catch { /* level-based origin may reject Z */ }
-        }
+        PinToPointHost(doc, inst, hit.Centroid, level);
         RotateToHost(doc, inst, hit);
         var xyz = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
         if (!ClashProbe.InsideHost(host, xyz))
@@ -179,6 +175,53 @@ internal static class PlaceOpenings
             return null; // OneLevelBased Z is on the level; XY must sit on the wall
         }
         return inst;
+    }
+
+    /// <summary>
+    /// OneLevelBased NewFamilyInstance keeps Z on the level; lp.Point often rejects Z.
+    /// Pin XY+Z onto PointHost (host-face station) so the void actually meets the wall solid.
+    /// Live 4f398fd: Punched 0 Failed 6 — clash hits were on the wall, cutter sat on the level.
+    /// </summary>
+    static void PinToPointHost(Document doc, FamilyInstance inst, XYZ want, Level? level)
+    {
+        if (inst.Location is LocationPoint lp)
+        {
+            try { lp.Point = want; }
+            catch { /* level-based origin may reject Z */ }
+            try
+            {
+                var cur = lp.Point;
+                lp.Point = new XYZ(want.X, want.Y, cur.Z);
+            }
+            catch { }
+        }
+        var now = (inst.Location as LocationPoint)?.Point;
+        if (now != null)
+        {
+            var d = want - now;
+            if (d.GetLength() > 1e-6)
+            {
+                try { ElementTransformUtils.MoveElement(doc, inst.Id, d); }
+                catch { }
+            }
+        }
+        now = (inst.Location as LocationPoint)?.Point;
+        if (now == null || Math.Abs(now.Z - want.Z) < 1e-4) return;
+        var off = level != null ? want.Z - level.Elevation : want.Z - now.Z;
+        foreach (BuiltInParameter bip in new[]
+        {
+            BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
+            BuiltInParameter.INSTANCE_ELEVATION_PARAM,
+            BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM
+        })
+        {
+            Parameter? p;
+            try { p = inst.get_Parameter(bip); }
+            catch { continue; }
+            if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
+            try { p.Set(off); return; }
+            catch { }
+        }
     }
 
     static bool AlreadyPlaced(Document doc, ClashHit hit)

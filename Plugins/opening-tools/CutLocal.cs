@@ -102,6 +102,8 @@ internal static class CutLocal
         catch { /* not yet cutting */ }
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, host, opening); }
         catch { return false; }
+        try { doc.Regenerate(); }
+        catch { }
         try
         {
             var after = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
