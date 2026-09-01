@@ -76,6 +76,7 @@ internal static class PlaceOpenings
                         continue;
                     }
                     ApplySize(inst, hit);
+                    DropOriginToOpeningBottom(doc, inst, hit);
                     WriteOp(inst, hit);
                     var host = doc.GetElement(hit.HostId);
                     if (host != null) pending.Add(new Pending { Inst = inst, Host = host, Hit = hit });
@@ -396,6 +397,22 @@ internal static class PlaceOpenings
         SetLengthFt(inst, "Width", hit.WidthFt);
         SetLengthFt(inst, "Height", hit.HeightFt);
         SetLengthFt(inst, "Depth", hit.DepthFt);
+        // Through-host: Width = OuterWidth. Outer* is for front/back (recess) cases.
+        SetLengthFt(inst, "OuterWidth", hit.WidthFt);
+        SetLengthFt(inst, "OuterHeight", hit.HeightFt);
+    }
+
+    /// <summary>
+    /// LoadingAI_Opening origin = opening bottom (family center at the sill).
+    /// PointHost is the MEP center; lower the instance by Height/2 so the hole is centered on the pipe.
+    /// </summary>
+    static void DropOriginToOpeningBottom(Document doc, FamilyInstance inst, ClashHit hit)
+    {
+        // opening bottom is the family origin
+        var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
+        if (drop.GetLength() < 1e-6) return;
+        try { ElementTransformUtils.MoveElement(doc, inst.Id, drop); }
+        catch { }
     }
 
     static void WriteOp(FamilyInstance inst, ClashHit hit)

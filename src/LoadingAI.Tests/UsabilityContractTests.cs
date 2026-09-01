@@ -302,6 +302,10 @@ public class UsabilityContractTests
         Assert.Contains("PinToPointHost", place);
         Assert.Contains("MoveElement", place);
         Assert.Contains("INSTANCE_FREE_HOST_OFFSET_PARAM", place);
+        Assert.Contains("OuterWidth", place);
+        Assert.Contains("OuterHeight", place);
+        Assert.Contains("opening bottom is the family origin", place);
+        Assert.Contains("HeightFt / 2", place);
 
         Assert.Contains("GetCuttingVoidInstances", cut);
         Assert.Contains("TryPunch", cut);
