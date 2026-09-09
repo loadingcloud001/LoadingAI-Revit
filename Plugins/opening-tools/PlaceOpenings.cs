@@ -272,6 +272,9 @@ internal static class PlaceOpenings
             .OfClass(typeof(FamilyInstance))
             .Cast<FamilyInstance>())
         {
+            try { if (!fi.IsValidObject) continue; }
+            catch { continue; }
+            if (!FamilyContract.IsPluginFamily(fi.Symbol?.FamilyName)) continue;
             var key = FamilyContract.OpValue(fi, "OP_Key");
             if (!string.IsNullOrEmpty(wantKey) && key == wantKey) return true;
             var src = FamilyContract.OpValue(fi, "OP_SourceId");

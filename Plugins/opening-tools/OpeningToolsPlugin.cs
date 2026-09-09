@@ -10,6 +10,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
     public string Id => "opening-tools";
     public string Name => "Opening Tools";
     public string Version => "1.0.0";
+    private static readonly TimeSpan ClashTimeout = TimeSpan.FromMinutes(10);
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -66,7 +67,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                     return PlaceOpenings.Run(doc, uidoc!, mepIds, hostIds, shape, clearanceMm, familyName, levelName, limit);
                 }
                 catch (Exception ex) { return "Failed: " + ex.Message; }
-            });
+            }, ClashTimeout);
         }
     };
 

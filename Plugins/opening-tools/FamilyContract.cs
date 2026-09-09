@@ -104,8 +104,15 @@ internal static class FamilyContract
             .OfClass(typeof(FamilySymbol))
             .Cast<FamilySymbol>()
             .Where(s =>
-                s.FamilyName.Equals(wanted, StringComparison.OrdinalIgnoreCase)
-                || s.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    return s.IsValidObject
+                        && (s.FamilyName.Equals(wanted, StringComparison.OrdinalIgnoreCase)
+                            || s.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase));
+                }
+                catch { return false; }
+            })
             .ToList();
         if (named.Count == 0) return null;
         return named.FirstOrDefault(s => s.Name.IndexOf(typeHint, StringComparison.OrdinalIgnoreCase) >= 0)

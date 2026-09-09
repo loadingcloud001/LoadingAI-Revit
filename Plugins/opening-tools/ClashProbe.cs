@@ -109,6 +109,8 @@ internal static class ClashProbe
         foreach (var mep in meps)
         {
             if (hits.Count >= limit) break;
+            try { if (mep.Element == null || !mep.Element.IsValidObject) continue; }
+            catch { continue; }
             var mepSolids = SolidsOf(mep.Element, mep.ToHost).ToList();
             var mepBox = BoxOf(mep.Element, mep.ToHost);
             IList<Element> candidates = hosts;
@@ -120,6 +122,7 @@ internal static class ClashProbe
                 if (hits.Count >= limit) break;
                 if (Equals(host.Document, mep.Element.Document) && host.Id == mep.Element.Id) continue;
                 if (!IsHost(host)) continue;
+                if (!BoxesOverlap(mepBox, host)) continue;
                 var hostSolids = SolidsOf(host, Transform.Identity).ToList();
                 var inter = FirstIntersect(mepSolids, hostSolids);
                 if (inter == null) continue;
@@ -585,6 +588,29 @@ internal static class ClashProbe
         }
         if (mn == null || mx == null) return null;
         return new BoundingBoxXYZ { Min = mn, Max = mx };
+    }
+
+    /// <summary>
+    /// Skip host solid boolean when MEP bbox and host bbox do not overlap.
+    /// 85 walls+floors × all linked MEP solids exceeded the 120s ExternalEvent wait
+    /// (live: Timeout then InvalidObject on retry).
+    /// </summary>
+    static bool BoxesOverlap(BoundingBoxXYZ? mepBox, Element host)
+    {
+        if (mepBox == null) return true;
+        BoundingBoxXYZ? hb;
+        try
+        {
+            if (!host.IsValidObject) return false;
+            hb = host.get_BoundingBox(null);
+        }
+        catch { return false; }
+        if (hb == null) return true;
+        const double pad = 0.5;
+        if (mepBox.Max.X < hb.Min.X - pad || mepBox.Min.X > hb.Max.X + pad) return false;
+        if (mepBox.Max.Y < hb.Min.Y - pad || mepBox.Min.Y > hb.Max.Y + pad) return false;
+        if (mepBox.Max.Z < hb.Min.Z - pad || mepBox.Min.Z > hb.Max.Z + pad) return false;
+        return true;
     }
 
     /// <summary>

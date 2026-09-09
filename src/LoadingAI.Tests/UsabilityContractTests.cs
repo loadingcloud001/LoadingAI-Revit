@@ -320,8 +320,11 @@ public class UsabilityContractTests
         Assert.Contains("if (host is Floor || host is RoofBase) return;", place);
         Assert.Contains("PinVerticalToHostTop", place);
         Assert.Contains("TryLoad", place);
+        Assert.Contains("FromMinutes(10)", plugin);
+        Assert.Contains("BoxesOverlap", probe);
 
         var contract = File.ReadAllText(Path.Combine(dir, "FamilyContract.cs"));
+        Assert.Contains("IsValidObject", contract);
         Assert.Contains(".rfa", contract);
         Assert.Contains("LoadFamily", contract);
         Assert.Contains("LoadingAI_Opening_Horizontal", contract);
