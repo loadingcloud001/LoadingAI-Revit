@@ -127,6 +127,10 @@ public class UsabilityContractTests
         Assert.DoesNotContain("LoadingAI.csproj", csproj);
         Assert.Contains("LoadingAI.Core.csproj", csproj);
         Assert.Contains("LoadingAI.RevitUtil.csproj", csproj);
+        Assert.Contains("LoadingAI_Opening_Horizontal.rfa", csproj);
+        Assert.Contains("LoadingAI_Opening_Vertical.rfa", csproj);
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "opening-tools", "LoadingAI_Opening_Horizontal.rfa")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "opening-tools", "LoadingAI_Opening_Vertical.rfa")));
         var src = File.ReadAllText(Path.Combine(root, "Plugins", "opening-tools", "OpeningToolsPlugin.cs"));
         Assert.Contains("create_openings_from_clash", src);
         Assert.Contains("cut_hosts_by_openings", src);
@@ -315,8 +319,11 @@ public class UsabilityContractTests
         Assert.Contains("FamilyContract.Find(doc, familyName, hit.Shape, host)", place);
         Assert.Contains("if (host is Floor || host is RoofBase) return;", place);
         Assert.Contains("PinVerticalToHostTop", place);
+        Assert.Contains("TryLoad", place);
 
         var contract = File.ReadAllText(Path.Combine(dir, "FamilyContract.cs"));
+        Assert.Contains(".rfa", contract);
+        Assert.Contains("LoadFamily", contract);
         Assert.Contains("LoadingAI_Opening_Horizontal", contract);
         Assert.Contains("LoadingAI_Opening_Vertical", contract);
         Assert.Contains("IsPluginFamily", contract);

@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using System.IO;
 
 namespace LoadingAI.Plugins.OpeningTools;
 
@@ -29,7 +30,7 @@ internal static class FamilyContract
         // Width/Height/Radius are instance params. FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
         var name = string.IsNullOrWhiteSpace(wantedName) ? HorizontalFamilyName + " / " + VerticalFamilyName : wantedName;
         return "Opening family is missing. Load " + name
-            + " from local/revitAI-opening-extract (Cut with Voids When Loaded, OneLevelBased Generic Model, types Rectangle and Circle).";
+            + " (.rfa next to the opening-tools plugin, or Insert > Load Family). Cut with Voids When Loaded, OneLevelBased Generic Model, types Rectangle and Circle.";
     }
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;
@@ -63,6 +64,38 @@ internal static class FamilyContract
         if (host != null && !IsVerticalHost(host) && !wanted.Equals(LegacyFamilyName, StringComparison.OrdinalIgnoreCase))
             return FindNamed(doc, LegacyFamilyName, typeHint);
         return null;
+    }
+
+    public static bool TryLoad(Document doc, string familyName)
+    {
+        if (FindNamed(doc, familyName, "rectangle") != null) return true;
+        var dir = Path.GetDirectoryName(typeof(FamilyContract).Assembly.Location) ?? "";
+        var path = Path.Combine(dir, familyName + ".rfa");
+        if (!File.Exists(path)) return false;
+        try
+        {
+            return doc.LoadFamily(path, new OverwriteOnLoad(), out _);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    sealed class OverwriteOnLoad : IFamilyLoadOptions
+    {
+        public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+        {
+            overwriteParameterValues = true;
+            return true;
+        }
+
+        public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+        {
+            source = FamilySource.Family;
+            overwriteParameterValues = true;
+            return true;
+        }
     }
 
     static FamilySymbol? FindNamed(Document doc, string wanted, string typeHint)

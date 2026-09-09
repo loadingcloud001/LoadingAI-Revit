@@ -41,15 +41,6 @@ internal static class PlaceOpenings
         if (hits.Count == 0)
             return "No MEP-host clash found (bbox then solid intersect).";
 
-        foreach (var hit in hits)
-        {
-            var hostPre = doc.GetElement(hit.HostId);
-            if (hostPre == null) continue;
-            var symPre = FamilyContract.Find(doc, familyName, hit.Shape, hostPre);
-            if (symPre == null)
-                return FamilyContract.FailReason(null, FamilyContract.FamilyNameFor(hostPre, familyName));
-        }
-
         var placed = 0;
         var failed = 0;
         var skipped = 0;
@@ -60,6 +51,17 @@ internal static class PlaceOpenings
         tx.Start();
         try
         {
+            foreach (var hit in hits)
+            {
+                var hostNeed = doc.GetElement(hit.HostId);
+                if (hostNeed == null) continue;
+                var want = FamilyContract.FamilyNameFor(hostNeed, familyName);
+                if (!FamilyContract.TryLoad(doc, want))
+                {
+                    tx.RollBack();
+                    return FamilyContract.FailReason(null, want);
+                }
+            }
             foreach (var hit in hits)
             {
                 try

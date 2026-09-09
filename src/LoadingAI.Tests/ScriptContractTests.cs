@@ -23,6 +23,8 @@ public class ScriptContractTests
         Assert.Contains("export-tools", ps1);
         Assert.Contains("view-tools", ps1);
         Assert.Contains("modeling-tools", ps1);
+        Assert.Contains("opening-tools", ps1);
+        Assert.Contains(".rfa", ps1);
     }
 
     [Fact]

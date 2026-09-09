@@ -51,7 +51,7 @@ if (-not (Test-Path (Join-Path $Web "index.html"))) {
 }
 Copy-Item $Web (Join-Path $Stage "LoadingAI\Web\dist") -Recurse
 
-foreach ($p in @("export-tools", "view-tools", "modeling-tools")) {
+foreach ($p in @("export-tools", "view-tools", "modeling-tools", "opening-tools")) {
     $pluginRoot = Join-Path $Root "Plugins\$p"
     $bin = Join-Path $pluginRoot "bin\$Configuration"
     $dll = Get-ChildItem $bin -Filter "LoadingAI.Plugins.*.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -60,6 +60,7 @@ foreach ($p in @("export-tools", "view-tools", "modeling-tools")) {
     New-Item -ItemType Directory -Path $dest | Out-Null
     Copy-Item $dll.FullName $dest
     Copy-Item (Join-Path $pluginRoot "plugin.json") $dest
+    Get-ChildItem $pluginRoot -Filter *.rfa -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $dest }
 }
 
 $install = @"
