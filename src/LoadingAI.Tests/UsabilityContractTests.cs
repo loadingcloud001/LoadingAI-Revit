@@ -308,6 +308,21 @@ public class UsabilityContractTests
         Assert.Contains("ToUpperInvariant", place);
         Assert.Contains("opening bottom is the family origin", place);
         Assert.Contains("HeightFt / 2", place);
+        Assert.Contains("LoadingAI_Opening_Horizontal", place);
+        Assert.Contains("LoadingAI_Opening_Vertical", place);
+        Assert.Contains("IsVerticalHost", place);
+        Assert.DoesNotContain("var symbol = FamilyContract.Find(doc, familyName, shape);", place);
+        Assert.Contains("FamilyContract.Find(doc, familyName, hit.Shape, host)", place);
+        Assert.Contains("if (host is Floor || host is RoofBase) return;", place);
+        Assert.Contains("PinVerticalToHostTop", place);
+
+        var contract = File.ReadAllText(Path.Combine(dir, "FamilyContract.cs"));
+        Assert.Contains("LoadingAI_Opening_Horizontal", contract);
+        Assert.Contains("LoadingAI_Opening_Vertical", contract);
+        Assert.Contains("IsPluginFamily", contract);
+        Assert.Contains("IsVerticalHost", contract);
+        Assert.Contains("host is Floor || host is RoofBase", contract);
+        Assert.Contains("IsPluginFamily", cut);
 
         Assert.Contains("GetCuttingVoidInstances", cut);
         Assert.Contains("TryPunch", cut);

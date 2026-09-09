@@ -9,7 +9,7 @@
     {
       "name": "create_openings_from_clash",
       "tier": "L3",
-      "description": "Place and punch opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
+      "description": "Place and punch opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Uses LoadingAI_Opening_Horizontal (walls/beams/columns) or LoadingAI_Opening_Vertical (floors/roofs); types Rectangle and Circle. Load both families; they are not in the add-in zip. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
       "enabledByDefault": false
     },
     {

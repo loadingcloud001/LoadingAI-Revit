@@ -20,10 +20,6 @@ internal static class PlaceOpenings
         string? levelName,
         int limit)
     {
-        var symbol = FamilyContract.Find(doc, familyName, shape);
-        var fail = FamilyContract.FailReason(symbol);
-        if (fail != null) return fail;
-
         Level? forced = null;
         if (!string.IsNullOrWhiteSpace(levelName))
         {
@@ -45,6 +41,15 @@ internal static class PlaceOpenings
         if (hits.Count == 0)
             return "No MEP-host clash found (bbox then solid intersect).";
 
+        foreach (var hit in hits)
+        {
+            var hostPre = doc.GetElement(hit.HostId);
+            if (hostPre == null) continue;
+            var symPre = FamilyContract.Find(doc, familyName, hit.Shape, hostPre);
+            if (symPre == null)
+                return FamilyContract.FailReason(null, FamilyContract.FamilyNameFor(hostPre, familyName));
+        }
+
         var placed = 0;
         var failed = 0;
         var skipped = 0;
@@ -55,11 +60,6 @@ internal static class PlaceOpenings
         tx.Start();
         try
         {
-            if (!symbol!.IsActive)
-            {
-                symbol.Activate();
-                doc.Regenerate();
-            }
             foreach (var hit in hits)
             {
                 try
@@ -68,6 +68,19 @@ internal static class PlaceOpenings
                     {
                         skipped++;
                         continue;
+                    }
+                    var host = doc.GetElement(hit.HostId);
+                    if (host == null) { failed++; continue; }
+                    var symbol = FamilyContract.Find(doc, familyName, hit.Shape, host);
+                    if (symbol == null)
+                    {
+                        failed++;
+                        continue;
+                    }
+                    if (!symbol.IsActive)
+                    {
+                        symbol.Activate();
+                        doc.Regenerate();
                     }
                     var inst = PlaceOne(doc, symbol, hit, forced);
                     if (inst == null)
@@ -78,13 +91,7 @@ internal static class PlaceOpenings
                     ApplySize(inst, hit);
                     DropOriginToOpeningBottom(doc, inst, hit);
                     WriteOp(inst, hit);
-                    var host = doc.GetElement(hit.HostId);
-                    if (host != null) pending.Add(new Pending { Inst = inst, Host = host, Hit = hit });
-                    else
-                    {
-                        try { doc.Delete(inst.Id); } catch { }
-                        failed++;
-                    }
+                    pending.Add(new Pending { Inst = inst, Host = host, Hit = hit });
                 }
                 catch
                 {
@@ -122,7 +129,18 @@ internal static class PlaceOpenings
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
         var extra = skipped > 0 ? $" Skipped {skipped} already placed." : "";
         var where = placedAt.Count == 0 ? "" : " " + string.Join("; ", placedAt) + ".";
-        return $"Placed {placed} opening(s) in the active document ({symbol.FamilyName}, {symbol.Family.FamilyPlacementType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}";
+        var famNames = pending
+            .Select(p => p.Inst.Symbol?.FamilyName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var famLabel = famNames.Count > 0
+            ? string.Join(" / ", famNames)
+            : "LoadingAI_Opening_Horizontal / LoadingAI_Opening_Vertical";
+        var placeType = pending.Count > 0
+            ? pending[0].Inst.Symbol?.Family.FamilyPlacementType.ToString() ?? "OneLevelBased"
+            : "OneLevelBased";
+        return $"Placed {placed} opening(s) in the active document ({famLabel}, {placeType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}";
     }
 
     struct Pending
@@ -167,6 +185,7 @@ internal static class PlaceOpenings
         if (level == null) return null;
         var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
         PinToPointHost(doc, inst, hit.Centroid, level);
+        PinVerticalToHostTop(doc, inst, host, hit.Centroid);
         RotateToHost(doc, inst, hit);
         var xyz = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
         if (!ClashProbe.InsideHost(host, xyz))
@@ -223,6 +242,23 @@ internal static class PlaceOpenings
             try { p.Set(off); return; }
             catch { }
         }
+    }
+
+    /// <summary>
+    /// Vertical family origin is slab top on the Level. PointHost is MEP center mid-slab —
+    /// pin XY to the clash, Z to host bbox Max (model coords; do not OfPoint Transform).
+    /// </summary>
+    static void PinVerticalToHostTop(Document doc, FamilyInstance inst, Element host, XYZ want)
+    {
+        if (!FamilyContract.IsVerticalHost(host)) return;
+        var bb = host.get_BoundingBox(null);
+        if (bb == null) return;
+        var now = (inst.Location as LocationPoint)?.Point;
+        if (now == null) return;
+        var dest = new XYZ(want.X, want.Y, bb.Max.Z);
+        var d = dest - now;
+        if (d.GetLength() < 1e-6) return;
+        try { ElementTransformUtils.MoveElement(doc, inst.Id, d); } catch { }
     }
 
     static bool AlreadyPlaced(Document doc, ClashHit hit)
@@ -408,6 +444,8 @@ internal static class PlaceOpenings
     /// </summary>
     static void DropOriginToOpeningBottom(Document doc, FamilyInstance inst, ClashHit hit)
     {
+        var host = doc.GetElement(hit.HostId);
+        if (host is Floor || host is RoofBase) return; // vertical family origin is slab top, not sill
         // opening bottom is the family origin
         var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
         if (drop.GetLength() < 1e-6) return;

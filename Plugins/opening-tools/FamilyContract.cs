@@ -4,15 +4,32 @@ namespace LoadingAI.Plugins.OpeningTools;
 
 internal static class FamilyContract
 {
-    public const string DefaultFamilyName = "LoadingAI_Opening";
+    public const string DefaultFamilyName = "LoadingAI_Opening_Horizontal";
+    public const string HorizontalFamilyName = "LoadingAI_Opening_Horizontal";
+    public const string VerticalFamilyName = "LoadingAI_Opening_Vertical";
+    public const string LegacyFamilyName = "LoadingAI_Opening";
 
-    public static string? FailReason(FamilySymbol? symbol)
+    public static bool IsPluginFamily(string? familyName)
     {
-        if (symbol == null)
-            return "Opening family is missing. Load LoadingAI_Opening (Cut with Voids When Loaded, Width+Height or Radius instance parameters). Level-based Generic Model copies between models.";
-        // Width/Height/Radius on LoadingAI_Opening are instance params.
-        // FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
-        return null;
+        if (string.IsNullOrWhiteSpace(familyName)) return false;
+        return familyName.StartsWith("LoadingAI_Opening", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsVerticalHost(Element host) => host is Floor || host is RoofBase;
+
+    public static string FamilyNameFor(Element host, string? overrideName)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideName)) return overrideName.Trim();
+        return IsVerticalHost(host) ? VerticalFamilyName : HorizontalFamilyName;
+    }
+
+    public static string? FailReason(FamilySymbol? symbol, string? wantedName = null)
+    {
+        if (symbol != null) return null;
+        // Width/Height/Radius are instance params. FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
+        var name = string.IsNullOrWhiteSpace(wantedName) ? HorizontalFamilyName + " / " + VerticalFamilyName : wantedName;
+        return "Opening family is missing. Load " + name
+            + " from local/revitAI-opening-extract (Cut with Voids When Loaded, OneLevelBased Generic Model, types Rectangle and Circle).";
     }
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;
@@ -35,18 +52,29 @@ internal static class FamilyContract
         return string.IsNullOrWhiteSpace(val) ? null : val;
     }
 
-    public static FamilySymbol? Find(Document doc, string? familyName, string shape)
+    public static FamilySymbol? Find(Document doc, string? familyName, string shape, Element? host)
     {
-        var wanted = string.IsNullOrWhiteSpace(familyName) ? DefaultFamilyName : familyName.Trim();
-        var symbols = new FilteredElementCollector(doc)
+        var wanted = host != null
+            ? FamilyNameFor(host, familyName)
+            : (string.IsNullOrWhiteSpace(familyName) ? HorizontalFamilyName : familyName.Trim());
+        var typeHint = shape.Equals("circle", StringComparison.OrdinalIgnoreCase) ? "circle" : "rectangle";
+        var hit = FindNamed(doc, wanted, typeHint);
+        if (hit != null) return hit;
+        if (host != null && !IsVerticalHost(host) && !wanted.Equals(LegacyFamilyName, StringComparison.OrdinalIgnoreCase))
+            return FindNamed(doc, LegacyFamilyName, typeHint);
+        return null;
+    }
+
+    static FamilySymbol? FindNamed(Document doc, string wanted, string typeHint)
+    {
+        var named = new FilteredElementCollector(doc)
             .OfClass(typeof(FamilySymbol))
             .Cast<FamilySymbol>()
+            .Where(s =>
+                s.FamilyName.Equals(wanted, StringComparison.OrdinalIgnoreCase)
+                || s.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        var named = symbols.Where(s =>
-            s.FamilyName.Equals(wanted, StringComparison.OrdinalIgnoreCase) ||
-            s.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count == 0) return null;
-        var typeHint = shape.Equals("circle", StringComparison.OrdinalIgnoreCase) ? "circle" : "rectangle";
         return named.FirstOrDefault(s => s.Name.IndexOf(typeHint, StringComparison.OrdinalIgnoreCase) >= 0)
                ?? named[0];
     }

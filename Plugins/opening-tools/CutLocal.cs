@@ -206,7 +206,7 @@ internal static class CutLocal
     static bool IsOpening(FamilyInstance fi)
     {
         var fam = fi.Symbol?.FamilyName ?? "";
-        if (fam.Equals(FamilyContract.DefaultFamilyName, StringComparison.OrdinalIgnoreCase)) return true;
+        if (FamilyContract.IsPluginFamily(fam)) return true;
         return FamilyContract.Has(fi, "OP_HostId") || FamilyContract.Has(fi, "OP_SourceId");
     }
 
