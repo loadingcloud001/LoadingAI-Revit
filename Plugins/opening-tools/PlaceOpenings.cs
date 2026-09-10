@@ -55,7 +55,7 @@ internal static class PlaceOpenings
             {
                 var hostNeed = doc.GetElement(hit.HostId);
                 if (hostNeed == null) continue;
-                var want = FamilyContract.FamilyNameFor(hostNeed, familyName);
+                var want = FamilyContract.FamilyNameFor(hostNeed, familyName, hit.Shape);
                 if (!FamilyContract.TryLoad(doc, want))
                 {
                     tx.RollBack();
@@ -138,7 +138,7 @@ internal static class PlaceOpenings
             .ToList();
         var famLabel = famNames.Count > 0
             ? string.Join(" / ", famNames)
-            : "LoadingAI_Opening_Horizontal / LoadingAI_Opening_Vertical";
+            : "LoadingAI_Opening_Horizontal_Rectangle / LoadingAI_Opening_Horizontal_Circle / LoadingAI_Opening_Vertical_Rectangle / LoadingAI_Opening_Vertical_Circle";
         var placeType = pending.Count > 0
             ? pending[0].Inst.Symbol?.Family.FamilyPlacementType.ToString() ?? "OneLevelBased"
             : "OneLevelBased";
@@ -435,12 +435,16 @@ internal static class PlaceOpenings
             var r = Math.Max(widthMm, heightMm) / 2;
             SetLengthFt(inst, "Radius", Metric.MmToFt(r));
         }
-        SetLengthFt(inst, "Width", hit.WidthFt);
-        SetLengthFt(inst, "Height", hit.HeightFt);
+        else
+        {
+            SetLengthFt(inst, "Width", hit.WidthFt);
+            SetLengthFt(inst, "Height", hit.HeightFt);
+            // Outer* is Horizontal Rectangle only (door/window splay). Vertical Rectangle
+            // has none — SetLengthFt no-ops. Do not require Outer on floors/roofs.
+            SetLengthFt(inst, "Outer Width", hit.WidthFt);
+            SetLengthFt(inst, "Outer Height", hit.HeightFt);
+        }
         SetLengthFt(inst, "Depth", hit.DepthFt);
-        // Family Types names have spaces. Through-host: Outer Width = Width (not a front/back recess).
-        SetLengthFt(inst, "Outer Width", hit.WidthFt);
-        SetLengthFt(inst, "Outer Height", hit.HeightFt);
     }
 
     /// <summary>
@@ -451,6 +455,7 @@ internal static class PlaceOpenings
     {
         var host = doc.GetElement(hit.HostId);
         if (host is Floor || host is RoofBase) return; // vertical family origin is slab top, not sill
+        if (hit.Shape.Equals("circle", StringComparison.OrdinalIgnoreCase)) return; // circle origin is pipe center
         // opening bottom is the family origin
         var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
         if (drop.GetLength() < 1e-6) return;

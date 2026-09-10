@@ -5,8 +5,12 @@ namespace LoadingAI.Plugins.OpeningTools;
 
 internal static class FamilyContract
 {
-    public const string DefaultFamilyName = "LoadingAI_Opening_Horizontal";
-    public const string HorizontalFamilyName = "LoadingAI_Opening_Horizontal";
+    public const string DefaultFamilyName = "LoadingAI_Opening_Horizontal_Rectangle";
+    public const string HorizontalRectangleFamilyName = "LoadingAI_Opening_Horizontal_Rectangle";
+    public const string HorizontalCircleFamilyName = "LoadingAI_Opening_Horizontal_Circle";
+    public const string VerticalRectangleFamilyName = "LoadingAI_Opening_Vertical_Rectangle";
+    public const string VerticalCircleFamilyName = "LoadingAI_Opening_Vertical_Circle";
+    public const string HorizontalFamilyName = "LoadingAI_Opening_Horizontal"; // legacy 2-type file
     public const string VerticalFamilyName = "LoadingAI_Opening_Vertical";
     public const string LegacyFamilyName = "LoadingAI_Opening";
 
@@ -18,19 +22,29 @@ internal static class FamilyContract
 
     public static bool IsVerticalHost(Element host) => host is Floor || host is RoofBase;
 
-    public static string FamilyNameFor(Element host, string? overrideName)
+    public static bool IsCircleShape(string? shape)
+        => !string.IsNullOrWhiteSpace(shape)
+           && shape.Equals("circle", StringComparison.OrdinalIgnoreCase);
+
+    public static string FamilyNameFor(Element host, string? overrideName, string shape)
     {
         if (!string.IsNullOrWhiteSpace(overrideName)) return overrideName.Trim();
-        return IsVerticalHost(host) ? VerticalFamilyName : HorizontalFamilyName;
+        var circle = IsCircleShape(shape);
+        if (IsVerticalHost(host))
+            return circle ? VerticalCircleFamilyName : VerticalRectangleFamilyName;
+        return circle ? HorizontalCircleFamilyName : HorizontalRectangleFamilyName;
     }
 
     public static string? FailReason(FamilySymbol? symbol, string? wantedName = null)
     {
         if (symbol != null) return null;
         // Width/Height/Radius are instance params. FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
-        var name = string.IsNullOrWhiteSpace(wantedName) ? HorizontalFamilyName + " / " + VerticalFamilyName : wantedName;
+        var name = string.IsNullOrWhiteSpace(wantedName)
+            ? HorizontalRectangleFamilyName + " / " + HorizontalCircleFamilyName + " / "
+              + VerticalRectangleFamilyName + " / " + VerticalCircleFamilyName
+            : wantedName;
         return "Opening family is missing. Load " + name
-            + " (.rfa next to the opening-tools plugin, or Insert > Load Family). Cut with Voids When Loaded, OneLevelBased Generic Model, types Rectangle and Circle.";
+            + " (.rfa next to the opening-tools plugin, or Insert > Load Family). Cut with Voids When Loaded, OneLevelBased Generic Model.";
     }
 
     public static bool Has(Element el, string name) => el.LookupParameter(name) != null;
@@ -56,14 +70,17 @@ internal static class FamilyContract
     public static FamilySymbol? Find(Document doc, string? familyName, string shape, Element? host)
     {
         var wanted = host != null
-            ? FamilyNameFor(host, familyName)
-            : (string.IsNullOrWhiteSpace(familyName) ? HorizontalFamilyName : familyName.Trim());
-        var typeHint = shape.Equals("circle", StringComparison.OrdinalIgnoreCase) ? "circle" : "rectangle";
+            ? FamilyNameFor(host, familyName, shape)
+            : (string.IsNullOrWhiteSpace(familyName)
+                ? (IsCircleShape(shape) ? HorizontalCircleFamilyName : HorizontalRectangleFamilyName)
+                : familyName.Trim());
+        var typeHint = IsCircleShape(shape) ? "circle" : "rectangle";
         var hit = FindNamed(doc, wanted, typeHint);
         if (hit != null) return hit;
-        if (host != null && !IsVerticalHost(host) && !wanted.Equals(LegacyFamilyName, StringComparison.OrdinalIgnoreCase))
-            return FindNamed(doc, LegacyFamilyName, typeHint);
-        return null;
+        if (host == null) return FindNamed(doc, LegacyFamilyName, typeHint);
+        var legacyTwo = IsVerticalHost(host) ? VerticalFamilyName : HorizontalFamilyName;
+        return FindNamed(doc, legacyTwo, typeHint)
+            ?? FindNamed(doc, LegacyFamilyName, typeHint);
     }
 
     public static bool TryLoad(Document doc, string familyName)
