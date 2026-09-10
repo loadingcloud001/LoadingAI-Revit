@@ -448,14 +448,14 @@ internal static class PlaceOpenings
     }
 
     /// <summary>
-    /// LoadingAI_Opening origin = opening bottom (family center at the sill).
+    /// Horizontal family origin = opening bottom (rectangle sill / circle bottom).
     /// PointHost is the MEP center; lower the instance by Height/2 so the hole is centered on the pipe.
+    /// Vertical family origin is slab top — do not drop.
     /// </summary>
     static void DropOriginToOpeningBottom(Document doc, FamilyInstance inst, ClashHit hit)
     {
         var host = doc.GetElement(hit.HostId);
         if (host is Floor || host is RoofBase) return; // vertical family origin is slab top, not sill
-        if (hit.Shape.Equals("circle", StringComparison.OrdinalIgnoreCase)) return; // circle origin is pipe center
         // opening bottom is the family origin
         var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
         if (drop.GetLength() < 1e-6) return;
