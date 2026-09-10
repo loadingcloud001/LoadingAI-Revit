@@ -254,21 +254,25 @@ internal static class PlaceOpenings
     }
 
     /// <summary>
-    /// Vertical family origin is the family bottom and it lies on the Level.
-    /// Pin XY to the clash, Z to level.Elevation. Do not pin to host bbox Max
-    /// (that sat the void on the slab top). Do not OfPoint Transform.
+    /// Vertical family origin is the family bottom (extrudes +Z). Revit floors hang
+    /// down from the Level, so Elevation=0 sat the void on the slab top. Pin XY to
+    /// the clash, Z to host bbox Min (slab bottom, model coords; do not OfPoint).
+    /// Depth = thickness+50mm then goes up through the host.
     /// </summary>
     static void PinVerticalToHostTop(Document doc, FamilyInstance inst, Element host, XYZ want, Level? level)
     {
-        if (!FamilyContract.IsVerticalHost(host) || level == null) return;
+        if (!FamilyContract.IsVerticalHost(host)) return;
+        var bb = host.get_BoundingBox(null);
+        if (bb == null) return;
         var now = (inst.Location as LocationPoint)?.Point;
         if (now == null) return;
-        var dest = new XYZ(want.X, want.Y, level.Elevation);
+        var dest = new XYZ(want.X, want.Y, bb.Min.Z);
         var d = dest - now;
         if (d.GetLength() > 1e-6)
         {
             try { ElementTransformUtils.MoveElement(doc, inst.Id, d); } catch { }
         }
+        var off = level != null ? dest.Z - level.Elevation : dest.Z - now.Z;
         foreach (BuiltInParameter bip in new[]
         {
             BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
@@ -280,7 +284,7 @@ internal static class PlaceOpenings
             try { p = inst.get_Parameter(bip); }
             catch { continue; }
             if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
-            try { p.Set(0.0); return; }
+            try { p.Set(off); return; }
             catch { }
         }
     }
@@ -481,12 +485,12 @@ internal static class PlaceOpenings
     /// <summary>
     /// Horizontal family origin = opening bottom (rectangle sill / circle bottom).
     /// PointHost is the MEP center; lower the instance by Height/2 so the hole is centered on the pipe.
-    /// Vertical family origin is the family bottom on the Level — do not drop Height/2.
+    /// Vertical family origin is the family bottom at slab bottom — do not drop Height/2.
     /// </summary>
     static void DropOriginToOpeningBottom(Document doc, FamilyInstance inst, ClashHit hit)
     {
         var host = doc.GetElement(hit.HostId);
-        if (host is Floor || host is RoofBase) return; // family bottom already on the Level
+        if (host is Floor || host is RoofBase) return; // family bottom already at slab bottom (bbox Min)
         // opening bottom is the family origin
         var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
         if (drop.GetLength() < 1e-6) return;
