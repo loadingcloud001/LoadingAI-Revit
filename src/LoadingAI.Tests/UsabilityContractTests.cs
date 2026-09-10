@@ -328,6 +328,8 @@ public class UsabilityContractTests
         Assert.Contains("FamilyContract.Find(doc, familyName, hit.Shape, host)", place);
         Assert.Contains("if (host is Floor || host is RoofBase) return;", place);
         Assert.Contains("PinVerticalToHostTop", place);
+        Assert.Contains("family bottom on the Level", place);
+        Assert.Contains("level.Elevation", place);
         Assert.Contains("TryLoad", place);
         Assert.Contains("FromMinutes(10)", plugin);
         Assert.Contains("BoxesOverlap", probe);

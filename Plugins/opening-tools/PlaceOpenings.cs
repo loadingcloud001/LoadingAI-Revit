@@ -194,7 +194,7 @@ internal static class PlaceOpenings
         if (level == null) return null;
         var inst = doc.Create.NewFamilyInstance(hit.Centroid, symbol, level, StructuralType.NonStructural);
         PinToPointHost(doc, inst, hit.Centroid, level);
-        PinVerticalToHostTop(doc, inst, host, hit.Centroid);
+        PinVerticalToHostTop(doc, inst, host, hit.Centroid, level);
         RotateToHost(doc, inst, hit);
         var xyz = (inst.Location as LocationPoint)?.Point ?? hit.Centroid;
         if (!ClashProbe.InsideHost(host, xyz))
@@ -254,20 +254,35 @@ internal static class PlaceOpenings
     }
 
     /// <summary>
-    /// Vertical family origin is slab top on the Level. PointHost is MEP center mid-slab —
-    /// pin XY to the clash, Z to host bbox Max (model coords; do not OfPoint Transform).
+    /// Vertical family origin is the family bottom and it lies on the Level.
+    /// Pin XY to the clash, Z to level.Elevation. Do not pin to host bbox Max
+    /// (that sat the void on the slab top). Do not OfPoint Transform.
     /// </summary>
-    static void PinVerticalToHostTop(Document doc, FamilyInstance inst, Element host, XYZ want)
+    static void PinVerticalToHostTop(Document doc, FamilyInstance inst, Element host, XYZ want, Level? level)
     {
-        if (!FamilyContract.IsVerticalHost(host)) return;
-        var bb = host.get_BoundingBox(null);
-        if (bb == null) return;
+        if (!FamilyContract.IsVerticalHost(host) || level == null) return;
         var now = (inst.Location as LocationPoint)?.Point;
         if (now == null) return;
-        var dest = new XYZ(want.X, want.Y, bb.Max.Z);
+        var dest = new XYZ(want.X, want.Y, level.Elevation);
         var d = dest - now;
-        if (d.GetLength() < 1e-6) return;
-        try { ElementTransformUtils.MoveElement(doc, inst.Id, d); } catch { }
+        if (d.GetLength() > 1e-6)
+        {
+            try { ElementTransformUtils.MoveElement(doc, inst.Id, d); } catch { }
+        }
+        foreach (BuiltInParameter bip in new[]
+        {
+            BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
+            BuiltInParameter.INSTANCE_ELEVATION_PARAM,
+            BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM
+        })
+        {
+            Parameter? p;
+            try { p = inst.get_Parameter(bip); }
+            catch { continue; }
+            if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
+            try { p.Set(0.0); return; }
+            catch { }
+        }
     }
 
     static void IndexExistingOpenings(Document doc, HashSet<string> keys, HashSet<string> srcHost)
@@ -466,12 +481,12 @@ internal static class PlaceOpenings
     /// <summary>
     /// Horizontal family origin = opening bottom (rectangle sill / circle bottom).
     /// PointHost is the MEP center; lower the instance by Height/2 so the hole is centered on the pipe.
-    /// Vertical family origin is slab top — do not drop.
+    /// Vertical family origin is the family bottom on the Level — do not drop Height/2.
     /// </summary>
     static void DropOriginToOpeningBottom(Document doc, FamilyInstance inst, ClashHit hit)
     {
         var host = doc.GetElement(hit.HostId);
-        if (host is Floor || host is RoofBase) return; // vertical family origin is slab top, not sill
+        if (host is Floor || host is RoofBase) return; // family bottom already on the Level
         // opening bottom is the family origin
         var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
         if (drop.GetLength() < 1e-6) return;
