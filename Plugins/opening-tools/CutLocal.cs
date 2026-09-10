@@ -90,14 +90,7 @@ internal static class CutLocal
         if (!InstanceVoidCutUtils.CanBeCutWithVoid(host)) return false;
         try
         {
-            var existing = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
-            if (existing != null)
-            {
-                foreach (ElementId id in existing)
-                {
-                    if (id == opening.Id) return true;
-                }
-            }
+            if (IsCutting(host, opening)) return true;
         }
         catch { /* not yet cutting */ }
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, host, opening); }
@@ -106,17 +99,21 @@ internal static class CutLocal
         catch { }
         try
         {
-            var after = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
-            if (after != null)
-            {
-                foreach (ElementId id in after)
-                {
-                    if (id == opening.Id) return true;
-                }
-            }
+            if (IsCutting(host, opening)) return true;
         }
         catch { }
         return false; // no-punch
+    }
+
+    static bool IsCutting(Element host, FamilyInstance opening)
+    {
+        var existing = InstanceVoidCutUtils.GetCuttingVoidInstances(host);
+        if (existing == null) return false;
+        foreach (ElementId id in existing)
+        {
+            if (id == opening.Id) return true;
+        }
+        return false;
     }
 
     static List<FamilyInstance> ResolveOpenings(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)

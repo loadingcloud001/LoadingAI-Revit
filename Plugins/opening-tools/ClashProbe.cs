@@ -105,15 +105,25 @@ internal static class ClashProbe
         var hosts = ResolveHosts(doc, uidoc, hostIds);
         var hits = new List<ClashHit>();
         if (meps.Count == 0) return hits;
+        var hostSolidsCache = new Dictionary<ElementId, List<Solid>>();
 
         foreach (var mep in meps)
         {
             if (hits.Count >= limit) break;
             try { if (mep.Element == null || !mep.Element.IsValidObject) continue; }
             catch { continue; }
-            var mepSolids = SolidsOf(mep.Element, mep.ToHost).ToList();
             var mepBox = BoxOf(mep.Element, mep.ToHost);
             IList<Element> candidates = hosts;
+            if (candidates.Count > 0)
+            {
+                var any = false;
+                foreach (var h in candidates)
+                {
+                    if (BoxesOverlap(mepBox, h)) { any = true; break; }
+                }
+                if (!any) continue;
+            }
+            var mepSolids = SolidsOf(mep.Element, mep.ToHost).ToList();
             if (candidates.Count == 0)
                 candidates = HostsOverlapping(doc, mepBox, mepSolids);
 
@@ -123,7 +133,11 @@ internal static class ClashProbe
                 if (Equals(host.Document, mep.Element.Document) && host.Id == mep.Element.Id) continue;
                 if (!IsHost(host)) continue;
                 if (!BoxesOverlap(mepBox, host)) continue;
-                var hostSolids = SolidsOf(host, Transform.Identity).ToList();
+                if (!hostSolidsCache.TryGetValue(host.Id, out var hostSolids))
+                {
+                    hostSolids = SolidsOf(host, Transform.Identity).ToList();
+                    hostSolidsCache[host.Id] = hostSolids;
+                }
                 var inter = FirstIntersect(mepSolids, hostSolids);
                 if (inter == null) continue;
                 // PointHost = MEP curve × xf ∩ host Face (host coords). Boolean volume only confirms the pair.
@@ -390,6 +404,9 @@ internal static class ClashProbe
         foreach (var sa in a)
         foreach (var sb in b)
         {
+            if (WorldBox(sa, out var amin, out var amax) && WorldBox(sb, out var bmin, out var bmax)
+                && !CornersOverlap(amin, amax, bmin, bmax))
+                continue;
             try
             {
                 var inter = BooleanOperationsUtils.ExecuteBooleanOperation(sa, sb, BooleanOperationsType.Intersect);
@@ -819,7 +836,7 @@ internal static class ClashProbe
             if (cross.GetLength() > 1e-9) up = cross.Normalize();
             return;
         }
-        if (host is Floor || host is RoofBase)
+        if (FamilyContract.IsVerticalHost(host)) // is Floor or RoofBase
         {
             dir = XYZ.BasisX;
             up = XYZ.BasisY;
@@ -847,24 +864,13 @@ internal static class ClashProbe
         }
     }
 
-    static void ProjectExtents(XYZ min, XYZ max, XYZ origin, XYZ dir, XYZ up, out double width, out double height)
+    static bool CornersOverlap(XYZ aMin, XYZ aMax, XYZ bMin, XYZ bMax)
     {
-        double minD = double.PositiveInfinity, maxD = double.NegativeInfinity;
-        double minU = double.PositiveInfinity, maxU = double.NegativeInfinity;
-        foreach (var cx in new[] { min.X, max.X })
-        foreach (var cy in new[] { min.Y, max.Y })
-        foreach (var cz in new[] { min.Z, max.Z })
-        {
-            var v = new XYZ(cx, cy, cz) - origin;
-            var d = v.DotProduct(dir);
-            var u = v.DotProduct(up);
-            if (d < minD) minD = d;
-            if (d > maxD) maxD = d;
-            if (u < minU) minU = u;
-            if (u > maxU) maxU = u;
-        }
-        width = Math.Max(maxD - minD, Metric.MmToFt(20));
-        height = Math.Max(maxU - minU, Metric.MmToFt(20));
+        const double pad = 0.5;
+        if (aMax.X < bMin.X - pad || aMin.X > bMax.X + pad) return false;
+        if (aMax.Y < bMin.Y - pad || aMin.Y > bMax.Y + pad) return false;
+        if (aMax.Z < bMin.Z - pad || aMin.Z > bMax.Z + pad) return false;
+        return true;
     }
 
     static double HostThickness(Element host)

@@ -5,7 +5,6 @@ namespace LoadingAI.Plugins.OpeningTools;
 
 internal static class FamilyContract
 {
-    public const string DefaultFamilyName = "LoadingAI_Opening_Horizontal_Rectangle";
     public const string HorizontalRectangleFamilyName = "LoadingAI_Opening_Horizontal_Rectangle";
     public const string HorizontalCircleFamilyName = "LoadingAI_Opening_Horizontal_Circle";
     public const string VerticalRectangleFamilyName = "LoadingAI_Opening_Vertical_Rectangle";
@@ -39,10 +38,7 @@ internal static class FamilyContract
     {
         if (symbol != null) return null;
         // Width/Height/Radius are instance params. FamilySymbol.LookupParameter cannot see them; ApplySize sets them after place.
-        var name = string.IsNullOrWhiteSpace(wantedName)
-            ? HorizontalRectangleFamilyName + " / " + HorizontalCircleFamilyName + " / "
-              + VerticalRectangleFamilyName + " / " + VerticalCircleFamilyName
-            : wantedName;
+        var name = string.IsNullOrWhiteSpace(wantedName) ? ShippedFamilyLabel : wantedName;
         return "Opening family is missing. Load " + name
             + " (.rfa next to the opening-tools plugin, or Insert > Load Family). Cut with Voids When Loaded, OneLevelBased Generic Model.";
     }
@@ -83,9 +79,13 @@ internal static class FamilyContract
             ?? FindNamed(doc, LegacyFamilyName, typeHint);
     }
 
+    public static string ShippedFamilyLabel =>
+        HorizontalRectangleFamilyName + " / " + HorizontalCircleFamilyName + " / "
+        + VerticalRectangleFamilyName + " / " + VerticalCircleFamilyName;
+
     public static bool TryLoad(Document doc, string familyName)
     {
-        if (FindNamed(doc, familyName, "rectangle") != null) return true;
+        if (FindNamed(doc, familyName, "") != null) return true;
         var dir = Path.GetDirectoryName(typeof(FamilyContract).Assembly.Location) ?? "";
         var path = Path.Combine(dir, familyName + ".rfa");
         if (!File.Exists(path)) return false;
