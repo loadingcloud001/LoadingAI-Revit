@@ -321,6 +321,7 @@ public class UsabilityContractTests
         Assert.Contains("LoadingAI_Opening_Horizontal", place);
         Assert.Contains("LoadingAI_Opening_Vertical", place);
         Assert.Contains("FamilyNameFor(hostNeed, familyName, hit.Shape)", place);
+        Assert.Contains("none this run", place);
         Assert.DoesNotContain("circle origin is pipe center", place);
         Assert.Contains("IsVerticalHost", place);
         Assert.DoesNotContain("var symbol = FamilyContract.Find(doc, familyName, shape);", place);

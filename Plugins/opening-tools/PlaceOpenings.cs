@@ -145,7 +145,7 @@ internal static class PlaceOpenings
             .ToList();
         var famLabel = famNames.Count > 0
             ? string.Join(" / ", famNames)
-            : FamilyContract.ShippedFamilyLabel;
+            : "none this run";
         var placeType = pending.Count > 0
             ? pending[0].Inst.Symbol?.Family.FamilyPlacementType.ToString() ?? "OneLevelBased"
             : "OneLevelBased";
