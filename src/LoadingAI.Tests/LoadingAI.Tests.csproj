@@ -16,4 +16,7 @@
       <AdditionalProperties>SkipHostPluginBuild=true;SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Plugins\opening-tools\OpeningCombineMath.cs" Link="OpeningCombineMath.cs" />
+  </ItemGroup>
 </Project>

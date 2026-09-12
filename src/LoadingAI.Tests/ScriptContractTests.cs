@@ -100,7 +100,8 @@ public class ScriptContractTests
         {
             "Plugins/export-tools/ExportToolsPlugin.csproj",
             "Plugins/view-tools/ViewToolsPlugin.csproj",
-            "Plugins/modeling-tools/ModelingToolsPlugin.csproj"
+            "Plugins/modeling-tools/ModelingToolsPlugin.csproj",
+            "Plugins/opening-tools/OpeningToolsPlugin.csproj"
         })
         {
             var csproj = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

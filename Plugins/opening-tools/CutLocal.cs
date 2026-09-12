@@ -118,43 +118,14 @@ internal static class CutLocal
 
     static List<FamilyInstance> ResolveOpenings(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
     {
-        var seeds = new List<Element>();
-        if (ids.Count > 0)
-        {
-            foreach (var s in ids)
-            {
-                try { var el = doc.GetElement(RevitParse.ParseEid(s)); if (el != null) seeds.Add(el); }
-                catch { }
-            }
-        }
-        else
-        {
-            foreach (var id in uidoc.Selection.GetElementIds())
-            {
-                var el = doc.GetElement(id);
-                if (el != null) seeds.Add(el);
-            }
-        }
-
+        var seeds = ids.Count > 0 ? OpeningGeo.ByIds(doc, ids) : OpeningGeo.Selection(doc, uidoc);
         return seeds.OfType<FamilyInstance>().Where(IsOpening).ToList();
     }
 
     static List<Element> Seeds(Document doc, UIDocument uidoc, IReadOnlyList<string> openingIds, IReadOnlyList<string> hostIds)
     {
-        var seeds = new List<Element>();
-        foreach (var s in hostIds.Concat(openingIds))
-        {
-            try { var el = doc.GetElement(RevitParse.ParseEid(s)); if (el != null) seeds.Add(el); }
-            catch { }
-        }
-        if (seeds.Count == 0)
-        {
-            foreach (var id in uidoc.Selection.GetElementIds())
-            {
-                var el = doc.GetElement(id);
-                if (el != null) seeds.Add(el);
-            }
-        }
+        var seeds = OpeningGeo.ByIds(doc, hostIds.Concat(openingIds));
+        if (seeds.Count == 0) seeds = OpeningGeo.Selection(doc, uidoc);
         return seeds.Where(ClashProbe.IsHost).ToList();
     }
 
@@ -186,19 +157,7 @@ internal static class CutLocal
     }
 
     static List<Element> ResolveHosts(Document doc, IReadOnlyList<string> ids)
-    {
-        var list = new List<Element>();
-        foreach (var s in ids)
-        {
-            try
-            {
-                var el = doc.GetElement(RevitParse.ParseEid(s));
-                if (el != null) list.Add(el);
-            }
-            catch { }
-        }
-        return list;
-    }
+        => OpeningGeo.ByIds(doc, ids);
 
     static bool IsOpening(FamilyInstance fi)
     {
@@ -281,26 +240,5 @@ internal static class CutLocal
     }
 
     static IEnumerable<Solid> Solids(Element el)
-    {
-        var opt = new Options { ComputeReferences = false, IncludeNonVisibleObjects = true };
-        GeometryElement? geo;
-        try { geo = el.get_Geometry(opt); }
-        catch { yield break; }
-        if (geo == null) yield break;
-        foreach (var obj in geo)
-        {
-            if (obj is Solid s && s.Volume > 1e-9) yield return s;
-            else if (obj is GeometryInstance gi)
-            {
-                GeometryElement? inst = null;
-                try { inst = gi.GetInstanceGeometry(); }
-                catch { }
-                if (inst == null) continue;
-                foreach (var inner in inst)
-                {
-                    if (inner is Solid s2 && s2.Volume > 1e-9) yield return s2;
-                }
-            }
-        }
-    }
+        => OpeningGeo.Solids(el, includeNonVisible: true); // IncludeNonVisibleObjects = true
 }
