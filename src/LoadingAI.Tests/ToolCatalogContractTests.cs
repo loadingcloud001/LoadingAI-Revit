@@ -37,6 +37,7 @@ public class ToolCatalogContractTests
             "src/LoadingAI/Tools/Compat/GeometryCreateTools.cs",
             "Plugins/view-tools/ViewToolsPlugin.cs",
             "Plugins/modeling-tools/ModelingToolsPlugin.cs",
+            "Plugins/structure-cuts/StructureCutsPlugin.cs",
         })
         {
             var src = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

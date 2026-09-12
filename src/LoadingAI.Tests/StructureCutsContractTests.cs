@@ -1,0 +1,57 @@
+using System.IO;
+using System.Text.Json;
+using Xunit;
+
+namespace LoadingAI.Tests;
+
+public class StructureCutsContractTests
+{
+    [Fact]
+    public void PluginJson_DeclaresTwoL3SplitToolsDefaultOff()
+    {
+        var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.Equal("structure-cuts", root.GetProperty("id").GetString());
+        Assert.True(root.GetProperty("verified").GetBoolean());
+
+        var tools = root.GetProperty("tools").EnumerateArray().ToList();
+        Assert.Equal(2, tools.Count);
+
+        var names = tools.Select(t => t.GetProperty("name").GetString()).ToHashSet();
+        Assert.Contains("split_beams_by_columns", names);
+        Assert.Contains("split_floors_by_beams", names);
+
+        foreach (var t in tools)
+        {
+            Assert.Equal("L3", t.GetProperty("tier").GetString());
+            Assert.False(t.GetProperty("enabledByDefault").GetBoolean());
+            var desc = t.GetProperty("description").GetString() ?? "";
+            Assert.Contains("split", desc, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void SourceLivesUnderPlugins_NotHostTools()
+    {
+        var root = RepoRoot();
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "StructureCutsPlugin.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
+        Assert.False(File.Exists(Path.Combine(root, "src", "LoadingAI", "Tools", "StructureCutsPlugin.cs")));
+        var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*Split*.cs", SearchOption.AllDirectories);
+        Assert.DoesNotContain(hostTools, f => Path.GetFileName(f).Contains("BeamSplit") || Path.GetFileName(f).Contains("FloorSplit"));
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
+    }
+}
