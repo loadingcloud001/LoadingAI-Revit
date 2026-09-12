@@ -29,6 +29,7 @@ public static class ToolSelector
         ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
         ("切梁", "split"), ("柱切", "split"), ("切板", "split"), ("梁切", "split"),
         ("柱切梁", "split"), ("梁切板", "split"),
+        ("模板", "formwork"),
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
@@ -83,6 +84,7 @@ public static class ToolSelector
         "number","create","rotate","mirror","join","purge","ifc","takeoff","color","construction",
         "schedule","tag","dimension","crop","template","comment","delete","move","hide","isolate",
         "link","rvt","revit","cad","dwg","pdf","family","type","instance","selection","element",
-        "category","visible","active","temporary","override","reset","save","warning"
+        "category","visible","active","temporary","override","reset","save","warning",
+        "formwork"
     };
 }
