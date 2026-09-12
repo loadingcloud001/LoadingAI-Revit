@@ -27,7 +27,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place and punch opening voids in one transaction where ducts/pipes/flex/trays/conduits solid-intersect local walls/floors/beams/columns/roofs. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls/beams/columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors/roofs). Four .rfa next to the plugin; auto LoadFamily. Call immediately; do not ask to bind links. Includes MEP inside loaded RVT links (GetTotalTransform once into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam/column/roof the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. The result lists instance ids and XYZ in host feet — isolate those ids plus the host; do not isolate only the wall (openings are Generic Models, not hosted). Do not search a Family Name parameter. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit.",
+                Description = "Place and punch opening voids in one transaction where ducts/pipes/flex/trays/conduits solid-intersect local walls/floors/beams/columns/roofs. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier; keep separate if remaining edge is too thin or combined width exceeds two-thirds of the host. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls/beams/columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors/roofs). Four .rfa next to the plugin; auto LoadFamily. Call immediately; do not ask to bind links. Includes MEP inside loaded RVT links (GetTotalTransform once into the active document). Call this tool immediately; do not ask to bind links or to find visible ducts first (query tools cannot see linked MEP). Pass hostIds for the wall/floor/beam/column/roof the user selected or named. If omitted, current selection must include a host, or MEP, or a Revit link — a section box alone is not a host. The result lists instance ids and XYZ in host feet — isolate those ids plus the host; do not isolate only the wall (openings are Generic Models, not hosted). Do not search a Family Name parameter. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit.",
                 Parameters = new
                 {
                     type = "object",
@@ -45,30 +45,18 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 }
             }
         },
-        Handler = async json =>
+        Handler = json => OnUi(context, json, ClashTimeout, (doc, uidoc, args) =>
         {
-            var args = OpeningArgs.Parse(json);
-            var mepIds = args.Strings("mepIds");
-            var hostIds = args.Strings("hostIds");
-            var shape = args.Str("shape") ?? "auto";
-            var clearanceMm = args.Dbl("clearanceMm", 25);
-            var familyName = args.Str("familyName");
-            var levelName = args.Str("levelName");
             var limit = args.Int("limit", 50);
             if (limit < 1) limit = 50;
             if (limit > 200) limit = 200;
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uidoc = session.As<UIApplication>().ActiveUIDocument;
-                var doc = uidoc?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    return PlaceOpenings.Run(doc, uidoc!, mepIds, hostIds, shape, clearanceMm, familyName, levelName, limit);
-                }
-                catch (Exception ex) { return "Failed: " + ex.Message; }
-            }, ClashTimeout);
-        }
+            return PlaceOpenings.Run(
+                doc, uidoc,
+                args.Strings("mepIds"), args.Strings("hostIds"),
+                args.Str("shape") ?? "auto",
+                args.Dbl("clearanceMm", 25),
+                args.Str("familyName"), args.Str("levelName"), limit);
+        })
     };
 
     private static ToolEntry CutHostsByOpenings(IPluginContext context) => new()
@@ -93,22 +81,24 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin, IRevitFullAccess
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = OpeningArgs.Parse(json);
-            var openingIds = args.Strings("openingIds");
-            var hostIds = args.Strings("hostIds");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uidoc = session.As<UIApplication>().ActiveUIDocument;
-                var doc = uidoc?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    return CutLocal.Run(doc, uidoc!, openingIds, hostIds);
-                }
-                catch (Exception ex) { return "Failed: " + ex.Message; }
-            });
-        }
+        Handler = json => OnUi(context, json, null, (doc, uidoc, args) =>
+            CutLocal.Run(doc, uidoc, args.Strings("openingIds"), args.Strings("hostIds")))
     };
+
+    static Task<string> OnUi(
+        IPluginContext context,
+        string json,
+        TimeSpan? timeout,
+        Func<Autodesk.Revit.DB.Document, UIDocument, OpeningArgs, string> run)
+    {
+        var args = OpeningArgs.Parse(json);
+        return context.FullAccess!.RunRevitAsync(session =>
+        {
+            var uidoc = session.As<UIApplication>().ActiveUIDocument;
+            var doc = uidoc?.Document;
+            if (doc == null) return "Please open a model first.";
+            try { return run(doc, uidoc!, args); }
+            catch (Exception ex) { return "Failed: " + ex.Message; }
+        }, timeout);
+    }
 }

@@ -40,6 +40,7 @@ internal static class PlaceOpenings
         var hits = ClashProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
         if (hits.Count == 0)
             return "No MEP-host clash found (bbox then solid intersect).";
+        hits = OpeningCombine.Apply(doc, hits, out var combine);
 
         var placed = 0;
         var failed = 0;
@@ -50,23 +51,15 @@ internal static class PlaceOpenings
         var placedKeys = new HashSet<string>(StringComparer.Ordinal);
         var placedSrcHost = new HashSet<string>(StringComparer.Ordinal);
         IndexExistingOpenings(doc, placedKeys, placedSrcHost);
-        var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tx = new Transaction(doc, "LoadingAI for Revit: create openings from clash");
         tx.Start();
         try
         {
-            foreach (var hit in hits)
+            var loadFail = EnsureFamilies(doc, hits, familyName);
+            if (loadFail != null)
             {
-                var hostNeed = doc.GetElement(hit.HostId);
-                if (hostNeed == null) continue;
-                var want = FamilyContract.FamilyNameFor(hostNeed, familyName, hit.Shape);
-                // Legacy LoadingAI_Opening_Horizontal / LoadingAI_Opening_Vertical still Find fallback.
-                if (!loaded.Add(want)) continue;
-                if (!FamilyContract.TryLoad(doc, want))
-                {
-                    tx.RollBack();
-                    return FamilyContract.FailReason(null, want);
-                }
+                tx.RollBack();
+                return loadFail;
             }
             foreach (var hit in hits)
             {
@@ -137,6 +130,8 @@ internal static class PlaceOpenings
 
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
         var extra = skipped > 0 ? $" Skipped {skipped} already placed." : "";
+        if (combine.Clusters > 0) extra += $" Combined {combine.Clusters} cluster(s).";
+        if (combine.Large > 0) extra += " large (>700mm).";
         var where = placedAt.Count == 0 ? "" : " " + string.Join("; ", placedAt) + ".";
         var famNames = pending
             .Select(p => p.Inst.Symbol?.FamilyName)
@@ -157,6 +152,22 @@ internal static class PlaceOpenings
         public FamilyInstance Inst;
         public Element Host;
         public ClashHit Hit;
+    }
+
+    static string? EnsureFamilies(Document doc, List<ClashHit> hits, string? familyName)
+    {
+        var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hit in hits)
+        {
+            var hostNeed = doc.GetElement(hit.HostId);
+            if (hostNeed == null) continue;
+            var want = FamilyContract.FamilyNameFor(hostNeed, familyName, hit.Shape);
+            // Legacy LoadingAI_Opening_Horizontal / LoadingAI_Opening_Vertical still Find fallback.
+            if (!loaded.Add(want)) continue;
+            if (!FamilyContract.TryLoad(doc, want))
+                return FamilyContract.FailReason(null, want);
+        }
+        return null;
     }
 
     static FamilyInstance? PlaceOne(Document doc, FamilySymbol symbol, ClashHit hit, Level? forced)
@@ -225,15 +236,7 @@ internal static class PlaceOpenings
             catch { }
         }
         var now = (inst.Location as LocationPoint)?.Point;
-        if (now != null)
-        {
-            var d = want - now;
-            if (d.GetLength() > 1e-6)
-            {
-                try { ElementTransformUtils.MoveElement(doc, inst.Id, d); }
-                catch { }
-            }
-        }
+        if (now != null) OpeningGeo.TryMove(doc, inst.Id, want - now);
         now = (inst.Location as LocationPoint)?.Point;
         if (now == null || Math.Abs(now.Z - want.Z) < 1e-4) return;
         var off = level != null ? want.Z - level.Elevation : want.Z - now.Z;
@@ -267,11 +270,7 @@ internal static class PlaceOpenings
         var now = (inst.Location as LocationPoint)?.Point;
         if (now == null) return;
         var dest = new XYZ(want.X, want.Y, bb.Min.Z);
-        var d = dest - now;
-        if (d.GetLength() > 1e-6)
-        {
-            try { ElementTransformUtils.MoveElement(doc, inst.Id, d); } catch { }
-        }
+        OpeningGeo.TryMove(doc, inst.Id, dest - now);
         var off = level != null ? dest.Z - level.Elevation : dest.Z - now.Z;
         foreach (BuiltInParameter bip in new[]
         {
@@ -303,19 +302,37 @@ internal static class PlaceOpenings
             var src = FamilyContract.OpValue(fi, "OP_SourceId");
             var host = FamilyContract.OpValue(fi, "OP_HostId");
             if (!string.IsNullOrEmpty(src) && !string.IsNullOrEmpty(host))
+            {
                 srcHost.Add(src + "|" + host);
+                foreach (var part in src.Split('+'))
+                    if (part.Length > 0) srcHost.Add(part + "|" + host);
+            }
         }
     }
 
     static bool AlreadyPlaced(ClashHit hit, HashSet<string> keys, HashSet<string> srcHost)
     {
         if (!string.IsNullOrEmpty(hit.Key) && keys.Contains(hit.Key)) return true;
+        if (hit.Combined && !string.IsNullOrEmpty(hit.CombinedSources))
+        {
+            foreach (var p in hit.CombinedSources.Split('+'))
+            {
+                if (p.Length == 0) continue;
+                if (srcHost.Contains(p + "|" + hit.HostId)) return true;
+            }
+        }
         return srcHost.Contains(hit.MepId + "|" + hit.HostId);
     }
 
     static void RememberPlaced(ClashHit hit, HashSet<string> keys, HashSet<string> srcHost)
     {
         if (!string.IsNullOrEmpty(hit.Key)) keys.Add(hit.Key);
+        if (hit.Combined && !string.IsNullOrEmpty(hit.CombinedSources))
+        {
+            foreach (var src in hit.CombinedSources.Split('+'))
+                if (src.Length > 0) srcHost.Add(src + "|" + hit.HostId);
+            return;
+        }
         srcHost.Add(hit.MepId + "|" + hit.HostId);
     }
 
@@ -340,7 +357,7 @@ internal static class PlaceOpenings
         var axis = Line.CreateBound(loc, loc + XYZ.BasisZ);
         var angle = XYZ.BasisX.AngleOnPlaneTo(hit.HostDir, XYZ.BasisZ);
         if (Math.Abs(angle) < 1e-6) return;
-        try { ElementTransformUtils.RotateElement(doc, inst.Id, axis, angle); }
+        try { ElementTransformUtils.RotateElement(doc, inst.Id, axis, angle); } // MoveElement for XYZ lives in OpeningGeo.TryMove
         catch { }
     }
 
@@ -492,19 +509,21 @@ internal static class PlaceOpenings
         var host = doc.GetElement(hit.HostId);
         if (host is Floor || host is RoofBase) return; // family bottom already at slab bottom (bbox Min)
         // opening bottom is the family origin
-        var drop = new XYZ(0, 0, -(hit.HeightFt / 2.0));
-        if (drop.GetLength() < 1e-6) return;
-        try { ElementTransformUtils.MoveElement(doc, inst.Id, drop); }
-        catch { }
+        OpeningGeo.TryMove(doc, inst.Id, new XYZ(0, 0, -(hit.HeightFt / 2.0)));
     }
 
     static void WriteOp(FamilyInstance inst, ClashHit hit)
     {
-        SetOrComment(inst, "OP_SourceId", hit.MepId.ToString());
+        SetOrComment(inst, "OP_SourceId", string.IsNullOrEmpty(hit.CombinedSources) ? hit.MepId.ToString() : hit.CombinedSources);
         SetOrComment(inst, "OP_HostId", hit.HostId.ToString());
         if (!string.IsNullOrEmpty(hit.Key)) SetOrComment(inst, "OP_Key", hit.Key);
         SetOrComment(inst, "OP_HostLinked", hit.HostLinked ? "true" : "false");
         SetOrComment(inst, "OP_Shape", hit.Shape);
+        if (hit.Combined)
+        {
+            SetOrComment(inst, "OP_Combined", "true");
+            SetOrComment(inst, "OP_CombinedCount", hit.CombinedCount.ToString(CultureInfo.InvariantCulture));
+        }
         SetOrComment(inst, "OP_WidthMm", Metric.FtToMm(hit.WidthFt).ToString("F0", CultureInfo.InvariantCulture));
         SetOrComment(inst, "OP_HeightMm", Metric.FtToMm(hit.HeightFt).ToString("F0", CultureInfo.InvariantCulture));
         SetOrComment(inst, "OP_DepthMm", Metric.FtToMm(hit.DepthFt).ToString("F0", CultureInfo.InvariantCulture));

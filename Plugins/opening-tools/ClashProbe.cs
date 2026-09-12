@@ -19,11 +19,15 @@ internal readonly struct ClashHit
     public readonly string Shape;
     public readonly ElementId LevelId;
     public readonly string Key;
+    public readonly bool Combined;
+    public readonly int CombinedCount;
+    public readonly string CombinedSources;
 
     public ClashHit(
         ElementId mepId, ElementId hostId, bool hostLinked, bool sourceLinked,
         XYZ centroid, XYZ hostDir, double widthFt, double heightFt, double depthFt,
-        string shape, ElementId levelId, string key)
+        string shape, ElementId levelId, string key,
+        bool combined = false, int combinedCount = 1, string combinedSources = "")
     {
         MepId = mepId;
         HostId = hostId;
@@ -37,6 +41,9 @@ internal readonly struct ClashHit
         Shape = shape;
         LevelId = levelId;
         Key = key;
+        Combined = combined;
+        CombinedCount = combinedCount;
+        CombinedSources = combinedSources ?? "";
     }
 }
 
@@ -123,7 +130,7 @@ internal static class ClashProbe
                 }
                 if (!any) continue;
             }
-            var mepSolids = SolidsOf(mep.Element, mep.ToHost).ToList();
+            var mepSolids = OpeningGeo.Solids(mep.Element, mep.ToHost).ToList();
             if (candidates.Count == 0)
                 candidates = HostsOverlapping(doc, mepBox, mepSolids);
 
@@ -135,7 +142,7 @@ internal static class ClashProbe
                 if (!BoxesOverlap(mepBox, host)) continue;
                 if (!hostSolidsCache.TryGetValue(host.Id, out var hostSolids))
                 {
-                    hostSolids = SolidsOf(host, Transform.Identity).ToList();
+                    hostSolids = OpeningGeo.Solids(host).ToList();
                     hostSolidsCache[host.Id] = hostSolids;
                 }
                 var inter = FirstIntersect(mepSolids, hostSolids);
@@ -196,11 +203,7 @@ internal static class ClashProbe
         }
         else
         {
-            foreach (var id in uidoc.Selection.GetElementIds())
-            {
-                var el = doc.GetElement(id);
-                if (el != null) seeds.Add(el);
-            }
+            seeds.AddRange(OpeningGeo.Selection(doc, uidoc));
             AddMepFromLinkedSelection(list, seen, doc, uidoc);
         }
 
@@ -292,23 +295,7 @@ internal static class ClashProbe
 
     static List<Element> ResolveHosts(Document doc, UIDocument uidoc, IReadOnlyList<string> ids)
     {
-        var seeds = new List<Element>();
-        if (ids.Count > 0)
-        {
-            foreach (var s in ids)
-            {
-                try { var el = doc.GetElement(RevitParse.ParseEid(s)); if (el != null) seeds.Add(el); }
-                catch { /* skip */ }
-            }
-        }
-        else
-        {
-            foreach (var id in uidoc.Selection.GetElementIds())
-            {
-                var el = doc.GetElement(id);
-                if (el != null) seeds.Add(el);
-            }
-        }
+        var seeds = ids.Count > 0 ? OpeningGeo.ByIds(doc, ids) : OpeningGeo.Selection(doc, uidoc);
         return seeds.Where(IsHost).ToList();
     }
 
@@ -356,56 +343,15 @@ internal static class ClashProbe
         return false;
     }
 
-    static IEnumerable<Solid> SolidsOf(Element el, Transform toHost)
-    {
-        var opt = new Options { ComputeReferences = false, IncludeNonVisibleObjects = false };
-        GeometryElement? geo;
-        try { geo = el.get_Geometry(opt); }
-        catch { yield break; }
-        if (geo == null) yield break;
-        // XML GeometryInstance.GetInstanceGeometry: geometry is in the coordinate system of
-        // the model that owns this instance (the link document). Instance.GetTotalTransform
-        // maps link -> host (includes true north for import-like instances; for RevitLinkInstance
-        // it is the placement transform). Apply that ONCE with SolidUtils.CreateTransformed.
-        // Do not GeometryElement.GetTransformed then GetInstanceGeometry — Autodesk forum:
-        // GetTransformed does not apply to nested GeometryInstance, and mixing both doubles.
-        foreach (var s in Walk(geo))
-        {
-            if (s.Volume <= 1e-9) continue;
-            if (toHost.IsIdentity) yield return s;
-            else
-            {
-                Solid? xf = null;
-                try { xf = SolidUtils.CreateTransformed(s, toHost); }
-                catch { }
-                if (xf != null) yield return xf;
-            }
-        }
-    }
-
-    static IEnumerable<Solid> Walk(GeometryElement geo)
-    {
-        foreach (var obj in geo)
-        {
-            if (obj is Solid s) yield return s;
-            else if (obj is GeometryInstance gi)
-            {
-                GeometryElement? inst = null;
-                try { inst = gi.GetInstanceGeometry(); }
-                catch { }
-                if (inst == null) continue;
-                foreach (var inner in Walk(inst)) yield return inner;
-            }
-        }
-    }
-
+    // Solids: GetInstanceGeometry (link coords) + GetTotalTransform ONCE. Do not also GetTransformed.
+    // XML: GetInstanceGeometry is in the coordinate system of the model that owns this instance.
     static Solid? FirstIntersect(List<Solid> a, List<Solid> b)
     {
         foreach (var sa in a)
         foreach (var sb in b)
         {
             if (WorldBox(sa, out var amin, out var amax) && WorldBox(sb, out var bmin, out var bmax)
-                && !CornersOverlap(amin, amax, bmin, bmax))
+                && !OpeningGeo.AabbOverlap(amin, amax, bmin, bmax))
                 continue;
             try
             {
@@ -623,11 +569,7 @@ internal static class ClashProbe
         }
         catch { return false; }
         if (hb == null) return true;
-        const double pad = 0.5;
-        if (mepBox.Max.X < hb.Min.X - pad || mepBox.Min.X > hb.Max.X + pad) return false;
-        if (mepBox.Max.Y < hb.Min.Y - pad || mepBox.Min.Y > hb.Max.Y + pad) return false;
-        if (mepBox.Max.Z < hb.Min.Z - pad || mepBox.Min.Z > hb.Max.Z + pad) return false;
-        return true;
+        return OpeningGeo.AabbOverlap(mepBox.Min, mepBox.Max, hb.Min, hb.Max);
     }
 
     /// <summary>
@@ -668,8 +610,7 @@ internal static class ClashProbe
 
     /// <summary>
     /// XML: Element.BoundingBox stores bounds in modeling coordinates with an identity
-    /// transform. Do not OfPoint Min through Transform — that 2× the origin and PlaceOne
-    /// InsideHost then deletes snaps that already sit on the wall (live: Failed 6).
+    /// transform. WorldMinMax is Min/Max as stored — Do not OfPoint Min through Transform.
     /// </summary>
     static bool WorldMinMax(BoundingBoxXYZ bb, out XYZ min, out XYZ max)
     {
@@ -819,7 +760,7 @@ internal static class ClashProbe
         return Transform.Identity;
     }
 
-    static void HostFrame(Element host, out XYZ dir, out XYZ up, out XYZ norm)
+    internal static void HostFrame(Element host, out XYZ dir, out XYZ up, out XYZ norm)
     {
         up = XYZ.BasisZ;
         dir = XYZ.BasisX;
@@ -864,16 +805,7 @@ internal static class ClashProbe
         }
     }
 
-    static bool CornersOverlap(XYZ aMin, XYZ aMax, XYZ bMin, XYZ bMax)
-    {
-        const double pad = 0.5;
-        if (aMax.X < bMin.X - pad || aMin.X > bMax.X + pad) return false;
-        if (aMax.Y < bMin.Y - pad || aMin.Y > bMax.Y + pad) return false;
-        if (aMax.Z < bMin.Z - pad || aMin.Z > bMax.Z + pad) return false;
-        return true;
-    }
-
-    static double HostThickness(Element host)
+    internal static double HostThickness(Element host)
     {
         if (host is Wall w) return w.Width;
         var p = host.get_Parameter(BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM)
