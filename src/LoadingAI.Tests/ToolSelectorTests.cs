@@ -91,6 +91,21 @@ public class ToolSelectorTests
     }
 
     [Fact]
+    public void UnrelatedPrompt_DoesNotAlwaysKeepOpeningTools()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("get_model_summary"),
+            T("cut_walls_by_openings", "Cut intersecting walls by Generic Model openings"),
+            T("fse_voids_to_openings", "Place opening family at MagiCAD/FSE voids")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"aaa_noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "有哪些房間", 8);
+        Assert.DoesNotContain(selected, t => t.Function.Name == "cut_walls_by_openings");
+        Assert.DoesNotContain(selected, t => t.Function.Name == "fse_voids_to_openings");
+    }
+
+    [Fact]
     public void ChineseOpeningCut_KeepsCutWallsByOpenings()
     {
         var tools = new List<ToolDefinition>
@@ -99,7 +114,7 @@ public class ToolSelectorTests
             T("cut_walls_by_openings", "Cut intersecting walls by Generic Model openings")
         };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "開口切牆", 1);
+        var selected = ToolSelector.Select(tools, "開口切牆", 8);
         Assert.Contains(selected, t => t.Function.Name == "cut_walls_by_openings");
     }
 
@@ -112,7 +127,7 @@ public class ToolSelectorTests
             T("fse_voids_to_openings", "Place opening family at MagiCAD/FSE voids")
         };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "把 MagiCAD void 轉成開口", 1);
+        var selected = ToolSelector.Select(tools, "把 MagiCAD void 轉成開口", 8);
         Assert.Contains(selected, t => t.Function.Name == "fse_voids_to_openings");
     }
 }

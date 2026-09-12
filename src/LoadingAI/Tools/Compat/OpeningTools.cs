@@ -43,13 +43,8 @@ public static class OpeningTools
         },
         Handler = async json =>
         {
-            List<string> eids = new();
-            try
-            {
-                using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                    eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
-            }
+            List<string> eids;
+            try { eids = ReadElementIds(json); }
             catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
 
             return await context.FullAccess!.RunRevitAsync(session =>
@@ -62,12 +57,6 @@ public static class OpeningTools
                 {
                     var openings = ResolveHostGenericModels(doc, uidoc!, eids);
                     if (openings.Count == 0) return "Please select Generic Model openings first, or pass elementIds.";
-                    var walls = new FilteredElementCollector(doc)
-                        .OfCategory(BuiltInCategory.OST_Walls)
-                        .WhereElementIsNotElementType()
-                        .OfType<Wall>()
-                        .ToList();
-                    if (walls.Count == 0) return "No walls found.";
 
                     int created = 0, skipped = 0, errors = 0;
                     using var tx = new Transaction(doc, "LoadingAI for Revit: cut walls by openings");
@@ -76,9 +65,10 @@ public static class OpeningTools
                     {
                         var openingSolid = GetElementSolid(opening);
                         if (openingSolid == null) { skipped++; continue; }
+                        var walls = WallsNear(doc, opening);
+                        if (walls.Count == 0) continue;
                         foreach (var wall in walls)
                         {
-                            if (!BboxOverlap(opening, wall)) continue;
                             var wallSolid = GetElementSolid(wall);
                             if (wallSolid == null) continue;
                             if (!SolidsIntersect(openingSolid, wallSolid)) continue;
@@ -87,7 +77,7 @@ public static class OpeningTools
                         }
                     }
                     tx.Commit();
-                    return $"Processed {openings.Count} openings against {walls.Count} walls. Openings created: {created}. Skipped: {skipped}. Errors: {errors}.";
+                    return $"Processed {openings.Count} openings. Openings created: {created}. Skipped: {skipped}. Errors: {errors}.";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
             });
@@ -121,7 +111,7 @@ public static class OpeningTools
         Handler = async json =>
         {
             string familyName = "", symbolName = "", levelName = "";
-            List<string> eids = new();
+            List<string> eids;
             try
             {
                 using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
@@ -129,8 +119,7 @@ public static class OpeningTools
                 levelName = d.RootElement.GetProperty("levelName").GetString() ?? "";
                 if (d.RootElement.TryGetProperty("symbolName", out var sn) && sn.ValueKind == JsonValueKind.String)
                     symbolName = sn.GetString() ?? "";
-                if (d.RootElement.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                    eids = arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+                eids = ReadElementIds(d.RootElement);
             }
             catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
             if (string.IsNullOrWhiteSpace(familyName) || string.IsNullOrWhiteSpace(levelName))
@@ -193,16 +182,27 @@ public static class OpeningTools
         }
     };
 
+    static List<string> ReadElementIds(string? json)
+    {
+        using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+        return ReadElementIds(d.RootElement);
+    }
+
+    static List<string> ReadElementIds(JsonElement root)
+    {
+        if (!root.TryGetProperty("elementIds", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return new List<string>();
+        return arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+    }
+
+    static IEnumerable<ElementId> ResolveIds(UIDocument uidoc, List<string> eids)
+        => eids.Count > 0 ? eids.Select(AllTools.ParseEid) : uidoc.Selection.GetElementIds();
+
     static List<FamilyInstance> ResolveHostGenericModels(Document doc, UIDocument uidoc, List<string> eids)
     {
-        IEnumerable<ElementId> ids;
-        if (eids.Count > 0)
-            ids = eids.Select(AllTools.ParseEid);
-        else
-            ids = uidoc.Selection.GetElementIds();
         var gm = new ElementId(BuiltInCategory.OST_GenericModel);
         var list = new List<FamilyInstance>();
-        foreach (var id in ids)
+        foreach (var id in ResolveIds(uidoc, eids))
         {
             if (doc.GetElement(id) is FamilyInstance fi && fi.Category != null && fi.Category.Id == gm)
                 list.Add(fi);
@@ -210,30 +210,50 @@ public static class OpeningTools
         return list;
     }
 
+    static List<Wall> WallsNear(Document doc, Element opening)
+    {
+        var collector = new FilteredElementCollector(doc)
+            .OfCategory(BuiltInCategory.OST_Walls)
+            .WhereElementIsNotElementType();
+        var bb = opening.get_BoundingBox(null);
+        if (bb != null)
+        {
+            var min = new XYZ(bb.Min.X - 0.05, bb.Min.Y - 0.05, bb.Min.Z - 0.05);
+            var max = new XYZ(bb.Max.X + 0.05, bb.Max.Y + 0.05, bb.Max.Z + 0.05);
+            if (min.X < max.X && min.Y < max.Y && min.Z < max.Z)
+                collector = collector.WherePasses(new BoundingBoxIntersectsFilter(new Outline(min, max)));
+        }
+        return collector.OfType<Wall>().ToList();
+    }
+
     static List<(FamilyInstance Src, Transform Xf)> CollectMagiCadVoids(Document doc, UIDocument uidoc, List<string> eids)
     {
-        List<ElementId> ids;
-        if (eids.Count > 0)
-            ids = eids.Select(AllTools.ParseEid).ToList();
-        else
-            ids = uidoc.Selection.GetElementIds().ToList();
-
+        var ids = ResolveIds(uidoc, eids).ToList();
         var found = new List<(FamilyInstance, Transform)>();
+        var remaining = new List<ElementId>();
         foreach (var id in ids)
         {
             if (doc.GetElement(id) is FamilyInstance host && IsMagiCadVoid(host))
                 found.Add((host, Transform.Identity));
+            else
+                remaining.Add(id);
         }
+        if (remaining.Count == 0) return found;
         foreach (var link in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
         {
             var ld = link.GetLinkDocument();
             if (ld == null) continue;
             var xf = link.GetTotalTransform();
-            foreach (var id in ids)
+            remaining.RemoveAll(id =>
             {
                 if (ld.GetElement(id) is FamilyInstance fi && IsMagiCadVoid(fi))
+                {
                     found.Add((fi, xf));
-            }
+                    return true;
+                }
+                return false;
+            });
+            if (remaining.Count == 0) break;
         }
         return found;
     }
@@ -319,7 +339,7 @@ public static class OpeningTools
 
     static Solid? GetElementSolid(Element element)
     {
-        var options = new Options { DetailLevel = ViewDetailLevel.Fine, ComputeReferences = true };
+        var options = new Options { DetailLevel = ViewDetailLevel.Fine };
         var geo = element.get_Geometry(options);
         if (geo == null) return null;
         foreach (var obj in geo)
@@ -332,16 +352,6 @@ public static class OpeningTools
             }
         }
         return null;
-    }
-
-    static bool BboxOverlap(Element a, Element b, double tol = 0.05)
-    {
-        var bb1 = a.get_BoundingBox(null);
-        var bb2 = b.get_BoundingBox(null);
-        if (bb1 == null || bb2 == null) return true;
-        return !(bb1.Max.X < bb2.Min.X - tol || bb2.Max.X < bb1.Min.X - tol
-              || bb1.Max.Y < bb2.Min.Y - tol || bb2.Max.Y < bb1.Min.Y - tol
-              || bb1.Max.Z < bb2.Min.Z - tol || bb2.Max.Z < bb1.Min.Z - tol);
     }
 
     static bool SolidsIntersect(Solid a, Solid b)
@@ -400,7 +410,13 @@ public static class OpeningTools
         var half = (maxProj - minProj) / 2.0;
         var pt1 = new XYZ(projected.X + half * openingAxis.X, projected.Y + half * openingAxis.Y, bbox.Min.Z);
         var pt2 = new XYZ(projected.X - half * openingAxis.X, projected.Y - half * openingAxis.Y, bbox.Max.Z);
-        var created = doc.Create.NewOpening(wall, pt2, pt1);
-        return created != null;
+        try
+        {
+            return doc.Create.NewOpening(wall, pt2, pt1) != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

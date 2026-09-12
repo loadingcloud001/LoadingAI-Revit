@@ -135,8 +135,9 @@ public class UsabilityContractTests
         Assert.DoesNotContain("new TaskDialog", src);
         Assert.DoesNotContain("explorer", src);
         var selector = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "ToolSelector.cs"));
-        Assert.Contains("cut_walls_by_openings", selector);
-        Assert.Contains("fse_voids_to_openings", selector);
+        Assert.Contains("opening", selector);
+        Assert.Contains("fse", selector);
+        Assert.DoesNotContain("cut_walls_by_openings", selector);
     }
 
     private static string RepoRoot()

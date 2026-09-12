@@ -13,8 +13,7 @@ public static class ToolSelector
         "get_visible_elements_in_view", "get_selection_summary",
         "get_warnings", "delete_elements", "move_elements", "save_document",
         "create_wall", "set_comments_on_selection",
-        "get_rooms", "get_sheets_views", "color_by_parameter",
-        "cut_walls_by_openings", "fse_voids_to_openings"
+        "get_rooms", "get_sheets_views", "color_by_parameter"
     };
 
     private static readonly (string Needle, string Token)[] Aliases =
@@ -30,7 +29,7 @@ public static class ToolSelector
         ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
         ("開口", "opening"), ("开口", "opening"),
         ("切牆", "cut"), ("切墙", "cut"),
-        ("MagiCAD", "fse"), ("magicad", "fse"), ("FSE", "fse"),
+        ("magicad", "fse"), ("fse", "fse"),
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
