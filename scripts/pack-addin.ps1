@@ -51,7 +51,7 @@ if (-not (Test-Path (Join-Path $Web "index.html"))) {
 }
 Copy-Item $Web (Join-Path $Stage "LoadingAI\Web\dist") -Recurse
 
-foreach ($p in @("export-tools", "view-tools", "modeling-tools")) {
+foreach ($p in @("export-tools", "view-tools", "modeling-tools", "qs-formwork")) {
     $pluginRoot = Join-Path $Root "Plugins\$p"
     $bin = Join-Path $pluginRoot "bin\$Configuration"
     $dll = Get-ChildItem $bin -Filter "LoadingAI.Plugins.*.dll" -ErrorAction SilentlyContinue | Select-Object -First 1

@@ -27,6 +27,7 @@ public static class ToolSelector
         ("房間", "room"), ("房间", "room"),
         ("圖紙", "sheet"), ("图纸", "sheet"),
         ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
+        ("模板", "formwork"),
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
@@ -81,6 +82,7 @@ public static class ToolSelector
         "number","create","rotate","mirror","join","purge","ifc","takeoff","color","construction",
         "schedule","tag","dimension","crop","template","comment","delete","move","hide","isolate",
         "link","rvt","revit","cad","dwg","pdf","family","type","instance","selection","element",
-        "category","visible","active","temporary","override","reset","save","warning"
+        "category","visible","active","temporary","override","reset","save","warning",
+        "formwork"
     };
 }

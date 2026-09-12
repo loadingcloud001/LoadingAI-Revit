@@ -50,4 +50,5 @@ Plugins/example.hello/       sample plugin
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
 Plugins/modeling-tools/      load_family, change_element_type, create_topography
+Plugins/qs-formwork/         formwork_setup, create_formwork_panels, cleanup_formwork, copy_formwork_parent_params
 ```

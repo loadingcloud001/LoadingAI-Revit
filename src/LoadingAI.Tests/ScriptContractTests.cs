@@ -23,6 +23,7 @@ public class ScriptContractTests
         Assert.Contains("export-tools", ps1);
         Assert.Contains("view-tools", ps1);
         Assert.Contains("modeling-tools", ps1);
+        Assert.Contains("qs-formwork", ps1);
     }
 
     [Fact]
@@ -98,7 +99,8 @@ public class ScriptContractTests
         {
             "Plugins/export-tools/ExportToolsPlugin.csproj",
             "Plugins/view-tools/ViewToolsPlugin.csproj",
-            "Plugins/modeling-tools/ModelingToolsPlugin.csproj"
+            "Plugins/modeling-tools/ModelingToolsPlugin.csproj",
+            "Plugins/qs-formwork/QsFormworkPlugin.csproj"
         })
         {
             var csproj = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

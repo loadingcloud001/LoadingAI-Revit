@@ -89,4 +89,13 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
+
+    [Fact]
+    public void ChineseFormwork_KeepsCreateFormworkPanels()
+    {
+        var tools = new List<ToolDefinition> { T("create_formwork_panels", "Generate formwork DirectShape panels") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "產生模板", 8);
+        Assert.Contains(selected, t => t.Function.Name == "create_formwork_panels");
+    }
 }
