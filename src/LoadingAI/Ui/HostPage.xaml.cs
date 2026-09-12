@@ -6,6 +6,7 @@ using Autodesk.Revit.UI;
 using Microsoft.Web.WebView2.Core;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
+using LoadingAI.Progress;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -495,7 +496,7 @@ public partial class HostPage : Page
                     break;
 
                 case "cancel":
-                    try { _cts?.Cancel(); PostToWeb(new { type = "status", text = "Cancelling..." }); } catch { }
+                    try { _cts?.Cancel(); PostToWeb(new { type = "status", text = "Cancelling..." }); PostProgress(ProgressSnapshot.Cancelled()); } catch { }
                     break;
 
                 case "send":
@@ -592,6 +593,11 @@ public partial class HostPage : Page
                         _cts = new CancellationTokenSource();
                         var ct = _cts.Token;
                         var agent = _agent;
+                        var progress = new ProgressReporter(snap =>
+                        {
+                            try { Dispatcher.Invoke(() => PostProgress(snap)); } catch { }
+                        });
+                        progress.Report(ProgressSnapshot.Thinking());
                         PostToWeb(new { type = "status", text = mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..." });
                         // auto context injection
                         ContextSnapshot? ctxSnap = null;
@@ -610,6 +616,8 @@ public partial class HostPage : Page
 
                         _ = Task.Run(async () =>
                         {
+                            using (ProgressReporter.Push(progress))
+                            {
                             try
                             {
                                 var enrichedText = text;
@@ -633,6 +641,7 @@ public partial class HostPage : Page
                                     {
                                         try { Dispatcher.Invoke(() => PostToWeb(new { type = "todo", todos = todos.Select(t => new { id = t.Id, title = t.Title, tool = t.Tool, status = t.Status, error = t.Error }).ToList() })); } catch { }
                                     },
+                                    snap => progress.Report(snap),
                                     ct);
 
                                 Dispatcher.Invoke(() =>
@@ -661,10 +670,12 @@ public partial class HostPage : Page
                                         }
                                     }
                                     PostToWeb(new { type = "status", text = GetStatusText() });
+                                    PostProgress(ProgressSnapshot.Complete());
                                 });
                             }
                             catch (OperationCanceledException)
                             {
+                                progress.Report(ProgressSnapshot.Cancelled());
                                 Dispatcher.Invoke(() =>
                                 {
                                     PostToWeb(new { type = "error", text = "Cancelled." });
@@ -673,6 +684,7 @@ public partial class HostPage : Page
                             }
                             catch (Exception ex)
                             {
+                                progress.Report(ProgressSnapshot.Error(ex.Message));
                                 Dispatcher.Invoke(() => PostToWeb(new { type = "error", text = ex.Message }));
                             }
                             finally
@@ -682,6 +694,7 @@ public partial class HostPage : Page
                                     _isRunning = false;
                                     try { _cts?.Dispose(); _cts = null; } catch { }
                                 });
+                            }
                             }
                         }, ct);
                         break;
@@ -753,6 +766,7 @@ public partial class HostPage : Page
         string result;
         try
         {
+            ProgressReporter.Current.Report($"Running {name}");
             result = await entry.Handler(argsJson);
         }
         catch (Exception ex) { result = $"Tool {name} failed: {ex.Message}"; }
@@ -779,6 +793,24 @@ public partial class HostPage : Page
             catch { }
         }
         return result;
+    }
+
+    private void PostProgress(ProgressSnapshot snap)
+    {
+        PostToWeb(new
+        {
+            type = "progress",
+            progress = new
+            {
+                phase = snap.Phase,
+                label = snap.Label,
+                tool = snap.Tool,
+                percent = snap.Percent,
+                current = snap.Current,
+                total = snap.Total,
+                indeterminate = snap.Indeterminate
+            }
+        });
     }
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n) + "...";

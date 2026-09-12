@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -70,6 +70,26 @@ const rowStyle: CSSProperties = { padding: '8px 10px', borderBottom: '1px solid 
 const inp = 'w-full px-2 py-1.5 border bg-white text-xs outline-none';
 const btn = 'px-2 py-1.5 border bg-white text-xs';
 
+function ProgressBar({ progress }: { progress: ProgressPayload }) {
+  const pct = typeof progress.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : null;
+  const indeterminate = progress.indeterminate || pct == null;
+  const isError = progress.phase === 'error' || progress.phase === 'cancelled';
+  const fill = isError ? '#8a1f11' : '#2b2b2b';
+  return (
+    <div style={{ padding: '4px 10px 6px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3', flexShrink: 0 }} aria-live="polite">
+      <div style={{ fontSize: 10, color: '#5c5c5c', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {progress.label || (progress.phase === 'thinking' ? 'Thinking…' : 'Working…')}
+        {!indeterminate && pct != null ? ` · ${pct}%` : ''}
+      </div>
+      <div style={{ height: 3, background: '#d0d0d0', overflow: 'hidden', position: 'relative' }}>
+        {indeterminate
+          ? <div style={{ position: 'absolute', height: '100%', width: '36%', background: fill, animation: 'lai-progress 1.1s ease-in-out infinite' }} />
+          : <div style={{ height: '100%', width: `${pct}%`, background: fill, transition: 'width 160ms linear' }} />}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const settingsRef = useRef<AppSettings | null>(null);
@@ -92,6 +112,7 @@ export default function App() {
   const [currentPlan, setCurrentPlan] = useState<PlanPayload | null>(null);
   const [todos, setTodos] = useState<TodoPayload[]>([]);
   const [todoOpen, setTodoOpen] = useState(false);
+  const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
   const [context, setContext] = useState<ContextPayload | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
@@ -195,6 +216,14 @@ export default function App() {
           setTodos(next);
           const busy = next.some(x => x.status === 'running' || x.status === 'pending');
           setTodoOpen(busy);
+        } else if (msg.type === 'progress') {
+          const p = (msg as any).progress as ProgressPayload | undefined;
+          if (!p || p.phase === 'idle') { setProgress(null); return; }
+          setProgress(p);
+          if (p.phase === 'thinking' || p.phase === 'tool') setIsRunning(true);
+          if (p.phase === 'complete' || p.phase === 'cancelled' || p.phase === 'error') {
+            window.setTimeout(() => setProgress(cur => cur && cur.phase === p.phase ? null : cur), 700);
+          }
         } else if (msg.type === 'context') {
           setContext((msg as any).context as ContextPayload);
         } else if (msg.type === 'checkpoints') {
@@ -237,11 +266,13 @@ export default function App() {
             return [...m, { id: nextId(), role: 'assistant', text: incoming }];
           });
           setIsRunning(false);
+          setProgress(null);
           const cur = settingsRef.current; const active = cur?.providers.find(p => p.id === cur.activeProviderId) ?? cur?.providers[0];
           setStatus(active ? `Active: ${active.name}` : 'Ready');
         } else if (msg.type === 'error') {
           setMessages(m => [...m, { id: nextId(), role: 'system', text: `Error: ${String(msg.text ?? '')}` }]);
           setIsRunning(false); streamedRef.current = false; pendingDeltaRef.current = '';
+          setProgress(null);
           const cur = settingsRef.current; const active = cur?.providers.find(p => p.id === cur.activeProviderId);
           setStatus(active ? `Active: ${active.name}` : 'Ready');
         } else if (msg.type === 'delta') {
@@ -300,6 +331,7 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '(image)' : ''), attachments: atts.length ? atts : undefined }]);
     setInput(''); setAttachments([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
     setIsRunning(true); streamedRef.current = false; pendingDeltaRef.current = '';
+    setProgress({ phase: 'thinking', label: effMode === 'plan' ? 'Planning…' : 'Thinking…', indeterminate: true });
     setStatus(effMode === 'plan' ? 'Planning...' : effMode === 'ask' ? 'Thinking...' : 'Working...');
     postToHost({ type: 'send', text: text || raw.trim(), attachments: atts.length ? atts : undefined, mode: effMode, slash: parsed.slash?.name, mentions: parsed.mentions } as any);
   };
@@ -309,8 +341,8 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `Approved ${pendingApproval.toolName}` : `Denied ${pendingApproval.toolName}` }]);
     setPendingApproval(null);
   };
-  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); streamedRef.current = false; };
-  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setPendingApproval(null); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
+  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); setProgress({ phase: 'cancelled', label: 'Cancelled' }); streamedRef.current = false; };
+  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setProgress(null); setPendingApproval(null); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
@@ -488,9 +520,10 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ fontSize: 11, color: '#5c5c5c', padding: '6px 10px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {isRunning ? 'Working…' : ctxLine}
+      <div style={{ fontSize: 11, color: '#5c5c5c', padding: '6px 10px', borderBottom: progress ? 'none' : '1px solid #d0d0d0', background: '#f3f3f3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {isRunning ? (progress?.label || 'Working…') : ctxLine}
       </div>
+      {progress && progress.phase !== 'idle' && <ProgressBar progress={progress} />}
 
       {showSettings && (
         <div className="border-b overflow-y-auto" style={{ maxHeight: '52vh', background: '#f3f3f3', borderColor: '#d0d0d0' }}>

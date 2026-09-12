@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
 using LoadingAI.Plugins;
+using LoadingAI.Progress;
 using LoadingAI.Revit;
 
 namespace LoadingAI.Plugins.Core;
@@ -27,6 +28,8 @@ public sealed class PluginContext : IPluginContext, IRawRevitAccess
         _fullAccessGranted = fullAccessGranted;
         _shutdown = new CancellationTokenSource();
     }
+
+    public IProgressReporter Progress => ProgressReporter.Current;
 
     public IRevitBridge Bridge => new AdapterRevitBridge(_raw);
 

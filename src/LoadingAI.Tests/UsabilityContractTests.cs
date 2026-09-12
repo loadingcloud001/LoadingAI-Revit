@@ -93,6 +93,26 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void ProgressBar_IsHostOwnedAndReusable()
+    {
+        var root = RepoRoot();
+        var ctx = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Plugins", "IPluginContext.cs"));
+        Assert.Contains("IProgressReporter Progress", ctx);
+        var host = File.ReadAllText(Path.Combine(root, "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        Assert.Contains("type = \"progress\"", host);
+        Assert.Contains("ProgressReporter.Push", host);
+        var loop = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Llm", "AgentLoop.cs"));
+        Assert.Contains("Action<ProgressSnapshot>? onProgress", loop);
+        Assert.Contains("ProgressSnapshot.ForTool", loop);
+        var bridge = File.ReadAllText(Path.Combine(root, "web", "src", "bridge.ts"));
+        Assert.Contains("type: 'progress'", bridge);
+        Assert.Contains("ProgressPayload", bridge);
+        var app = File.ReadAllText(Path.Combine(root, "web", "src", "App.tsx"));
+        Assert.Contains("function ProgressBar", app);
+        Assert.Contains("msg.type === 'progress'", app);
+    }
+
+    [Fact]
     public void SystemPrompt_TellsModelL3LivesInSettings()
     {
         Assert.Contains("Settings", AgentLoop.BaseSystemPrompt);
