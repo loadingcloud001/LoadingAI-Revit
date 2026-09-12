@@ -606,7 +606,7 @@ export default function App() {
                 </div>
               )}
               <label className="text-[11px] font-semibold">API Key
-                <input value={editForm.apiKey} onChange={e => setEditForm(f => ({ ...f, apiKey: e.target.value }))} type="password" placeholder={editForm.baseUrl.includes('localhost') ? 'ollama 或留空' : 'sk-...'} className={`${inp} font-mono`} />
+                <input value={editForm.apiKey} onChange={e => setEditForm(f => ({ ...f, apiKey: e.target.value }))} type="password" placeholder={editForm.baseUrl.includes('localhost') ? 'ollama or leave empty' : 'sk-...'} className={`${inp} font-mono`} />
                 <span className="text-[10px] font-normal text-muted-foreground">DPAPI · %AppData%\LoadingAI\settings.json</span>
               </label>
               {testState && testState.id === editing.id && <div className="text-xs px-2 py-1" style={{ border: '1px solid #d0d0d0' }}>{testState.message}</div>}

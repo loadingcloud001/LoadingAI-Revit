@@ -31,7 +31,7 @@ public sealed record ContextSnapshot(
         return "Context: " + string.Join(" | ", parts);
     }
 
-    public string ToBarString() => $"已選 {SelectionCount} | 視圖: {ActiveViewName} | 可見 {VisibleCount} | 警告 {WarningCount}";
+    public string ToBarString() => $"Selected {SelectionCount} | View: {ActiveViewName} | Visible {VisibleCount} | Warnings {WarningCount}";
 }
 
 public static class ContextCollector

@@ -518,7 +518,7 @@ public partial class HostPage : Page
                             else if (slash.Equals("clear", StringComparison.OrdinalIgnoreCase)) { _cts?.Cancel(); _agent?.ClearHistory(); try { HistoryStore.Append("system", "Cleared."); } catch { } PostToWeb(new { type = "status", text = "Cleared." }); break; }
                             else if (slash.Equals("help", StringComparison.OrdinalIgnoreCase))
                             {
-                                var help = "Commands: /plan <目標> 只讀規劃 | /build <目標> 可寫執行 | /ask <問題> 只讀問答 | /clear 清空 | /help 幫助 | /export ifc/dwg/pdf | /isolate 隔離選中 | /hide 隱藏選中 | /resume 恢復 | /checkpoints 列檢查點\nMentions: @selection @activeView @visible @warnings @levels @sheets";
+                                var help = "Commands: /plan <goal> read-only plan | /build <goal> write and execute | /ask <question> read-only Q&A | /clear clear session | /help help | /export ifc/dwg/pdf | /isolate isolate selection | /hide hide selection | /resume resume | /checkpoints list checkpoints\nMentions: @selection @activeView @visible @warnings @levels @sheets";
                                 PostToWeb(new { type = "assistant", text = help }); break;
                             }
                             else if (slash.Equals("checkpoints", StringComparison.OrdinalIgnoreCase))

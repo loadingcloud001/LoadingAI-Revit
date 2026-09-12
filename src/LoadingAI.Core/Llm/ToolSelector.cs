@@ -16,22 +16,6 @@ public static class ToolSelector
         "get_rooms", "get_sheets_views", "color_by_parameter"
     };
 
-    private static readonly (string Needle, string Token)[] Aliases =
-    {
-        ("刪", "delete"), ("删", "delete"), ("移除", "delete"),
-        ("移動", "move"), ("移动", "move"), ("移 ", "move"),
-        ("存檔", "save"), ("存档", "save"),
-        ("建牆", "wall"), ("建墙", "wall"),
-        ("警告", "warning"),
-        ("隔離", "isolate"), ("隔离", "isolate"),
-        ("房間", "room"), ("房间", "room"),
-        ("圖紙", "sheet"), ("图纸", "sheet"),
-        ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
-        ("切梁", "split"), ("柱切", "split"), ("切板", "split"), ("梁切", "split"),
-        ("柱切梁", "split"), ("梁切板", "split"),
-        ("模板", "formwork"),
-    };
-
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
     {
         if (tools.Count <= max) return tools.ToList();
@@ -66,14 +50,6 @@ public static class ToolSelector
             if (n.Contains(kw)) score += 15;
             else if (d.Contains(kw)) score += 8;
         }
-        foreach (var (needle, token) in Aliases)
-        {
-            if (!lowerUser.Contains(needle.ToLowerInvariant()) && !lowerUser.Contains(needle)) continue;
-            if (n.Contains(token) || d.Contains(token)) score += 40;
-        }
-        // "移 300" / "往 Y 移" — single 移 is too short for Keywords
-        if ((lowerUser.Contains("移") || lowerUser.Contains("move")) && (n.Contains("move") || d.Contains("move")))
-            score += 40;
         return score;
     }
 
