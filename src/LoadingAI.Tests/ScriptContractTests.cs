@@ -23,6 +23,7 @@ public class ScriptContractTests
         Assert.Contains("export-tools", ps1);
         Assert.Contains("view-tools", ps1);
         Assert.Contains("modeling-tools", ps1);
+        Assert.Contains("structure-cuts", ps1);
         Assert.Contains("qs-formwork", ps1);
     }
 
@@ -100,6 +101,7 @@ public class ScriptContractTests
             "Plugins/export-tools/ExportToolsPlugin.csproj",
             "Plugins/view-tools/ViewToolsPlugin.csproj",
             "Plugins/modeling-tools/ModelingToolsPlugin.csproj",
+            "Plugins/structure-cuts/StructureCutsPlugin.csproj",
             "Plugins/qs-formwork/QsFormworkPlugin.csproj"
         })
         {

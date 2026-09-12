@@ -27,6 +27,8 @@ public static class ToolSelector
         ("房間", "room"), ("房间", "room"),
         ("圖紙", "sheet"), ("图纸", "sheet"),
         ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
+        ("切梁", "split"), ("柱切", "split"), ("切板", "split"), ("梁切", "split"),
+        ("柱切梁", "split"), ("梁切板", "split"),
         ("模板", "formwork"),
     };
 
