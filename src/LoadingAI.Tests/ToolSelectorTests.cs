@@ -37,56 +37,56 @@ public class ToolSelectorTests
     }
 
     [Fact]
-    public void ChineseDelete_KeepsDeleteElements()
+    public void Delete_KeepsDeleteElements()
     {
         var tools = new List<ToolDefinition> { T("delete_elements", "Delete elements by Id") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "刪掉選取", 8);
+        var selected = ToolSelector.Select(tools, "delete the selection", 8);
         Assert.Contains(selected, t => t.Function.Name == "delete_elements");
     }
 
     [Fact]
-    public void ChineseSave_KeepsSaveDocument()
+    public void Save_KeepsSaveDocument()
     {
         var tools = new List<ToolDefinition> { T("save_document", "Save the Revit document") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "存檔", 8);
+        var selected = ToolSelector.Select(tools, "save the document", 8);
         Assert.Contains(selected, t => t.Function.Name == "save_document");
     }
 
     [Fact]
-    public void ChineseMove_KeepsMoveElements()
+    public void Move_KeepsMoveElements()
     {
         var tools = new List<ToolDefinition> { T("move_elements", "Move elements by vector (mm)") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "把選取的牆往 Y 移 300mm", 8);
+        var selected = ToolSelector.Select(tools, "move the selected walls 300mm along Y", 8);
         Assert.Contains(selected, t => t.Function.Name == "move_elements");
     }
 
     [Fact]
-    public void ChineseIsolate_KeepsIsolateInView()
+    public void Isolate_KeepsIsolateInView()
     {
         var tools = new List<ToolDefinition> { T("isolate_in_view", "Temporarily isolate elements") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "隔離這些", 8);
+        var selected = ToolSelector.Select(tools, "isolate these", 8);
         Assert.Contains(selected, t => t.Function.Name == "isolate_in_view");
     }
 
     [Fact]
-    public void ChineseRooms_KeepsGetRooms()
+    public void Rooms_KeepsGetRooms()
     {
         var tools = new List<ToolDefinition> { T("get_rooms", "List rooms with area") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "有哪些房間", 8);
+        var selected = ToolSelector.Select(tools, "what rooms are there", 8);
         Assert.Contains(selected, t => t.Function.Name == "get_rooms");
     }
 
     [Fact]
-    public void ChineseColorByParam_KeepsColorByParameter()
+    public void ColorByParam_KeepsColorByParameter()
     {
         var tools = new List<ToolDefinition> { T("color_by_parameter", "Color elements by any parameter") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
+        var selected = ToolSelector.Select(tools, "color by Mark", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
 }
