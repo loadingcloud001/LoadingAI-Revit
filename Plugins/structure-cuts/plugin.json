@@ -1,0 +1,23 @@
+{
+  "id": "structure-cuts",
+  "name": "Structure Split Tools",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.StructureCuts.dll",
+  "tools": [
+    {
+      "name": "split_beams_by_columns",
+      "tier": "L3",
+      "description": "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Params: beamIds[], columnIds[] optional (else selection; columns fall back to all in model), limit (default 50, max 200). Lengths in mm.",
+      "enabledByDefault": false
+    },
+    {
+      "name": "split_floors_by_beams",
+      "tier": "L3",
+      "description": "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Params: floorIds[], beamIds[], columnIds[] optional (else selection; beams/columns fall back to bbox hits), limit (default 50, max 200). Skips sloped/curved. Lengths in mm.",
+      "enabledByDefault": false
+    }
+  ],
+  "verified": true
+}

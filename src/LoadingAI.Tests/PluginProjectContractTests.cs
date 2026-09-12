@@ -9,6 +9,8 @@ public class PluginProjectContractTests
     [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj")]
     [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj")]
     [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj")]
+    [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj")]
+    [InlineData("Plugins/qs-formwork/QsFormworkPlugin.csproj")]
     public void ShippedPlugin_DoesNotReferenceHost(string relative)
     {
         var csproj = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));

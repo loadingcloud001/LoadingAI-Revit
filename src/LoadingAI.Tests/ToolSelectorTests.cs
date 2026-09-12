@@ -89,4 +89,37 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, "color by Mark", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
+
+    [Fact]
+    public void SplitBeams_KeepsSplitBeamsByColumns()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("split_beams_by_columns", "Split structural beams at columns")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "split beams by columns", 8);
+        Assert.Contains(selected, t => t.Function.Name == "split_beams_by_columns");
+    }
+
+    [Fact]
+    public void SplitFloors_KeepsSplitFloorsByBeams()
+    {
+        var tools = new List<ToolDefinition>
+        {
+            T("split_floors_by_beams", "Split floors along beam edges")
+        };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "split floors by beams", 8);
+        Assert.Contains(selected, t => t.Function.Name == "split_floors_by_beams");
+    }
+
+    [Fact]
+    public void Formwork_KeepsCreateFormworkPanels()
+    {
+        var tools = new List<ToolDefinition> { T("create_formwork_panels", "Generate formwork DirectShape panels") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "create formwork", 8);
+        Assert.Contains(selected, t => t.Function.Name == "create_formwork_panels");
+    }
 }
