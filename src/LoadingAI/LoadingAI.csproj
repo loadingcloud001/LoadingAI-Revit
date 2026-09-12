@@ -46,6 +46,9 @@
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\modeling-tools\ModelingToolsPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\modeling-tools\LoadingAI.Plugins.ModelingTools.dll</Dll>
     </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\qs-formwork\QsFormworkPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\qs-formwork\LoadingAI.Plugins.QsFormwork.dll</Dll>
+    </ShippedPlugin>
   </ItemGroup>
 
   <Target Name="BuildShippedPlugins" AfterTargets="Build" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
