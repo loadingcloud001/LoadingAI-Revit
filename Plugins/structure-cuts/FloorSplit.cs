@@ -51,6 +51,7 @@ internal static class FloorSplit
         var skipSloped = 0;
         var skipFailed = 0;
         var skipUnchanged = 0;
+        var paramSkipped = 0;
 
         using var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams");
         tx.Start();
@@ -74,7 +75,7 @@ internal static class FloorSplit
                 continue;
             }
 
-            var (created, openCount, error) = ProcessFloor(doc, floor, pts, z.Value, beams, columns);
+            var (created, openCount, skipped, error) = ProcessFloor(doc, floor, pts, z.Value, beams, columns);
             if (error == "unchanged")
             {
                 skipUnchanged++;
@@ -88,6 +89,7 @@ internal static class FloorSplit
             splitFloors++;
             newCount += created.Count;
             openings += openCount;
+            paramSkipped += skipped;
             deleted++;
         }
         tx.Commit();
@@ -99,11 +101,13 @@ internal static class FloorSplit
         if (skipUnchanged > 0) skips.Add($"{skipUnchanged} unchanged");
         if (skipFailed > 0) skips.Add($"{skipFailed} failed");
         if (skips.Count > 0) msg += $" Skipped: {string.Join(", ", skips)}.";
+        if (splitFloors > 0) msg += " Instance parameters copied to new pieces.";
+        if (paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
         if (stopped) msg += $" Stopped at {limit}.";
         return msg;
     }
 
-    private static (List<Floor> created, int openings, string? error) ProcessFloor(
+    private static (List<Floor> created, int openings, int paramSkipped, string? error) ProcessFloor(
         Document doc,
         Floor floor,
         List<(double X, double Y)> boundary,
@@ -114,7 +118,7 @@ internal static class FloorSplit
         var typeId = floor.GetTypeId();
         var level = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
         if (level == null || level == ElementId.InvalidElementId || doc.GetElement(level) is not Level)
-            return (new List<Floor>(), 0, "no level");
+            return (new List<Floor>(), 0, 0, "no level");
 
         var heightOffset = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.AsDouble() ?? 0;
         var isStructural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1;
@@ -147,12 +151,14 @@ internal static class FloorSplit
 
         polygons = polygons.Where(p => Math.Abs(PolygonArea(p)) > MinAreaSqFt).ToList();
         if (polygons.Count == 0)
-            return (new List<Floor>(), 0, "no regions");
+            return (new List<Floor>(), 0, 0, "no regions");
         if (polygons.Count == 1 && columnOpenings.Count == 0)
-            return (new List<Floor>(), 0, "unchanged");
+            return (new List<Floor>(), 0, 0, "unchanged");
 
+        var snap = ParamCopy.Take(floor);
         var created = new List<Floor>();
         var openingCount = 0;
+        var paramSkipped = 0;
         foreach (var poly in polygons)
         {
             var polyOpenings = new List<List<(double X, double Y)>>();
@@ -169,8 +175,9 @@ internal static class FloorSplit
                 {
                     try { doc.Delete(f.Id); } catch { }
                 }
-                return (new List<Floor>(), 0, "partial");
+                return (new List<Floor>(), 0, 0, "partial");
             }
+            paramSkipped += ParamCopy.Apply(snap, neu);
             created.Add(neu);
             openingCount += polyOpenings.Count;
         }
@@ -182,9 +189,9 @@ internal static class FloorSplit
             {
                 try { doc.Delete(f.Id); } catch { }
             }
-            return (new List<Floor>(), 0, "delete failed");
+            return (new List<Floor>(), 0, 0, "delete failed");
         }
-        return (created, openingCount, null);
+        return (created, openingCount, paramSkipped, null);
     }
 
     private static (List<(double X, double Y)>? points, double? z, bool sloped) GetFloorBoundary(Floor floor)

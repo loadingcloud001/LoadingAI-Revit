@@ -43,6 +43,7 @@ internal static class BeamSplit
         var skipNoCurve = 0;
         var skipNoHit = 0;
         var skipFailed = 0;
+        var paramSkipped = 0;
 
         using var tx = new Transaction(doc, "LoadingAI for Revit: split beams by columns");
         tx.Start();
@@ -59,7 +60,8 @@ internal static class BeamSplit
                 skipNoHit++;
                 continue;
             }
-            var ids = SplitAtParams(doc, beam, pars);
+            var (ids, skipped) = SplitAtParams(doc, beam, pars);
+            paramSkipped += skipped;
             if (ids.Count > 1)
             {
                 split++;
@@ -73,6 +75,8 @@ internal static class BeamSplit
         var msg = $"Split {split} beams into {segments} segments. Skipped: {skipNoCurve} no curve, {skipNoHit} no column hit";
         if (skipFailed > 0) msg += $", {skipFailed} failed";
         msg += ".";
+        if (split > 0) msg += " Instance parameters copied to new pieces.";
+        if (paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
         if (stopped) msg += $" Stopped at {limit}.";
         return msg;
     }
@@ -122,21 +126,22 @@ internal static class BeamSplit
         return filtered;
     }
 
-    private static List<ElementId> SplitAtParams(Document doc, Element beam, IReadOnlyList<double> splitParams)
+    private static (List<ElementId> ids, int paramSkipped) SplitAtParams(Document doc, Element beam, IReadOnlyList<double> splitParams)
     {
         var created = new List<ElementId>();
+        var paramSkipped = 0;
         var curve = GetBeamCurve(beam);
-        if (curve == null || beam is not FamilyInstance fi) return created;
+        if (curve == null || beam is not FamilyInstance fi) return (created, 0);
 
         var symbol = doc.GetElement(beam.GetTypeId()) as FamilySymbol;
-        if (symbol == null) return created;
+        if (symbol == null) return (created, 0);
         if (!symbol.IsActive) symbol.Activate();
 
         var levelId = beam.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId();
         if (levelId == null || levelId == ElementId.InvalidElementId)
             levelId = beam.LevelId;
         var level = doc.GetElement(levelId) as Level;
-        if (level == null) return created;
+        if (level == null) return (created, 0);
 
         var structuralType = fi.StructuralType;
         var startP = curve.GetEndParameter(0);
@@ -170,19 +175,23 @@ internal static class BeamSplit
                     ((LocationCurve)beam.Location).Curve = line;
                     created.Add(beam.Id);
                 }
-                catch { return created; }
+                catch { return (created, paramSkipped); }
             }
             else
             {
                 try
                 {
                     var neu = doc.Create.NewFamilyInstance(line, symbol, level, structuralType);
-                    if (neu != null) created.Add(neu.Id);
+                    if (neu != null)
+                    {
+                        paramSkipped += ParamCopy.Apply(beam, neu);
+                        created.Add(neu.Id);
+                    }
                 }
                 catch { }
             }
         }
-        return created;
+        return (created, paramSkipped);
     }
 
     private static Curve? GetBeamCurve(Element beam)
