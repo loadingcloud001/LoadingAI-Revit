@@ -31,17 +31,19 @@ function makeEnv(overrides = {}) {
   };
 }
 
+const CLIENT = 'loadingai-addin-v1';
+
 function quotaRequest(method, device = DEVICE) {
   return new Request('https://gateway.test/v1/quota', {
     method,
-    headers: { 'x-loadingai-device': device },
+    headers: { 'x-loadingai-client': CLIENT, 'x-loadingai-device': device },
   });
 }
 
 function chatRequest(headers = {}, body = { messages: [{ role: 'user', content: 'hi' }] }) {
   return new Request('https://gateway.test/v1/chat/completions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json', 'x-loadingai-client': CLIENT, ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -131,9 +133,55 @@ test('the 101st send is refused with the daily limit code', async () => {
   assert.equal(body.remaining, 0);
 });
 
-test('GET /v1/models answers locally so a model probe never spends credit', async () => {
+test('quota without the add-in client header is refused', async () => {
+  const env = makeEnv();
+  const res = await worker.fetch(new Request('https://gateway.test/v1/quota', {
+    method: 'GET',
+    headers: { 'x-loadingai-device': DEVICE },
+  }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'bad_client');
+});
+
+test('models without the add-in client header is refused', async () => {
   const env = makeEnv();
   const res = await worker.fetch(new Request('https://gateway.test/v1/models', { method: 'GET' }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'bad_client');
+});
+
+test('chat without the add-in client header is refused even with a ticket', async () => {
+  const env = makeEnv();
+  const ticket = await issueTicket(env);
+  const res = await worker.fetch(new Request('https://gateway.test/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-loadingai-device': DEVICE,
+      'x-loadingai-ticket': ticket,
+    },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+  }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'bad_client');
+});
+
+test('a wrong add-in client header is refused', async () => {
+  const env = makeEnv();
+  const res = await worker.fetch(new Request('https://gateway.test/v1/quota', {
+    method: 'GET',
+    headers: { 'x-loadingai-client': 'not-the-addin', 'x-loadingai-device': DEVICE },
+  }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'bad_client');
+});
+
+test('GET /v1/models answers locally so a model probe never spends credit', async () => {
+  const env = makeEnv();
+  const res = await worker.fetch(new Request('https://gateway.test/v1/models', {
+    method: 'GET',
+    headers: { 'x-loadingai-client': CLIENT },
+  }), env);
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.data[0].id, 'MiniMax-M3');
@@ -308,7 +356,7 @@ test('a rejected non-JSON body does not consume the ticket', async () => {
   const res = await worker.fetch(
     new Request('https://gateway.test/v1/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-loadingai-device': DEVICE, 'x-loadingai-ticket': ticket },
+      headers: { 'content-type': 'application/json', 'x-loadingai-client': CLIENT, 'x-loadingai-device': DEVICE, 'x-loadingai-ticket': ticket },
       body: 'not json',
     }),
     env,

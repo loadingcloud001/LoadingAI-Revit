@@ -51,6 +51,14 @@ public static class BuiltinQuota
     public const int DailyLimit = 100;
     public const string DeviceHeader = "X-LoadingAI-Device";
     public const string TicketHeader = "X-LoadingAI-Ticket";
+    public const string ClientHeader = "X-LoadingAI-Client";
+
+    /// <summary>
+    /// Shared add-in identity. The gateway requires this header on /v1/* so the
+    /// public hostname is not a free anonymous API. It is compiled into the
+    /// DLL, so it is not a login secret — it only keeps casual curl callers out.
+    /// </summary>
+    public const string ClientToken = "loadingai-addin-v1";
 
     static readonly object Gate = new();
     static string? _deviceId;

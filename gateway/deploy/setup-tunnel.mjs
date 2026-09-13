@@ -52,7 +52,7 @@ function fail(message) {
   process.exit(1);
 }
 
-async function cf(path, init = {}) {
+async function cf(token, path, init = {}) {
   // Cloudflare returns 6003 "Invalid request headers" if a GET carries
   // Content-Type, so only send it when there is a body.
   const headers = { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) };
@@ -129,24 +129,25 @@ async function main() {
   if (process.getuid?.() !== 0) fail('run me as root: I write /etc/cloudflared and a systemd unit');
   if (!existsSync('/usr/bin/cloudflared')) fail('cloudflared is not installed at /usr/bin/cloudflared');
 
-  token = await readToken();
+  const token = await readToken();
   if (!token) fail('no API token given');
+  const api = (path, init) => cf(token, path, init);
 
-  const verify = await cf('/user/tokens/verify');
+  const verify = await api('/user/tokens/verify');
   console.log(`token ok: ${verify.status}`);
 
-  const zones = await cf(`/zones?name=${encodeURIComponent(zoneName)}`);
+  const zones = await api(`/zones?name=${encodeURIComponent(zoneName)}`);
   const zone = zones[0];
   if (!zone) fail(`zone ${zoneName} is not visible to this token (needs Zone:Read)`);
   const accountId = zone.account.id;
   console.log(`zone ${zone.name} ${zone.id} (account ${accountId})`);
 
-  const existing = await cf(`/accounts/${accountId}/cfd_tunnel?name=${encodeURIComponent(tunnelName)}&is_deleted=false`);
+  const existing = await api(`/accounts/${accountId}/cfd_tunnel?name=${encodeURIComponent(tunnelName)}&is_deleted=false`);
   let tunnel = existing[0];
   if (tunnel) {
     console.log(`tunnel ${tunnel.name} ${tunnel.id} already exists, reusing it`);
   } else {
-    tunnel = await cf(`/accounts/${accountId}/cfd_tunnel`, {
+    tunnel = await api(`/accounts/${accountId}/cfd_tunnel`, {
       method: 'POST',
       body: JSON.stringify({ name: tunnelName, config_src: 'cloudflare' }),
     });
@@ -154,7 +155,7 @@ async function main() {
   }
 
   // Remote-managed ingress: same rules as deploy/tunnel-config.json.
-  await cf(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`, {
+  await api(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`, {
     method: 'PUT',
     body: JSON.stringify({
       config: {
@@ -168,16 +169,16 @@ async function main() {
   console.log(`ingress: ${hostname} -> ${service}, everything else 404`);
 
   const cname = `${tunnel.id}.cfargotunnel.com`;
-  const records = await cf(`/zones/${zone.id}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`);
+  const records = await api(`/zones/${zone.id}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`);
   const record = records[0];
   if (!record) {
-    const created = await cf(`/zones/${zone.id}/dns_records`, {
+    const created = await api(`/zones/${zone.id}/dns_records`, {
       method: 'POST',
       body: JSON.stringify({ type: 'CNAME', name: hostname, content: cname, proxied: true, ttl: 1 }),
     });
     console.log(`created DNS ${created.name} -> ${cname} (proxied)`);
   } else if (record.content !== cname || !record.proxied) {
-    await cf(`/zones/${zone.id}/dns_records/${record.id}`, {
+    await api(`/zones/${zone.id}/dns_records/${record.id}`, {
       method: 'PUT',
       body: JSON.stringify({ type: 'CNAME', name: hostname, content: cname, proxied: true, ttl: 1 }),
     });
@@ -186,7 +187,7 @@ async function main() {
     console.log(`DNS ${hostname} -> ${cname} (proxied) already correct`);
   }
 
-  const connectorToken = await cf(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/token`);
+  const connectorToken = await api(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/token`);
 
   mkdirSync('/etc/cloudflared', { recursive: true, mode: 0o755 });
   writeFileSync(TOKEN_FILE, `TUNNEL_TOKEN=${connectorToken}\n`, { mode: 0o600 });
@@ -216,5 +217,4 @@ async function main() {
   console.log(`\ntunnel up. Verify from anywhere:\n  curl -s https://${hostname}/health`);
 }
 
-let token = '';
 await main();

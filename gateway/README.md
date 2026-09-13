@@ -20,14 +20,20 @@ counter store differ – `src/quota.js` and the routes are shared, so behaviour 
 
 | Route | Method | Notes |
 | --- | --- | --- |
-| `/health` | GET | liveness probe |
+| `/health` | GET | liveness probe (no add-in header) |
 | `/v1/quota` | GET | `{limit, used, remaining, resetUtc}` – does not consume |
 | `/v1/quota` | POST | consumes one send, returns `{..., ticket, ticketTtlSeconds}` |
 | `/v1/models` | GET | answers locally, never calls upstream, no quota |
 | `/v1/chat/completions` | POST | requires `x-loadingai-ticket`, proxies to upstream |
 
+`/v1/*` requires `X-LoadingAI-Client`. Without it the hostname is not a public API —
+casual curl callers get `401 bad_client`. `/health` stays open for probes.
+
 Headers the add-in sends:
 
+* `X-LoadingAI-Client` – compiled add-in identity (`loadingai-addin-v1`). Not a login
+  secret: it only keeps random public callers out. Override on the VM with
+  `LOADINGAI_CLIENT_TOKEN` if you rotate it.
 * `X-LoadingAI-Device` – an anonymous GUID from `%AppData%\LoadingAI\device.json`.
 * `X-LoadingAI-Ticket` – from the last successful `POST /v1/quota`. Valid 30 minutes by default.
 

@@ -2,14 +2,17 @@
  * LoadingAI free-tier gateway.
  *
  * Routes
- *   GET  /health                 liveness probe
+ *   GET  /health                 liveness probe (no add-in header)
  *   GET  /v1/quota               remaining requests today (no consumption)
  *   POST /v1/quota               consume one request, returns a short-lived ticket
  *   GET  /v1/models              model list (no upstream call, no quota)
  *   POST /v1/chat/completions    requires a valid ticket, proxies to the upstream model
  *
- * The upstream API key lives only here (Worker secret MINIMAX_API_KEY). The
- * add-in ships no key: it asks for a ticket, then sends that ticket instead.
+ * /v1/* requires X-LoadingAI-Client matching LOADINGAI_CLIENT_TOKEN so the
+ * public hostname is not an anonymous API. The upstream API key lives only on
+ * the server (MINIMAX_API_KEY). The add-in ships no key: it asks for a ticket,
+ * then sends that ticket instead. This same handler runs as a Node process in
+ * production and as a fetch handler in tests.
  */
 
 import {
@@ -24,6 +27,8 @@ import {
 
 const DEVICE_HEADER = 'x-loadingai-device';
 const TICKET_HEADER = 'x-loadingai-ticket';
+const CLIENT_HEADER = 'x-loadingai-client';
+const DEFAULT_CLIENT_TOKEN = 'loadingai-addin-v1';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -46,7 +51,7 @@ function ticketTtl(env) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TICKET_TTL_SECONDS;
 }
 
-/** Signs tickets. Never leaves the Worker, so clients cannot mint one. */
+/** Signs tickets. Never leaves the server, so clients cannot mint one. */
 function ticketSecret(env) {
   return env.TICKET_SECRET || env.MINIMAX_API_KEY || '';
 }
@@ -59,6 +64,19 @@ function limitMessage(limit, resetUtc) {
   return `LoadingAI daily limit reached (${limit} requests/day). Try again after ${resetUtc}, or add your own API key in Settings.`;
 }
 
+function clientToken(env) {
+  const configured = env.LOADINGAI_CLIENT_TOKEN;
+  return configured == null || configured === '' ? DEFAULT_CLIENT_TOKEN : configured;
+}
+
+function requireAddin(request, env) {
+  const presented = request.headers.get(CLIENT_HEADER);
+  if (!presented || presented !== clientToken(env)) {
+    return fail(401, 'LoadingAI add-in identity missing. Use the LoadingAI add-in.', 'bad_client');
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname.replace(/\/+$/, '') || '/';
@@ -67,11 +85,14 @@ export default {
       case '/health':
         return json({ ok: true, service: 'loadingai-gateway' });
       case '/v1/quota':
-        return handleQuota(request, env);
       case '/v1/models':
-        return handleModels(request, env);
-      case '/v1/chat/completions':
+      case '/v1/chat/completions': {
+        const denied = requireAddin(request, env);
+        if (denied) return denied;
+        if (path === '/v1/quota') return handleQuota(request, env);
+        if (path === '/v1/models') return handleModels(request, env);
         return handleChat(request, env);
+      }
       default:
         return fail(404, `No route for ${path}.`, 'not_found');
     }
