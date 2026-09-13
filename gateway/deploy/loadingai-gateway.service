@@ -27,7 +27,8 @@ ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# Deliberately NOT MemoryDenyWriteExecute: V8's JIT needs writable+executable
+# mappings, so the flag makes every node start die with SIGTRAP.
 StateDirectory=loadingai-gateway
 StateDirectoryMode=0700
 ReadWritePaths=/var/lib/loadingai-gateway

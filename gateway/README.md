@@ -59,13 +59,16 @@ sudo bash /tmp/gateway/deploy/install.sh /tmp/gateway
 ```
 
 `install.sh` creates the `loadingai` service account, installs the code under `/opt/loadingai-gateway`,
-seeds `/etc/loadingai-gateway.env` (root-owned, mode `600`) and enables the unit. It is idempotent,
-keeps an existing env file, and refuses to run on Node older than 22.5.
+seeds `/etc/loadingai-gateway.env` (root-owned, mode `600`), generates `TICKET_SECRET` into it without
+printing it, and enables the unit. It is idempotent, keeps an existing env file, and refuses to run on
+Node older than 22.5. Invoke it as `sudo bash …` so a missing execute bit (scp from Windows) cannot
+break the shebang; it also normalizes the copied tree to `755`/`644`, which scp from Windows leaves at
+`0700` and the service account cannot traverse.
 
-Then paste the two secrets and restart:
+Then set the upstream key and restart:
 
 ```bash
-sudo nano /etc/loadingai-gateway.env   # MINIMAX_API_KEY=...  TICKET_SECRET=$(openssl rand -hex 32)
+sudo nano /etc/loadingai-gateway.env   # MINIMAX_API_KEY=...
 sudo systemctl restart loadingai-gateway
 curl -s http://127.0.0.1:8787/health   # -> {"ok":true,"service":"loadingai-gateway"}
 ```
@@ -91,15 +94,18 @@ systemctl status cloudflared                    # expect "Registered tunnel conn
 ```
 
 To use our hardened unit instead, create the `cloudflared` service account and hand the connector its
-token from a `600` file, so it never lands in shell history or in the process list:
+token from a `600` file, so it never lands in shell history or in the process list. Read the token with
+`read -rs` rather than `export TUNNEL_TOKEN=…`:
 
 ```bash
-sudo useradd --system --home /etc/cloudflared --shell /usr/sbin/nologin cloudflared
-sudo mkdir -p /etc/cloudflared
-sudo install -m 600 -o cloudflared -g cloudflared /dev/null /etc/cloudflared/loadingai-tunnel.env
-sudo nano /etc/cloudflared/loadingai-tunnel.env   # TUNNEL_TOKEN=<token from the dashboard>
+sudo useradd --system --no-create-home --home-dir /var/lib/cloudflared --shell /usr/sbin/nologin cloudflared
+sudo install -d -m 755 /etc/cloudflared
+read -rs TUNNEL_TOKEN && echo "TUNNEL_TOKEN=$TUNNEL_TOKEN" | sudo tee /etc/cloudflared/loadingai-tunnel.env >/dev/null
+unset TUNNEL_TOKEN
+sudo chmod 600 /etc/cloudflared/loadingai-tunnel.env
 sudo install -m 644 /opt/loadingai-gateway/deploy/cloudflared.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared
+systemctl is-active cloudflared
 ```
 
 For a locally-managed tunnel instead (`cloudflared tunnel create`, credentials JSON on the VM), put
@@ -167,7 +173,8 @@ expired ticket answers `401`; a device id that is not 8–64 URL-safe characters
 sudo systemctl status loadingai-gateway cloudflared
 journalctl -u loadingai-gateway -n 50            # one line per request, no keys and no bodies
 sudo systemctl restart loadingai-gateway         # counters survive: they are in SQLite
-sqlite3 /var/lib/loadingai-gateway/quota.db 'select key, value from kv order by key limit 20'
+sudo apt-get install -y sqlite3                  # not installed by default on Ubuntu 24.04
+sudo sqlite3 /var/lib/loadingai-gateway/quota.db 'select key, value from kv order by key limit 20'
 ```
 
 Update by re-copying the directory, then `sudo systemctl restart loadingai-gateway` – restarting never

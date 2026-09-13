@@ -56,13 +56,19 @@ install -d -m 700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_DIR"
 cp -r "$SRC_DIR"/. "$APP_DIR"/
 rm -rf "$APP_DIR/node_modules" "$APP_DIR/.wrangler"
 chown -R root:root "$APP_DIR"
-chmod -R go-w "$APP_DIR"
+# Normalize modes: scp/rsync from a Windows host writes directories as 0700, and
+# the service user cannot even traverse those. Dirs 755, files 644, no go-w.
+chmod -R u=rwX,go=rX "$APP_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   install -m 600 -o root -g root "$APP_DIR/deploy/env.example" "$ENV_FILE"
   echo "wrote $ENV_FILE from deploy/env.example"
-  echo "  -> paste MINIMAX_API_KEY and 'TICKET_SECRET=$(openssl rand -hex 32)' into it, then:"
-  echo "     sudo systemctl restart loadingai-gateway"
+  # Generated here and never echoed: it only has to exist in this file.
+  secret="$(openssl rand -hex 32)"
+  sed -i "s|^TICKET_SECRET=.*|TICKET_SECRET=$secret|" "$ENV_FILE"
+  unset secret
+  echo "TICKET_SECRET generated into $ENV_FILE (not printed)"
+  echo "  -> paste MINIMAX_API_KEY into it, then: sudo systemctl restart loadingai-gateway"
 else
   echo "kept the existing $ENV_FILE"
 fi
