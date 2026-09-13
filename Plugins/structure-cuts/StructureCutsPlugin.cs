@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.0.0";
+    public string Version => "1.1.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -26,7 +26,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_beams_by_columns",
-                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), limit default 50 max 200.",
+                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Copies instance parameters onto new pieces. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), limit default 50 max 200.",
                 Parameters = new
                 {
                     type = "object",
@@ -59,7 +59,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_floors_by_beams",
-                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, limit default 50 max 200. Skips sloped/curved.",
+                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Copies instance parameters onto new pieces. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, limit default 50 max 200. Skips sloped/curved.",
                 Parameters = new
                 {
                     type = "object",
