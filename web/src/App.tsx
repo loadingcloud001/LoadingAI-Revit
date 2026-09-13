@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, QuotaPayload, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -133,6 +133,7 @@ export default function App() {
   const [catalogFilter, setCatalogFilter] = useState('');
   const [testState, setTestState] = useState<{ id: string; ok?: boolean; message?: string; loading?: boolean } | null>(null);
   const [modelsMap, setModelsMap] = useState<Record<string, string[]>>({});
+  const [quota, setQuota] = useState<QuotaPayload | null>(null);
   const [modelsLoading, setModelsLoading] = useState<string | null>(null);
 
   const [mode, setMode] = useState<ChatMode>('build');
@@ -226,6 +227,9 @@ export default function App() {
         } else if (msg.type === 'plugins') {
           const list = Array.isArray(msg.plugins) ? msg.plugins as PluginInfo[] : [];
           setPlugins(list);
+        } else if (msg.type === 'quota') {
+          const q = msg.quota as QuotaPayload | undefined;
+          if (q) setQuota(q);
         } else if (msg.type === 'catalog') { setCatalog(normalizePresets(msg.presets)); }
         else if (msg.type === 'testResult') {
           setTestState({ id: msg.providerId ?? '', ok: !!msg.ok, message: String(msg.message ?? ''), loading: false });
@@ -387,6 +391,10 @@ export default function App() {
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
     if (!cur || !active) { setMessages(m => [...m, { id: nextId(), role: 'system', text: 'No provider configured. Open Settings to add one.' }]); setShowSettings(true); return; }
     if (!isBuiltinProvider(active.id) && !active.apiKey && !active.baseUrl.includes('localhost')) { setMessages(m => [...m, { id: nextId(), role: 'system', text: `Provider '${active.name}' has no API key.` }]); setShowSettings(true); return; }
+    if (isBuiltinProvider(active.id) && quota && quota.ok !== false && quota.remaining <= 0) {
+      setMessages(m => [...m, { id: nextId(), role: 'system', text: `${BUILTIN_PROVIDER_NAME} daily limit reached (${quota.limit} requests/day). ${quota.resetUtc ? `Try again after ${new Date(quota.resetUtc).toLocaleString()}, or ` : ''}add your own API key in Settings.` }]);
+      setShowSettings(true); return;
+    }
     if (selectedProviderId && selectedProviderId !== cur.activeProviderId) {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
       setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
@@ -573,6 +581,11 @@ export default function App() {
   const editingModels = editing ? (modelsMap[editing.id] ?? []) : [];
 
   const connected = !!(isBuiltinProvider(activeProvider?.id) || activeProvider?.apiKey || activeProvider?.baseUrl.includes('localhost'));
+  const quotaLine = isBuiltinProvider(activeProvider?.id) && quota
+    ? (quota.ok === false
+        ? (quota.message ?? `${BUILTIN_PROVIDER_NAME} is unavailable.`)
+        : `${quota.remaining} / ${quota.limit} free requests left today`)
+    : '';
   const ctxLine = context
     ? `Sel ${context.selectionCount}${context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 40)}` : ''} · ${context.activeView} · warnings ${context.warningCount ?? 0}`
     : status;
@@ -594,6 +607,9 @@ export default function App() {
             <div style={{ fontSize: 12, color: '#111', marginTop: 2 }} className="truncate">
               {activeProvider ? `${activeProvider.model} · ${connected ? 'connected' : 'not set'}` : (settings ? 'No provider' : 'Loading…')}
             </div>
+            {quotaLine && (
+              <div style={{ fontSize: 11, marginTop: 2, color: quota?.ok === false ? '#b3261e' : '#5c5c5c' }} className="truncate">{quotaLine}</div>
+            )}
           </div>
           <button type="button" className={btn} onClick={() => setShowSettings(v => { const next = !v; if (!v) postToHost({ type: 'listPlugins' }); return next; })}>{showSettings ? 'Close' : 'Settings'}</button>
         </div>
@@ -642,7 +658,15 @@ export default function App() {
               {isBuiltinProvider(editing.id) ? (
                 <>
                   <div className="text-[11px] font-semibold">{BUILTIN_PROVIDER_NAME}</div>
-                  <div className="text-[11px] text-muted-foreground">Included free. No API key needed.</div>
+                  <div className="text-[11px] text-muted-foreground">Included free. No API key needed — 100 requests per day per device.</div>
+                  <div className="text-[11px]" style={{ color: quota?.exhausted ? '#b3261e' : undefined }}>
+                    {quota
+                      ? (quota.ok === false
+                          ? (quota.message ?? `${BUILTIN_PROVIDER_NAME} is unavailable.`)
+                          : `${quota.remaining} / ${quota.limit} requests left today`)
+                      : 'Checking today\u2019s allowance…'}
+                    {quota?.resetUtc && quota.ok !== false ? ` · resets ${new Date(quota.resetUtc).toLocaleTimeString()}` : ''}
+                  </div>
                   {testState && testState.id === editing.id && <div className="text-xs px-2 py-1" style={{ border: '1px solid #d0d0d0' }}>{testState.message}</div>}
                   <div className="flex gap-1.5">
                     <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={handleUse}>Use</button>

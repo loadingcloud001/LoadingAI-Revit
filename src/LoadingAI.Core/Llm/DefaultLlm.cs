@@ -3,22 +3,56 @@ using System.Text;
 namespace LoadingAI.Llm;
 
 /// <summary>
-/// Built-in free provider. UI shows "LoadingAI"; the wire format is an
-/// OpenAI-compatible upstream. The token is never stored in settings.json
-/// and is never sent to the web pane.
+/// Built-in free provider. UI shows "LoadingAI"; calls go to the public
+/// gateway, which holds the upstream credential server-side and enforces the
+/// free daily allowance. No upstream token is compiled into this assembly, and
+/// no credential is ever stored in settings.json or sent to the web pane.
 /// </summary>
 public static class DefaultLlm
 {
     public const string Id = "loadingai";
     public const string DisplayName = "LoadingAI";
     public const string DisplayModel = "LoadingAI";
-    public const string ApiBaseUrl = "https://api.minimaxi.com/v1";
     public const string ApiModel = "MiniMax-M3";
     public const string ApiKind = "openai";
     public const string Group = "cloud";
     public const string Icon = "✦";
 
+    /// <summary>
+    /// Shipped gateway endpoint: Cloudflare in front of the LoadingAI VM, which holds the upstream
+    /// key. Bump this when the hostname changes.
+    /// </summary>
+    public const string PublicGatewayBaseUrl = "https://gateway.loadingtechnology.app/v1";
+
+    /// <summary>Upstream called directly only by the development escape hatch below.</summary>
+    public const string DirectApiBaseUrl = "https://api.minimaxi.com/v1";
+
+    /// <summary>Environment override so a local Worker can be used without rebuilding.</summary>
+    public const string GatewayUrlEnvVar = "LOADINGAI_GATEWAY_URL";
+
+    /// <summary>Environment flag that calls the upstream directly with a locally supplied key.</summary>
+    public const string DirectModeEnvVar = "LOADINGAI_DIRECT_MINIMAX";
+
+    static string _gatewayBaseUrl = ResolveGatewayBaseUrl();
+
     public static Func<string?> KeySource { get; set; } = DefaultLlmKey.TryGet;
+
+    /// <summary>Gateway base URL, including the version segment (…/v1).</summary>
+    public static string GatewayBaseUrl
+    {
+        get => _gatewayBaseUrl;
+        set => _gatewayBaseUrl = string.IsNullOrWhiteSpace(value) ? PublicGatewayBaseUrl : value!.Trim().TrimEnd('/');
+    }
+
+    /// <summary>
+    /// Development only: talk to the upstream directly using a locally supplied key.
+    /// Release builds never compile the key in, so this stays inert for users.
+    /// </summary>
+    public static bool DirectUpstreamEnabled
+        => IsEnabled(Environment.GetEnvironmentVariable(DirectModeEnvVar)) && PackedKey() != null;
+
+    /// <summary>The URL the add-in actually calls for the built-in provider.</summary>
+    public static string ApiBaseUrl => (DirectUpstreamEnabled ? DirectApiBaseUrl : GatewayBaseUrl).TrimEnd('/');
 
     public static bool IsBuiltin(string? id)
         => Id.Equals(id, StringComparison.OrdinalIgnoreCase);
@@ -36,13 +70,15 @@ public static class DefaultLlm
         return s!.IndexOf("minimax", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
+    /// <summary>True when the built-in provider has somewhere to send calls.</summary>
     public static bool HasKey
     {
         get
         {
             try
             {
-                return !string.IsNullOrWhiteSpace(KeySource?.Invoke());
+                if (DirectUpstreamEnabled) return true;
+                return !string.IsNullOrWhiteSpace(GatewayBaseUrl);
             }
             catch
             {
@@ -67,10 +103,12 @@ public static class DefaultLlm
     {
         if (p == null || !IsBuiltin(p.Id))
             return Copy(p);
+        var direct = DirectUpstreamEnabled;
         var c = ForSettings();
-        c.BaseUrl = ApiBaseUrl.TrimEnd('/');
+        c.BaseUrl = ApiBaseUrl;
         c.Model = ApiModel;
-        c.ApiKey = KeySource?.Invoke() ?? "";
+        // The gateway carries its own credential; only the dev escape hatch needs one here.
+        c.ApiKey = direct ? PackedKey() ?? "" : "";
         return c;
     }
 
@@ -96,6 +134,35 @@ public static class DefaultLlm
         p.Group = blank.Group;
         p.Icon = string.IsNullOrWhiteSpace(icon) ? blank.Icon : icon;
     }
+
+    static string ResolveGatewayBaseUrl()
+    {
+        try
+        {
+            var configured = Environment.GetEnvironmentVariable(GatewayUrlEnvVar);
+            if (!string.IsNullOrWhiteSpace(configured)) return configured!.Trim().TrimEnd('/');
+        }
+        catch
+        {
+        }
+        return PublicGatewayBaseUrl;
+    }
+
+    static string? PackedKey()
+    {
+        try
+        {
+            var key = KeySource?.Invoke();
+            return string.IsNullOrWhiteSpace(key) ? null : key;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static bool IsEnabled(string? value)
+        => value != null && (value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase));
 
     static ProviderConfig Copy(ProviderConfig? p)
     {

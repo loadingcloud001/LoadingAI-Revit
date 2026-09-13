@@ -1,0 +1,38 @@
+[Unit]
+Description=LoadingAI free-tier gateway
+Documentation=https://github.com/loadingcloud001/LoadingAI-Revit/blob/main/gateway/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=loadingai
+Group=loadingai
+WorkingDirectory=/opt/loadingai-gateway
+EnvironmentFile=/etc/loadingai-gateway.env
+# node:sqlite is still flagged experimental; the warning would repeat in journald.
+Environment=NODE_OPTIONS=--disable-warning=ExperimentalWarning
+ExecStart=/usr/bin/node /opt/loadingai-gateway/src/server.mjs
+Restart=always
+RestartSec=2
+
+# The process needs nothing but its own state directory and its environment.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+# Deliberately NOT MemoryDenyWriteExecute: V8's JIT needs writable+executable
+# mappings, so the flag makes every node start die with SIGTRAP.
+StateDirectory=loadingai-gateway
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/loadingai-gateway
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
