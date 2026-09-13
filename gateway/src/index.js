@@ -8,8 +8,9 @@
  *   GET  /v1/models              model list (no upstream call, no quota)
  *   POST /v1/chat/completions    requires a valid ticket, proxies to the upstream model
  *
- * The upstream API key lives only here (Worker secret MINIMAX_API_KEY). The
- * add-in ships no key: it asks for a ticket, then sends that ticket instead.
+ * The upstream API key lives only on the server (MINIMAX_API_KEY). The add-in
+ * ships no key: it asks for a ticket, then sends that ticket instead. This same
+ * handler runs as a Node process in production and as a fetch handler in tests.
  */
 
 import {
@@ -46,7 +47,7 @@ function ticketTtl(env) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TICKET_TTL_SECONDS;
 }
 
-/** Signs tickets. Never leaves the Worker, so clients cannot mint one. */
+/** Signs tickets. Never leaves the server, so clients cannot mint one. */
 function ticketSecret(env) {
   return env.TICKET_SECRET || env.MINIMAX_API_KEY || '';
 }

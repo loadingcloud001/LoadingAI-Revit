@@ -27,7 +27,7 @@ public static class DefaultLlm
     /// <summary>Upstream called directly only by the development escape hatch below.</summary>
     public const string DirectApiBaseUrl = "https://api.minimaxi.com/v1";
 
-    /// <summary>Environment override so a local Worker can be used without rebuilding.</summary>
+    /// <summary>Environment override so a local gateway can be used without rebuilding.</summary>
     public const string GatewayUrlEnvVar = "LOADINGAI_GATEWAY_URL";
 
     /// <summary>Environment flag that calls the upstream directly with a locally supplied key.</summary>

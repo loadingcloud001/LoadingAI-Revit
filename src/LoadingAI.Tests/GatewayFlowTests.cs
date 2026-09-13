@@ -8,7 +8,7 @@ namespace LoadingAI.Tests;
 
 /// <summary>
 /// Drives the real <see cref="OpenAiCompatibleClient"/> against a stub gateway over
-/// a socket, so the wire contract the Worker implements is exercised for real:
+/// a socket, so the wire contract the gateway implements is exercised for real:
 /// device header + ticket, one quota unit per send, no upstream key on the client.
 /// </summary>
 [Collection("builtin-provider")]
