@@ -20,11 +20,16 @@ internal static class GeometryRevit
     public const double Tol = 0.001;
 
     /// <summary>
-    /// A planar face counts as horizontal only when it really is (normal within ~0.8 degrees of up).
-    /// A sloped slab must not pass: its outline projected onto a flat plane would rebuild a floor that
-    /// is not the one it replaced.
+    /// A planar face counts as horizontal when its normal is within ~0.8 degrees of up, i.e. the slab is
+    /// level enough to build without a slope arrow at all.
     /// </summary>
     public const double HorizontalZTol = 0.9999;
+
+    /// <summary>
+    /// The steepest a top face can lean and still be rebuilt: its normal has to keep about 1 degree of
+    /// upward part, so a ramp or hardstanding is a slab but an edge-on face is not.
+    /// </summary>
+    public const double MinUpZ = 0.0175;
 
     /// <summary>Longest chord when a curve is flattened into a polyline (~75 mm).</summary>
     public static readonly double MaxChordFt = Metric.MmToFt(75);
@@ -262,13 +267,16 @@ internal static class GeometryRevit
     }
 
     /// <summary>
-    /// The largest upward facing horizontal face of an element as a region in its own plane. Floors
-    /// that have no such face - a tilted or doubly curved slab - cannot be rebuilt by Floor.Create, so
-    /// they report false and the caller counts them instead of guessing.
+    /// The largest upward facing planar face of an element as a region, together with how far that face
+    /// leans. Floors with no such face - a doubly curved slab, or an edge-on face - cannot be rebuilt by
+    /// Floor.Create, so they report false and the caller counts them instead of guessing.
+    /// The plane is horizontal even for a leaning face: Floor.Create only takes outlines parallel to the
+    /// XY plane, so the lean is handed over as a slope arrow rather than as the plane of the outline.
     /// </summary>
-    public static bool TrySlabRegion(Element element, out Plane2D plane, out Region2D? region)
+    public static bool TrySlabRegion(Element element, out Plane2D plane, out PlanarTilt tilt, out Region2D? region)
     {
         plane = HorizontalPlane(new XYZ(0, 0, 0));
+        tilt = default;
         region = null;
 
         PlanarFace? best = null;
@@ -279,7 +287,7 @@ internal static class GeometryRevit
             {
                 foreach (Face face in solid.Faces)
                 {
-                    if (face is not PlanarFace planar || planar.FaceNormal.Z <= HorizontalZTol)
+                    if (face is not PlanarFace planar || planar.FaceNormal.Z <= MinUpZ)
                         continue;
 
                     var area = face.Area;
@@ -299,7 +307,9 @@ internal static class GeometryRevit
         if (best == null)
             return false;
 
-        plane = new Plane2D(ToVec3(best.Origin), ToVec3(best.FaceNormal));
+        if (!PlanarTilt.TryCreate(ToVec3(best.FaceNormal), ToVec3(best.Origin), out tilt))
+            return false;
+
         var rings = Loops(best, plane);
         var outer = Polygon2D.Largest(rings);
         if (outer == null)
@@ -314,7 +324,100 @@ internal static class GeometryRevit
                 holes.Add(ring);
 
         region = new Region2D(outer, holes);
-        return region.IsValid;
+        if (!region.IsValid)
+            return false;
+
+        plane = HorizontalPlane(new XYZ(0, 0, FaceZ(plane, tilt, outer)));
+        return true;
+    }
+
+    /// <summary>
+    /// The lowest height a face passes over a ring of plan points, which is where a piece cut out of it
+    /// starts. A leaning slab is rebuilt from a flat outline lifted by a slope arrow, so every piece has
+    /// to come back up onto the face it was cut from rather than sharing the slab's lowest point.
+    /// </summary>
+    public static double FaceZ(Plane2D plane, PlanarTilt tilt, IReadOnlyList<Point2> ring)
+    {
+        var lowest = double.MaxValue;
+        foreach (var point in ring)
+        {
+            var world = plane.ToPlane(point);
+            var height = tilt.ZAt(world.X, world.Y);
+            if (height < lowest)
+                lowest = height;
+        }
+
+        return lowest == double.MaxValue ? tilt.ZAt(plane.Origin.X, plane.Origin.Y) : lowest;
+    }
+
+    /// <summary>
+    /// The line Revit's sloped Floor.Create wants: horizontal, drawn along the direction the piece
+    /// climbs in, from where the piece is lowest to where it is highest. Both ends sit in the plane the
+    /// piece's outline was written in, because Revit throws when the arrow is not horizontal.
+    /// </summary>
+    public static Line? SlopeArrowFor(Plane2D plane, IReadOnlyList<Point2> ring, PlanarTilt tilt)
+    {
+        var uphill = new Point2(Vec3.Dot(tilt.Uphill, plane.U), Vec3.Dot(tilt.Uphill, plane.V));
+        if (uphill.DistanceTo(new Point2(0, 0)) <= 1e-9)
+            return null;
+
+        var low = double.MaxValue;
+        var high = double.MinValue;
+        foreach (var point in ring)
+        {
+            var along = (point.X * uphill.X) + (point.Y * uphill.Y);
+            if (along < low)
+                low = along;
+
+            if (along > high)
+                high = along;
+        }
+
+        if (low == double.MaxValue || high == double.MinValue)
+            return null;
+
+        var from = new Point2(uphill.X * low, uphill.Y * low);
+        var to = new Point2(uphill.X * high, uphill.Y * high);
+        if (from.DistanceTo(to) <= Tol)
+            return null;
+
+        try
+        {
+            return Line.CreateBound(ToXyz(plane, from), ToXyz(plane, to));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether a slab's shape has been edited by hand. A slab carrying creases or vertices cannot be
+    /// rebuilt from a slope arrow, so it is named and left alone. A floor that will not hand over its
+    /// shape editor is read as an ordinary slab: the lean, and the self-check on what was created, still
+    /// stand between it and wrong geometry.
+    /// </summary>
+    public static bool IsShapeEdited(Element element)
+    {
+        if (element is not Floor floor)
+            return false;
+
+        try
+        {
+            var editor = floor.GetSlabShapeEditor();
+            if (editor == null)
+                return false;
+
+            if (editor.IsEnabled)
+                return true;
+
+            var creases = editor.SlabShapeCreases;
+            return creases != null && !creases.IsEmpty;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

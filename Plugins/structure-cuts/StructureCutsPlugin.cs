@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.4.0";
+    public string Version => "1.5.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -26,7 +26,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_beams_by_columns",
-                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Straight and curved beams (curves are tessellated); cuts at the real column footprint, not a bounding box. Copies instance parameters onto new pieces unless copyParams is off. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Splits the element in place with Revit's own split where it can, so the member, its host and its parameters stay; a member Revit will not split is re-created as location-curve segments instead. Not a solid cut. Straight and curved beams, cut at the real column footprint, not a bounding box. Copies instance parameters onto pieces it has to re-create unless copyParams is off. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -72,7 +72,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_floors_by_beams",
-                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Handles floors with openings, curved beams (tessellated) and real column footprints, and skips slabs it cannot rebuild exactly. Copies instance parameters onto new pieces unless copyParams is off. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Rebuilds planar floor regions through the flooring API and carries a single-plane slope with a slope arrow. Not a solid cut. Handles floors with openings, curved beams and real column footprints, and leaves alone, counted by reason, any slab it cannot rebuild exactly. Copies instance parameters onto new pieces unless copyParams is off. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",

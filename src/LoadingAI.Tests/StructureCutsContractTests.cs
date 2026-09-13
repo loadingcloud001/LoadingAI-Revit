@@ -33,11 +33,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion140()
+    public void PluginJson_IsVersion150()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.4.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.5.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -179,10 +179,53 @@ public class StructureCutsContractTests
         Assert.Contains("UniqueMark = args.Bool(\"uniqueMark\", false)", src, StringComparison.Ordinal);
         Assert.Contains("CopyParams = args.Bool(\"copyParams\", true)", src, StringComparison.Ordinal);
 
-        // A slab that cannot be rebuilt exactly is counted as unsupported, never guessed at.
+        // A slab that cannot be rebuilt exactly is left alone and named by reason, never guessed at,
+        // and a member Revit can split itself is split rather than re-created.
         var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
         Assert.Contains("GeometryRevit.TrySlabRegion", floor, StringComparison.Ordinal);
-        Assert.Contains("unsupported", floor, StringComparison.Ordinal);
+        Assert.Contains("SlopeArrowFor", floor, StringComparison.Ordinal);
+        Assert.Contains("Floor.Create(doc,", floor, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", floor, StringComparison.Ordinal);
+
+        // Each reason a slab is left alone is named, so a run says what it could not do and why.
+        foreach (var reason in new[]
+        {
+            "\"shape-edited\"",
+            "\"no-planar-face\"",
+            "\"sloped-mismatch\"",
+            "\"no-level\"",
+            "\"no-regions\"",
+            "\"unchanged\""
+        })
+        {
+            Assert.Contains(reason, floor, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void BeamSplit_UsesRevitNativeSplitBeforeRecreatingPieces()
+    {
+        var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs"));
+
+        // Revit's own split keeps the member, its host and its parameters, so it runs before the
+        // fallback, which re-creates pieces and has to copy parameters across by hand.
+        Assert.Contains("instance.CanSplit", beam, StringComparison.Ordinal);
+        Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
+        Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
+        AssertOrdered("BeamSplit.cs", beam,
+            "TryNativeSplit(doc, plan, options, out var ids)",
+            "Recreate(doc, plan, options)");
+
+        // The native path is the one Revit keeps the parameters for, so the note that says parameters
+        // were copied across belongs to the fallback.
+        Assert.Contains("Native split preserved parameters.", beam, StringComparison.Ordinal);
+        Assert.Contains("ParamCopy.Apply(snapshot, made, markFor)", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", beam, StringComparison.Ordinal);
+
+        // Nothing splits without a sub-transaction to undo it, and the document is never regenerated
+        // from inside the outer transaction.
+        Assert.Contains("new SubTransaction(doc)", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("Regenerate()", beam, StringComparison.Ordinal);
     }
 
     [Fact]

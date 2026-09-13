@@ -12,13 +12,18 @@ namespace LoadingAI.Plugins.StructureCuts;
 /// <summary>
 /// Splits slabs along the beams that run through them. The slab's real outline is read back as a region,
 /// so inner boundaries survive, beams cut along their own width with the slab's openings kept, and
-/// columns become openings in the piece they land in. Nothing is written until every floor has been
-/// planned, and a floor that cannot be rebuilt is reported instead of guessed at.
+/// columns become openings in the piece they land in. A slab that leans is rebuilt with a slope arrow so
+/// the pieces keep their fall. Nothing is written until every floor has been planned, every floor is
+/// written inside its own sub-transaction so a bad piece takes that floor back to how it was, and a
+/// floor that cannot be rebuilt is named and left alone rather than guessed at.
 /// </summary>
 internal static class FloorSplit
 {
     /// <summary>Smaller than this and a piece is shaving left by a cut rather than a usable slab.</summary>
     private static readonly double MinAreaSqFt = 0.09 / Metric.SqMPerSqFt;
+
+    /// <summary>How far a rebuilt slab may lean away from the slab it replaced before it is taken back (~0.6 degrees).</summary>
+    private static readonly double SlopeTolRad = 0.01;
 
     public static string Run(
         UIApplication uiApp,
@@ -57,34 +62,33 @@ internal static class FloorSplit
         if (stopped)
             floors = floors.Take(options.Limit).ToList();
 
-        var skippedUnsupported = 0;
-        var skippedNoLevel = 0;
-        var skippedUnchanged = 0;
-        var skippedEmpty = 0;
-
+        var skips = new Skips();
         var plans = new List<Plan>();
         foreach (var element in floors)
         {
             if (element is not Floor floor)
             {
-                skippedUnsupported++;
+                skips.NotASlab++;
                 continue;
             }
 
             var (plan, error) = Prepare(doc, floor, beams, columns);
             switch (error)
             {
-                case "unsupported":
-                    skippedUnsupported++;
+                case "shape-edited":
+                    skips.ShapeEdited++;
                     continue;
-                case "no level":
-                    skippedNoLevel++;
+                case "no-planar-face":
+                    skips.NoPlanarFace++;
                     continue;
-                case "no regions":
-                    skippedEmpty++;
+                case "no-level":
+                    skips.NoLevel++;
+                    continue;
+                case "no-regions":
+                    skips.NoRegions++;
                     continue;
                 case "unchanged":
-                    skippedUnchanged++;
+                    skips.Unchanged++;
                     continue;
                 case null:
                     plans.Add(plan!);
@@ -92,14 +96,16 @@ internal static class FloorSplit
             }
         }
 
-        var notes = Notes(skippedUnsupported, skippedNoLevel, skippedEmpty, skippedUnchanged, 0, stopped, options);
+        var notes = skips.Note(stopped, options.Limit);
 
         if (options.DryRun)
         {
             var pieces = plans.Sum(plan => plan.Regions.Count);
             var openings = plans.Sum(plan => plan.Regions.Sum(region => region.Holes.Count));
+            var sloped = plans.Count(plan => plan.Leans);
             return "Dry-run. " + $"Would split {plans.Count} floors into {pieces} pieces. Openings: {openings}. No changes made."
-                + notes;
+                + notes
+                + (sloped > 0 ? $" Replaced with a slope arrow: {sloped}." : "");
         }
 
         if (plans.Count == 0)
@@ -109,8 +115,8 @@ internal static class FloorSplit
         var splitFloors = 0;
         var piecesMade = 0;
         var openingsMade = 0;
-        var deleted = 0;
-        var skippedFailed = 0;
+        var slopedMade = 0;
+        var dependents = 0;
         var paramSkipped = 0;
 
         using (var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams"))
@@ -118,18 +124,33 @@ internal static class FloorSplit
             tx.Start();
             foreach (var plan in plans)
             {
-                var (ids, openings, skipped, error) = Write(doc, plan, options);
+                var (ids, openings, skipped, lost, error) = Write(doc, plan, options);
                 paramSkipped += skipped;
                 if (error != null || ids.Count == 0)
                 {
-                    skippedFailed++;
+                    switch (error)
+                    {
+                        case "sloped-mismatch":
+                            skips.SlopedMismatch++;
+                            break;
+                        case "delete-failed":
+                            skips.DeleteFailed++;
+                            break;
+                        default:
+                            skips.Partial++;
+                            break;
+                    }
+
                     continue;
                 }
 
                 splitFloors++;
                 piecesMade += ids.Count;
                 openingsMade += openings;
-                deleted++;
+                dependents += lost;
+                if (plan.Leans)
+                    slopedMade++;
+
                 created.AddRange(ids);
             }
 
@@ -137,14 +158,16 @@ internal static class FloorSplit
         }
 
         var message = $"Split {splitFloors} floors into {piecesMade} pieces. Openings: {openingsMade}."
-            + Notes(skippedUnsupported, skippedNoLevel, skippedEmpty, skippedUnchanged, skippedFailed, stopped, options);
+            + skips.Note(stopped, options.Limit);
         message += options.CopyParams
             ? " Instance parameters copied to new pieces."
             : " Copy params: off.";
+        if (slopedMade > 0)
+            message += $" Replaced with a slope arrow: {slopedMade}.";
         if (options.CopyParams && paramSkipped > 0)
             message += $" Param copy skipped: {paramSkipped}.";
-        if (deleted > 0)
-            message += $" Originals deleted: {deleted}.";
+        if (splitFloors > 0)
+            message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(Fmt)) + ".";
 
@@ -159,12 +182,17 @@ internal static class FloorSplit
     /// </summary>
     private static (Plan? Plan, string? Error) Prepare(Document doc, Floor floor, IReadOnlyList<Element> beams, IReadOnlyList<Element> columns)
     {
-        if (!GeometryRevit.TrySlabRegion(floor, out var plane, out var slab) || slab == null)
-            return (null, "unsupported");
+        // A slab whose shape has been edited by hand carries creases no slope arrow can express, so it is
+        // left alone by name. Ask before reading the geometry: the name is the more useful of the two.
+        if (GeometryRevit.IsShapeEdited(floor))
+            return (null, "shape-edited");
+
+        if (!GeometryRevit.TrySlabRegion(floor, out var plane, out var tilt, out var slab) || slab == null)
+            return (null, "no-planar-face");
 
         var levelId = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
         if (levelId == null || levelId == ElementId.InvalidElementId || doc.GetElement(levelId) is not Level)
-            return (null, "no level");
+            return (null, "no-level");
 
         var originalHoles = slab.Holes.Count;
         var region = slab;
@@ -202,7 +230,7 @@ internal static class FloorSplit
 
         regions = regions.Where(piece => piece.Area > MinAreaSqFt).ToList();
         if (regions.Count == 0)
-            return (null, "no regions");
+            return (null, "no-regions");
         if (regions.Count == 1 && region.Holes.Count == originalHoles)
             return (null, "unchanged");
 
@@ -210,6 +238,7 @@ internal static class FloorSplit
         {
             Floor = floor,
             Plane = plane,
+            Tilt = tilt,
             Regions = regions,
             OriginalHoles = originalHoles,
             TypeId = floor.GetTypeId(),
@@ -242,96 +271,168 @@ internal static class FloorSplit
     }
 
     /// <summary>
-    /// Replaces the original floor with one floor per region, carrying the openings each piece kept. A
-    /// piece that will not build takes the whole floor back to how it was, so a partial split never
-    /// survives as a silently shrunk slab.
+    /// Replaces the original floor with one floor per region, carrying the openings each piece kept, all
+    /// inside its own sub-transaction: a piece that will not build, or a piece that comes back leaning
+    /// the wrong way, takes the whole floor back to how it was, so a partial split never survives as a
+    /// silently shrunk slab.
     /// </summary>
-    private static (List<ElementId> Ids, int Openings, int ParamSkipped, string? Error) Write(Document doc, Plan plan, SplitOptions options)
+    private static (List<ElementId> Ids, int Openings, int ParamSkipped, int Dependent, string? Error) Write(Document doc, Plan plan, SplitOptions options)
     {
         var created = new List<Floor>();
         var openings = 0;
         var paramSkipped = 0;
+        var dependents = 0;
+        string? failed = null;
 
         var mark = options.UniqueMark ? ParamCopy.Mark(plan.Floor) : null;
         var snapshot = options.CopyParams ? ParamCopy.Take(plan.Floor) : null;
 
-        for (var i = 0; i < plan.Regions.Count; i++)
+        using (var sub = new SubTransaction(doc))
         {
-            var region = plan.Regions[i];
-            var piece = CreateFloor(doc, plan, region);
-            if (piece == null)
+            sub.Start();
+            try
             {
-                Rollback(doc, created);
-                return (new List<ElementId>(), openings, paramSkipped, "partial");
+                for (var i = 0; i < plan.Regions.Count; i++)
+                {
+                    var region = plan.Regions[i];
+                    var piece = CreateFloor(doc, plan, region, out var error);
+                    if (piece == null)
+                    {
+                        failed = error ?? "partial";
+                        break;
+                    }
+
+                    var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
+                    if (snapshot != null)
+                        paramSkipped += ParamCopy.Apply(snapshot, piece, markFor);
+                    else
+                        ParamCopy.SetMark(piece, markFor);
+
+                    created.Add(piece);
+                    openings += region.Holes.Count;
+                }
+
+                if (failed == null && !Leans(plan, created))
+                    failed = "sloped-mismatch";
+
+                if (failed == null)
+                {
+                    dependents = Dependent(doc, plan.Floor);
+                    try
+                    {
+                        doc.Delete(plan.Floor.Id);
+                    }
+                    catch
+                    {
+                        failed = "delete-failed";
+                    }
+                }
+            }
+            catch
+            {
+                if (failed == null)
+                    failed = "partial";
             }
 
-            var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
-            if (snapshot != null)
-                paramSkipped += ParamCopy.Apply(snapshot, piece, markFor);
-            else
-                ParamCopy.SetMark(piece, markFor);
+            if (failed != null)
+            {
+                sub.RollBack();
+                return (new List<ElementId>(), 0, 0, 0, failed);
+            }
 
-            created.Add(piece);
-            openings += region.Holes.Count;
+            sub.Commit();
         }
 
-        try
-        {
-            doc.Delete(plan.Floor.Id);
-        }
-        catch
-        {
-            Rollback(doc, created);
-            return (new List<ElementId>(), openings, paramSkipped, "delete failed");
-        }
-
-        return (created.Select(piece => piece.Id).ToList(), openings, paramSkipped, null);
+        return (created.Select(piece => piece.Id).ToList(), openings, paramSkipped, dependents, null);
     }
 
-    private static Floor? CreateFloor(Document doc, Plan plan, Region2D region)
+    /// <summary>
+    /// Builds one piece. Its outline is written in the horizontal plane, because Floor.Create only takes
+    /// loops parallel to the XY plane, and it is set back up onto the face it was cut from - a piece from
+    /// the top of a leaning slab starts higher than one from the bottom. A leaning slab also hands over
+    /// the slope arrow that puts the fall back.
+    /// </summary>
+    private static Floor? CreateFloor(Document doc, Plan plan, Region2D region, out string? error)
     {
-        var outer = GeometryRevit.Loop(plan.Plane, region.Outer, clockwise: false);
+        error = null;
+
+        var plane = GeometryRevit.HorizontalPlane(new XYZ(0, 0, GeometryRevit.FaceZ(plan.Plane, plan.Tilt, region.Outer)));
+        var outer = GeometryRevit.Loop(plane, region.Outer, clockwise: false);
         if (outer == null)
+        {
+            error = "partial";
             return null;
+        }
 
         var loops = new List<CurveLoop> { outer };
         foreach (var hole in region.Holes)
         {
-            var inner = GeometryRevit.Loop(plan.Plane, hole, clockwise: true);
+            var inner = GeometryRevit.Loop(plane, hole, clockwise: true);
             if (inner != null)
                 loops.Add(inner);
         }
 
+        Line? arrow = null;
+        var slope = 0.0;
+        if (plan.Leans)
+        {
+            arrow = GeometryRevit.SlopeArrowFor(plane, region.Outer, plan.Tilt);
+            if (arrow == null)
+            {
+                error = "partial";
+                return null;
+            }
+
+            slope = plan.Tilt.Slope;
+        }
+
         try
         {
-            var piece = Floor.Create(doc, loops, plan.TypeId, plan.LevelId);
+            var piece = Floor.Create(doc, loops, plan.TypeId, plan.LevelId, plan.Structural, arrow, slope);
             if (piece == null)
+            {
+                error = "partial";
                 return null;
+            }
 
             if (Math.Abs(plan.HeightOffset) > 1e-9)
                 piece.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.Set(plan.HeightOffset);
-            if (plan.Structural)
-                piece.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.Set(1);
             return piece;
         }
         catch
         {
+            error = "partial";
             return null;
         }
     }
 
-    private static void Rollback(Document doc, IReadOnlyList<Floor> created)
+    /// <summary>
+    /// Whether what was built leans the way the original did. A piece whose top face tilts somewhere else
+    /// is a slab with the wrong geometry - the one outcome this tool must never leave behind - so the
+    /// floor goes back and the run names it instead.
+    /// </summary>
+    private static bool Leans(Plan plan, IReadOnlyList<Floor> pieces)
     {
-        foreach (var piece in created)
+        if (!plan.Leans)
+            return true;
+
+        foreach (var piece in pieces)
+            if (!GeometryRevit.TrySlabRegion(piece, out _, out var built, out _) || !plan.Tilt.Matches(built.Normal, SlopeTolRad))
+                return false;
+
+        return true;
+    }
+
+    /// <summary>How many elements the replacement costs: tags, dimensions and anything else hosted on the slab.</summary>
+    private static int Dependent(Document doc, Floor floor)
+    {
+        try
         {
-            try
-            {
-                doc.Delete(piece.Id);
-            }
-            catch
-            {
-                // The floor is reported as failed whether or not every piece came back out.
-            }
+            return floor.GetDependentElements(null)?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -343,21 +444,6 @@ internal static class FloorSplit
                 return false;
 
         return true;
-    }
-
-    private static string Notes(int unsupported, int noLevel, int empty, int unchanged, int failed, bool stopped, SplitOptions options)
-    {
-        var skips = new List<string>();
-        if (unsupported > 0) skips.Add($"{unsupported} unsupported");
-        if (noLevel > 0) skips.Add($"{noLevel} no level");
-        if (empty > 0) skips.Add($"{empty} no regions");
-        if (unchanged > 0) skips.Add($"{unchanged} unchanged");
-        if (failed > 0) skips.Add($"{failed} failed");
-
-        var note = skips.Count > 0 ? $" Skipped: {string.Join(", ", skips)}." : "";
-        if (stopped)
-            note += $" Stopped at {options.Limit}.";
-        return note;
     }
 
     private static string Fmt(ElementId id)
@@ -426,12 +512,65 @@ internal static class FloorSplit
     private static bool IsColumn(Element el)
         => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns;
 
+    /// <summary>
+    /// Why floors were left alone, counted one name at a time. Nothing is lumped under one blanket
+    /// reason: a shape edited slab, a slab with no usable top face and a slab that simply has nothing
+    /// crossing it are three different things for the person reading the report.
+    /// </summary>
+    private sealed class Skips
+    {
+        public int NotASlab { get; set; }
+
+        public int ShapeEdited { get; set; }
+
+        public int NoPlanarFace { get; set; }
+
+        public int SlopedMismatch { get; set; }
+
+        public int NoLevel { get; set; }
+
+        public int NoRegions { get; set; }
+
+        public int Unchanged { get; set; }
+
+        public int Partial { get; set; }
+
+        public int DeleteFailed { get; set; }
+
+        public string Note(bool stopped, int limit)
+        {
+            var parts = new List<string>();
+            Add(parts, NotASlab, "not a slab");
+            Add(parts, ShapeEdited, "shape edited");
+            Add(parts, NoPlanarFace, "no planar top face");
+            Add(parts, SlopedMismatch, "sloped rebuild did not match");
+            Add(parts, NoLevel, "no level");
+            Add(parts, NoRegions, "no regions");
+            Add(parts, Unchanged, "unchanged");
+            Add(parts, Partial, "piece not built");
+            Add(parts, DeleteFailed, "original not deleted");
+
+            var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
+            if (stopped)
+                note += $" Stopped at {limit}.";
+            return note;
+        }
+
+        private static void Add(List<string> parts, int count, string label)
+        {
+            if (count > 0)
+                parts.Add($"{count} {label}");
+        }
+    }
+
     /// <summary>A floor and the pieces it was planned to become, before anything is written.</summary>
     private sealed class Plan
     {
         public Floor Floor { get; init; } = null!;
 
         public Plane2D Plane { get; init; } = null!;
+
+        public PlanarTilt Tilt { get; init; }
 
         public List<Region2D> Regions { get; init; } = new();
 
@@ -444,5 +583,8 @@ internal static class FloorSplit
         public bool Structural { get; init; }
 
         public double HeightOffset { get; init; }
+
+        /// <summary>Whether the slab leans enough that its pieces have to be rebuilt with a slope arrow.</summary>
+        public bool Leans => !Tilt.IsHorizontal(GeometryRevit.HorizontalZTol);
     }
 }
