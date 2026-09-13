@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.1.0";
+    public string Version => "1.1.1";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
