@@ -61,7 +61,15 @@ async function cf(path, init = {}) {
   const body = await res.json().catch(() => null);
   if (!body?.success) {
     const detail = (body?.errors ?? []).map((e) => `${e.code} ${e.message}`).join('; ');
-    fail(`${init.method ?? 'GET'} ${path} -> ${res.status} ${detail || 'no response body'}`);
+    let hint = '';
+    if (res.status === 403 && path.includes('/cfd_tunnel')) {
+      hint =
+        '\n  token is missing Account-level tunnel write. Recreate it with:\n' +
+        '    Account resources  →  this account  →  Cloudflare Tunnel:Edit\n' +
+        '    Zone resources     →  loadingtechnology.app  →  Zone:Read, DNS:Edit\n' +
+        '  (dashboard names it Cloudflare Tunnel Edit / Cloudflare One Connector: cloudflared Write)';
+    }
+    fail(`${init.method ?? 'GET'} ${path} -> ${res.status} ${detail || 'no response body'}${hint}`);
   }
   return body.result;
 }

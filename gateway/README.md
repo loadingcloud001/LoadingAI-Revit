@@ -84,8 +84,17 @@ stores the connector token in a `600` file, installs the hardened unit and start
 
 ```bash
 sudo node /opt/loadingai-gateway/deploy/setup-tunnel.mjs
-#   Cloudflare API token (hidden): ****       <- Zone:Read, DNS:Edit, Account:Cloudflare Tunnel:Edit
+#   Cloudflare API token (hidden): ****
 ```
+
+Create the token at https://dash.cloudflare.com/profile/api-tokens → **Create Custom Token**:
+
+| Resource | Scope | Permission |
+| --- | --- | --- |
+| Account | the `loadingtechnology.app` account | **Cloudflare Tunnel:Edit** (also listed as Cloudflare One Connector: cloudflared Write) |
+| Zone | `loadingtechnology.app` | **Zone:Read**, **DNS:Edit** |
+
+Account-level **Cloudflare Tunnel:Edit** is required — Zone:Read + DNS:Edit alone verify as `active` then fail `POST /cfd_tunnel` with `403 10000`.
 
 The token is read from `CF_API_TOKEN`, from `--token-file`, or from a hidden prompt, and is never
 echoed, logged or written to disk; only the connector token that the API returns is stored, in
