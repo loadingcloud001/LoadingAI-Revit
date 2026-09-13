@@ -183,6 +183,9 @@ function announced(env) {
   if (!env.TICKET_SECRET) {
     problems.push('TICKET_SECRET is not set: send tickets will be signed with MINIMAX_API_KEY. Set a dedicated secret.');
   }
+  if (!env.LOADINGAI_CLIENT_TOKEN) {
+    problems.push('LOADINGAI_CLIENT_TOKEN is not set: /v1/* will require the compiled default add-in token.');
+  }
   return problems;
 }
 

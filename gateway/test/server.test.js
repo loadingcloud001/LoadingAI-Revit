@@ -58,7 +58,12 @@ const jsonUpstream = (body = { choices: [{ message: { content: 'ok' } }] }) =>
   () => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
 const quotaPath = '/v1/quota';
-const deviceHeaders = (extra = {}) => ({ 'x-loadingai-device': DEVICE, ...extra });
+const CLIENT = 'loadingai-addin-v1';
+const deviceHeaders = (extra = {}) => ({
+  'x-loadingai-client': CLIENT,
+  'x-loadingai-device': DEVICE,
+  ...extra,
+});
 
 async function issueTicket(base) {
   const res = await fetch(`${base}${quotaPath}`, { method: 'POST', headers: deviceHeaders() });
@@ -93,7 +98,7 @@ test('POST /v1/quota consumes one send and returns a ticket', async (t) => {
 
 test('a malformed device header is rejected', async (t) => {
   const { base } = await startTestGateway(t);
-  const res = await fetch(`${base}${quotaPath}`, { headers: { 'x-loadingai-device': 'no' } });
+  const res = await fetch(`${base}${quotaPath}`, { headers: { 'x-loadingai-client': CLIENT, 'x-loadingai-device': 'no' } });
   assert.equal(res.status, 400);
   assert.equal((await res.json()).error.code, 'bad_device');
 });
@@ -141,7 +146,7 @@ test('a ticket minted for another device is refused', async (t) => {
 
   const res = await fetch(`${base}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-loadingai-device': 'device-other9999', 'x-loadingai-ticket': ticket },
+    headers: { 'content-type': 'application/json', 'x-loadingai-client': CLIENT, 'x-loadingai-device': 'device-other9999', 'x-loadingai-ticket': ticket },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
   });
   assert.equal(res.status, 401);
@@ -206,10 +211,17 @@ test('streaming responses are relayed chunk by chunk', async (t) => {
   assert.match(rest, /data: second/);
 });
 
+test('GET /v1/models without the add-in client header is refused', async (t) => {
+  const { base } = await startTestGateway(t);
+  const res = await fetch(`${base}/v1/models`);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'bad_client');
+});
+
 test('GET /v1/models is answered locally', async (t) => {
   const { base } = await startTestGateway(t);
   const calls = stubUpstream(t, jsonUpstream());
-  const res = await fetch(`${base}/v1/models`);
+  const res = await fetch(`${base}/v1/models`, { headers: deviceHeaders() });
   assert.equal(res.status, 200);
   assert.equal((await res.json()).data[0].id, 'MiniMax-M3');
   assert.equal(calls.length, 0);
@@ -235,7 +247,7 @@ test('an oversized body is refused without reaching the handler', async (t) => {
 test('counters live in SQLite, so a restart keeps the day count', async () => {
   const file = join(tmpdir(), `loadingai-gateway-${process.pid}-${Date.now()}.db`);
   const env = testEnv();
-  const device = { 'x-loadingai-device': DEVICE };
+  const device = { 'x-loadingai-client': CLIENT, 'x-loadingai-device': DEVICE };
   let first;
   let second;
 

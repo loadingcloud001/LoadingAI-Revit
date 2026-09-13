@@ -50,8 +50,12 @@ public class ScriptContractTests
 
         Assert.Contains("'x-loadingai-device'", worker);
         Assert.Contains("'x-loadingai-ticket'", worker);
+        Assert.Contains("'x-loadingai-client'", worker);
         Assert.Contains("X-LoadingAI-Device", client);
         Assert.Contains("X-LoadingAI-Ticket", client);
+        Assert.Contains("X-LoadingAI-Client", client);
+        Assert.Contains("loadingai-addin-v1", worker);
+        Assert.Contains("loadingai-addin-v1", client);
 
         foreach (var field in new[] { "\"limit\"", "\"used\"", "\"remaining\"", "\"resetUtc\"", "\"ticket\"" })
             Assert.Contains(field, client);

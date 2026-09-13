@@ -52,6 +52,7 @@ public sealed class GatewayFlowTests : IDisposable
         Assert.Equal("POST", req.Method);
         Assert.Equal("/v1/quota", req.Path);
         Assert.Equal(BuiltinQuota.DeviceId, req.Header(BuiltinQuota.DeviceHeader));
+        Assert.Equal(BuiltinQuota.ClientToken, req.Header(BuiltinQuota.ClientHeader));
         Assert.False(req.HasHeader("Authorization"));
     }
 
@@ -68,7 +69,9 @@ public sealed class GatewayFlowTests : IDisposable
         Assert.True(status.Ok, status.Message);
         Assert.Equal(60, status.Remaining);
         Assert.Null(BuiltinQuota.Ticket);
-        Assert.Equal("GET", Assert.Single(gw.Requests).Method);
+        var req = Assert.Single(gw.Requests);
+        Assert.Equal("GET", req.Method);
+        Assert.Equal(BuiltinQuota.ClientToken, req.Header(BuiltinQuota.ClientHeader));
     }
 
     [Fact]
@@ -89,6 +92,7 @@ public sealed class GatewayFlowTests : IDisposable
         Assert.Equal("/v1/chat/completions", chat.Path);
         Assert.Equal("tk-xyz", chat.Header(BuiltinQuota.TicketHeader));
         Assert.Equal(BuiltinQuota.DeviceId, chat.Header(BuiltinQuota.DeviceHeader));
+        Assert.Equal(BuiltinQuota.ClientToken, chat.Header(BuiltinQuota.ClientHeader));
         // The whole point of the gateway: the add-in never sends a credential upstream.
         Assert.False(chat.HasHeader("Authorization"));
         Assert.Contains("\"model\":\"MiniMax-M3\"", chat.Body);
