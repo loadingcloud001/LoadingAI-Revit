@@ -60,12 +60,13 @@ public class ProgressReporterTests
         var received = new List<ProgressSnapshot>();
         var reporter = new ProgressReporter(received.Add);
         reporter.Report(ProgressSnapshot.ForTool("t", innerPercent: 150));
-        Assert.Equal(100, received[^1].Percent);
+        Assert.Equal(100, received[received.Count - 1].Percent);
 
         reporter.Report("halfway", 50);
-        Assert.Equal("halfway", received[^1].Label);
-        Assert.Equal(50, received[^1].Percent);
-        Assert.Equal(ProgressSnapshot.PhaseTool, received[^1].Phase);
+        var last = received[received.Count - 1];
+        Assert.Equal("halfway", last.Label);
+        Assert.Equal(50, last.Percent);
+        Assert.Equal(ProgressSnapshot.PhaseTool, last.Phase);
     }
 
     [Fact]
