@@ -408,11 +408,23 @@ internal static class GeometryRevit
             if (editor == null)
                 return false;
 
-            if (editor.IsEnabled)
+            // IsEnabled only means the editor is open, not that the slab was edited. Creases, or a
+            // vertex that is not an original corner, are the real signal.
+            var creases = editor.SlabShapeCreases;
+            if (creases != null && !creases.IsEmpty)
                 return true;
 
-            var creases = editor.SlabShapeCreases;
-            return creases != null && !creases.IsEmpty;
+            var vertices = editor.SlabShapeVertices;
+            if (vertices == null || vertices.IsEmpty)
+                return false;
+
+            foreach (SlabShapeVertex vertex in vertices)
+            {
+                if (vertex.VertexType != SlabShapeVertexType.Corner)
+                    return true;
+            }
+
+            return false;
         }
         catch
         {

@@ -5,7 +5,6 @@ using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 
 using LoadingAI.Geometry;
-using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.StructureCuts;
 
@@ -36,16 +35,16 @@ internal static class BeamSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var selection = GetSelection(uidoc);
-        var beams = Resolve(doc, beamIds, IsBeam);
+        var selection = SplitElements.GetSelection(uidoc);
+        var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
         if (beams.Count == 0)
-            beams = selection.Where(IsBeam).ToList();
+            beams = selection.Where(SplitElements.IsBeam).ToList();
         if (beams.Count == 0)
             return "Please select elements first.";
 
-        var columns = Resolve(doc, columnIds, IsColumn);
+        var columns = SplitElements.Resolve(doc, columnIds, SplitElements.IsColumn);
         if (columns.Count == 0)
-            columns = selection.Where(IsColumn).ToList();
+            columns = selection.Where(SplitElements.IsColumn).ToList();
         if (columns.Count == 0)
             return "No columns found.";
 
@@ -145,9 +144,9 @@ internal static class BeamSplit
         if (skippedUnchanged > 0)
             message += $" Left alone: {skippedUnchanged}.";
         if (created.Count > 0)
-            message += " Created: " + SplitReport.Ids(created.Select(Fmt)) + ".";
+            message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
 
-        Select(uidoc, created);
+        SplitElements.Select(uidoc, created);
         return message;
     }
 
@@ -452,7 +451,7 @@ internal static class BeamSplit
                     return (empty, paramSkipped, 0, false);
                 }
 
-                var dependent = Dependent(doc, plan.Beam);
+                var dependent = SplitElements.Dependent(plan.Beam);
                 sub.Commit();
                 return (created, paramSkipped, dependent, true);
             }
@@ -493,19 +492,6 @@ internal static class BeamSplit
 
     private static bool SamePoint(XYZ a, XYZ b)
         => a != null && b != null && a.DistanceTo(b) <= GeometryRevit.Tol;
-
-    /// <summary>How many elements the member carries with it, so a re-created member can say.</summary>
-    private static int Dependent(Document doc, Element beam)
-    {
-        try
-        {
-            return beam.GetDependentElements(null)?.Count ?? 0;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
 
     private static bool RewriteLocation(Element beam, Curve piece)
     {
@@ -594,76 +580,16 @@ internal static class BeamSplit
         public static string Note(int noCurve, int noCrossing, int failed, bool stopped, int limit)
         {
             var parts = new List<string>();
-            Add(parts, noCurve, "no curve");
-            Add(parts, noCrossing, "no column crossing");
-            Add(parts, failed, "split failed");
+            SplitElements.AddSkip(parts, noCurve, "no curve");
+            SplitElements.AddSkip(parts, noCrossing, "no column crossing");
+            SplitElements.AddSkip(parts, failed, "split failed");
 
             var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
             if (stopped)
                 note += $" Stopped at {limit}.";
             return note;
         }
-
-        private static void Add(List<string> parts, int count, string label)
-        {
-            if (count > 0)
-                parts.Add($"{count} {label}");
-        }
     }
-
-    private static string Fmt(ElementId id)
-        => id.Value.ToString(CultureInfo.InvariantCulture);
-
-    private static void Select(UIDocument uidoc, IReadOnlyList<ElementId> created)
-    {
-        if (created.Count == 0)
-            return;
-
-        try
-        {
-            uidoc.Selection.SetElementIds(created.ToList());
-            uidoc.ShowElements(created[0]);
-        }
-        catch
-        {
-            // Selecting is a convenience; it must never fail the run.
-        }
-    }
-
-    private static List<Element> Resolve(Document doc, IReadOnlyList<string> ids, Func<Element, bool> wanted)
-    {
-        var list = new List<Element>();
-        foreach (var s in ids)
-        {
-            Element? el;
-            try
-            {
-                el = doc.GetElement(RevitParse.ParseEid(s));
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (el != null && wanted(el))
-                list.Add(el);
-        }
-
-        return list;
-    }
-
-    private static List<Element> GetSelection(UIDocument uidoc)
-        => uidoc.Selection.GetElementIds()
-            .Select(id => uidoc.Document.GetElement(id))
-            .Where(el => el != null)
-            .Cast<Element>()
-            .ToList();
-
-    private static bool IsBeam(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralFraming;
-
-    private static bool IsColumn(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns;
 
     private sealed class Plan
     {

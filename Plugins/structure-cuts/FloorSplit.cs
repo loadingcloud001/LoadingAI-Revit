@@ -1,11 +1,8 @@
-using System.Globalization;
-
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
 using LoadingAI.Geometry;
 using LoadingAI.Revit;
-using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.StructureCuts;
 
@@ -37,26 +34,26 @@ internal static class FloorSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var selection = GetSelection(uidoc);
-        var floors = Resolve(doc, floorIds, IsFloorLike);
+        var selection = SplitElements.GetSelection(uidoc);
+        var floors = SplitElements.Resolve(doc, floorIds, SplitElements.IsFloorLike);
         if (floors.Count == 0)
-            floors = selection.Where(IsFloorLike).ToList();
+            floors = selection.Where(SplitElements.IsFloorLike).ToList();
         if (floors.Count == 0)
             return "Please select elements first.";
 
-        var beams = Resolve(doc, beamIds, IsBeam);
+        var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
         if (beams.Count == 0)
-            beams = selection.Where(IsBeam).ToList();
+            beams = selection.Where(SplitElements.IsBeam).ToList();
         if (beams.Count == 0)
-            beams = HitElements(doc, BuiltInCategory.OST_StructuralFraming, floors, IsBeam);
+            beams = HitElements(doc, BuiltInCategory.OST_StructuralFraming, floors, SplitElements.IsBeam);
         if (beams.Count == 0)
             return "No beams found to split along.";
 
-        var columns = Resolve(doc, columnIds, IsColumn);
+        var columns = SplitElements.Resolve(doc, columnIds, SplitElements.IsColumn);
         if (columns.Count == 0)
-            columns = selection.Where(IsColumn).ToList();
+            columns = selection.Where(SplitElements.IsColumn).ToList();
         if (columns.Count == 0)
-            columns = HitElements(doc, BuiltInCategory.OST_StructuralColumns, floors, IsColumn);
+            columns = HitElements(doc, BuiltInCategory.OST_StructuralColumns, floors, SplitElements.IsColumn);
 
         var stopped = floors.Count > options.Limit;
         if (stopped)
@@ -169,9 +166,9 @@ internal static class FloorSplit
         if (splitFloors > 0)
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
-            message += " Created: " + SplitReport.Ids(created.Select(Fmt)) + ".";
+            message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
 
-        Select(uidoc, created);
+        SplitElements.Select(uidoc, created);
         return message;
     }
 
@@ -240,7 +237,6 @@ internal static class FloorSplit
             Plane = plane,
             Tilt = tilt,
             Regions = regions,
-            OriginalHoles = originalHoles,
             TypeId = floor.GetTypeId(),
             LevelId = levelId,
             Structural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1,
@@ -317,7 +313,7 @@ internal static class FloorSplit
 
                 if (failed == null)
                 {
-                    dependents = Dependent(doc, plan.Floor);
+                    dependents = SplitElements.Dependent(plan.Floor);
                     try
                     {
                         doc.Delete(plan.Floor.Id);
@@ -423,19 +419,6 @@ internal static class FloorSplit
         return true;
     }
 
-    /// <summary>How many elements the replacement costs: tags, dimensions and anything else hosted on the slab.</summary>
-    private static int Dependent(Document doc, Floor floor)
-    {
-        try
-        {
-            return floor.GetDependentElements(null)?.Count ?? 0;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
     /// <summary>Whether a column outline sits wholly inside the slab, so it can be an opening at all.</summary>
     private static bool Inside(Region2D region, IReadOnlyList<Point2> ring)
     {
@@ -446,25 +429,6 @@ internal static class FloorSplit
         return true;
     }
 
-    private static string Fmt(ElementId id)
-        => id.Value.ToString(CultureInfo.InvariantCulture);
-
-    private static void Select(UIDocument uidoc, IReadOnlyList<ElementId> created)
-    {
-        if (created.Count == 0)
-            return;
-
-        try
-        {
-            uidoc.Selection.SetElementIds(created.ToList());
-            uidoc.ShowElements(created[0]);
-        }
-        catch
-        {
-            // Selecting is a convenience; it must never fail the run.
-        }
-    }
-
     private static List<Element> HitElements(Document doc, BuiltInCategory category, IReadOnlyList<Element> floors, Func<Element, bool> wanted)
         => new FilteredElementCollector(doc)
             .OfCategory(category)
@@ -472,45 +436,6 @@ internal static class FloorSplit
             .ToElements()
             .Where(el => wanted(el) && floors.Any(floor => GeometryRevit.Reaches(floor, el)))
             .ToList();
-
-    private static List<Element> Resolve(Document doc, IReadOnlyList<string> ids, Func<Element, bool> wanted)
-    {
-        var list = new List<Element>();
-        foreach (var s in ids)
-        {
-            Element? el;
-            try
-            {
-                el = doc.GetElement(RevitParse.ParseEid(s));
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (el != null && wanted(el))
-                list.Add(el);
-        }
-
-        return list;
-    }
-
-    private static List<Element> GetSelection(UIDocument uidoc)
-        => uidoc.Selection.GetElementIds()
-            .Select(id => uidoc.Document.GetElement(id))
-            .Where(el => el != null)
-            .Cast<Element>()
-            .ToList();
-
-    private static bool IsFloorLike(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_Floors
-           || el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralFoundation;
-
-    private static bool IsBeam(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralFraming;
-
-    private static bool IsColumn(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns;
 
     /// <summary>
     /// Why floors were left alone, counted one name at a time. Nothing is lumped under one blanket
@@ -540,26 +465,20 @@ internal static class FloorSplit
         public string Note(bool stopped, int limit)
         {
             var parts = new List<string>();
-            Add(parts, NotASlab, "not a slab");
-            Add(parts, ShapeEdited, "shape edited");
-            Add(parts, NoPlanarFace, "no planar top face");
-            Add(parts, SlopedMismatch, "sloped rebuild did not match");
-            Add(parts, NoLevel, "no level");
-            Add(parts, NoRegions, "no regions");
-            Add(parts, Unchanged, "unchanged");
-            Add(parts, Partial, "piece not built");
-            Add(parts, DeleteFailed, "original not deleted");
+            SplitElements.AddSkip(parts, NotASlab, "not a slab");
+            SplitElements.AddSkip(parts, ShapeEdited, "shape edited");
+            SplitElements.AddSkip(parts, NoPlanarFace, "no planar top face");
+            SplitElements.AddSkip(parts, SlopedMismatch, "sloped rebuild did not match");
+            SplitElements.AddSkip(parts, NoLevel, "no level");
+            SplitElements.AddSkip(parts, NoRegions, "no regions");
+            SplitElements.AddSkip(parts, Unchanged, "unchanged");
+            SplitElements.AddSkip(parts, Partial, "piece not built");
+            SplitElements.AddSkip(parts, DeleteFailed, "original not deleted");
 
             var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
             if (stopped)
                 note += $" Stopped at {limit}.";
             return note;
-        }
-
-        private static void Add(List<string> parts, int count, string label)
-        {
-            if (count > 0)
-                parts.Add($"{count} {label}");
         }
     }
 
@@ -573,8 +492,6 @@ internal static class FloorSplit
         public PlanarTilt Tilt { get; init; }
 
         public List<Region2D> Regions { get; init; } = new();
-
-        public int OriginalHoles { get; init; }
 
         public ElementId TypeId { get; init; } = ElementId.InvalidElementId;
 
