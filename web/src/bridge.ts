@@ -172,6 +172,17 @@ export type PresetPickResult = {
   error?: string;
 };
 
+export type QuotaPayload = {
+  providerId?: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  resetUtc?: string;
+  exhausted?: boolean;
+  ok?: boolean;
+  message?: string;
+};
+
 export type FromHost =
   | { type: 'status'; text: string }
   | { type: 'trace'; text: string }
@@ -193,6 +204,7 @@ export type FromHost =
   | { type: 'testResult'; ok: boolean; message: string; providerId?: string; models?: string[] }
   | { type: 'models'; providerId: string; models: string[]; error?: string }
   | { type: 'plugins'; plugins: PluginInfo[] }
+  | { type: 'quota'; quota: QuotaPayload }
   | { type: 'history'; messages: { role: string; text: string; attachments?: Attachment[] }[] }
   | { type: 'error'; text: string }
   | { type: 'delta'; text: string };
@@ -240,6 +252,7 @@ export function postToHost(msg: ToHost) {
         ]
       };
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'settings', settings: mock } })), 100);
+      setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'quota', quota: { providerId: BUILTIN_PROVIDER_ID, limit: 100, used: 3, remaining: 97, ok: true, resetUtc: new Date(Date.now() + 86400000).toISOString() } } })), 140);
       const mockPresets: any[] = [
         { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKind: 'openai', group: 'cloud', icon: '◆', description: 'DeepSeek V3 / R1' },
         { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', apiKind: 'openai', group: 'gateway', icon: '◎', description: '300+ models gateway' },

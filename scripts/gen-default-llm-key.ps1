@@ -1,5 +1,6 @@
-# Generates src/LoadingAI.Core/Llm/DefaultLlmKey.g.cs from
-# LOADINGAI_DEFAULT_KEY or local/default-llm.json. Never prints the key.
+# Writes src/LoadingAI.Core/Llm/DefaultLlmKey.g.cs from LOADINGAI_DEFAULT_KEY
+# or local/default-llm.json. Never prints the key. The bytes are compiled in only
+# when LOADINGAI_PACKED_KEY is defined (see -p:PackDefaultLlmKey=true).
 param()
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -30,10 +31,12 @@ $cs = @"
 namespace LoadingAI.Llm;
 internal static partial class DefaultLlmKey
 {
+#if LOADINGAI_PACKED_KEY
     static partial void GetPacked(ref byte[]? packed)
     {
         packed = new byte[] { $hex };
     }
+#endif
 }
 "@
 $dir = Split-Path $out

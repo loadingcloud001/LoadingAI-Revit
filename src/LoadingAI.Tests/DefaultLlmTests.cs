@@ -3,6 +3,7 @@ using Xunit;
 
 namespace LoadingAI.Tests;
 
+[Collection("builtin-provider")]
 public class DefaultLlmTests : IDisposable
 {
     private readonly Func<string?> _prev;
@@ -45,15 +46,64 @@ public class DefaultLlmTests : IDisposable
     }
 
     [Fact]
-    public void BindForCall_UsesConfiguredEndpointAndInjectsKey()
+    public void BindForCall_UsesTheGateway_WithoutSendingAKeyOfItsOwn()
     {
         var stored = DefaultLlm.ForSettings();
         var bound = DefaultLlm.BindForCall(stored);
-        Assert.Equal(DefaultLlm.ApiBaseUrl, bound.BaseUrl);
+        Assert.Equal(DefaultLlm.GatewayBaseUrl, bound.BaseUrl);
         Assert.Equal(DefaultLlm.ApiModel, bound.Model);
-        Assert.Equal("sk-test-not-real", bound.ApiKey);
+        Assert.True(string.IsNullOrEmpty(bound.ApiKey));
         Assert.Equal(DefaultLlm.ApiKind, bound.ApiKind);
         Assert.NotEqual(DefaultLlm.DisplayModel, bound.Model);
+        Assert.DoesNotContain("minimax", bound.BaseUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ApiBaseUrl_PointsAtTheGateway_UnlessDirectModeIsSwitchedOn()
+    {
+        Assert.Equal(DefaultLlm.GatewayBaseUrl, DefaultLlm.ApiBaseUrl);
+        Assert.False(DefaultLlm.DirectUpstreamEnabled);
+    }
+
+    [Fact]
+    public void DirectUpstream_RequiresBothTheFlagAndALocallySuppliedKey()
+    {
+        var previous = Environment.GetEnvironmentVariable(DefaultLlm.DirectModeEnvVar);
+        var previousKey = DefaultLlm.KeySource;
+        try
+        {
+            Environment.SetEnvironmentVariable(DefaultLlm.DirectModeEnvVar, "1");
+            DefaultLlm.KeySource = () => null;
+            Assert.False(DefaultLlm.DirectUpstreamEnabled);
+            Assert.Equal(DefaultLlm.GatewayBaseUrl, DefaultLlm.ApiBaseUrl);
+
+            DefaultLlm.KeySource = () => "sk-test-not-real";
+            Assert.True(DefaultLlm.DirectUpstreamEnabled);
+            Assert.Equal(DefaultLlm.DirectApiBaseUrl, DefaultLlm.ApiBaseUrl);
+            Assert.Equal("sk-test-not-real", DefaultLlm.BindForCall(DefaultLlm.ForSettings()).ApiKey);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(DefaultLlm.DirectModeEnvVar, previous);
+            DefaultLlm.KeySource = previousKey;
+        }
+    }
+
+    [Fact]
+    public void GatewayBaseUrl_FallsBackToTheShippedEndpoint_WhenCleared()
+    {
+        var previous = DefaultLlm.GatewayBaseUrl;
+        try
+        {
+            DefaultLlm.GatewayBaseUrl = "https://example.test/v1/";
+            Assert.Equal("https://example.test/v1", DefaultLlm.ApiBaseUrl);
+            DefaultLlm.GatewayBaseUrl = "  ";
+            Assert.Equal(DefaultLlm.PublicGatewayBaseUrl, DefaultLlm.ApiBaseUrl);
+        }
+        finally
+        {
+            DefaultLlm.GatewayBaseUrl = previous;
+        }
     }
 
     [Fact]
@@ -119,9 +169,9 @@ public class DefaultLlmTests : IDisposable
         var s = ProviderSettings.CreateDefault();
         var bound = ProviderSettings.GetActiveForCall(s);
         Assert.NotNull(bound);
-        Assert.Equal(DefaultLlm.ApiBaseUrl, bound!.BaseUrl);
+        Assert.Equal(DefaultLlm.GatewayBaseUrl, bound!.BaseUrl);
         Assert.Equal(DefaultLlm.ApiModel, bound.Model);
-        Assert.Equal("sk-test-not-real", bound.ApiKey);
+        Assert.True(string.IsNullOrEmpty(bound.ApiKey));
         Assert.True(string.IsNullOrEmpty(ProviderSettings.GetActive(s)!.ApiKey));
     }
 
@@ -131,10 +181,11 @@ public class DefaultLlmTests : IDisposable
         Assert.Equal("loadingai", DefaultLlm.Id);
         Assert.Equal("LoadingAI", DefaultLlm.DisplayName);
         Assert.Equal("LoadingAI", DefaultLlm.DisplayModel);
-        Assert.Equal("https://api.minimaxi.com/v1", DefaultLlm.ApiBaseUrl);
+        Assert.Equal(DefaultLlm.GatewayBaseUrl, DefaultLlm.ApiBaseUrl);
         Assert.Equal("MiniMax-M3", DefaultLlm.ApiModel);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayName, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayModel, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("minimax", DefaultLlm.ApiBaseUrl, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
