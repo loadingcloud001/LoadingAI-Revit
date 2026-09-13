@@ -48,6 +48,10 @@ add-in  ──https──▶  Cloudflare  ──tunnel──▶  cloudflared (VM
   `/etc/loadingai-gateway.env` (mode `600`, root-owned).
 * Cloudflare terminates TLS with an edge certificate for the zone, and the tunnel hop is encrypted.
 
+Deployed tunnel: `loadingai-gateway` (`ba7725b4-d288-4bc5-8d38-fadea68199cd`), remote-managed
+ingress, `CNAME gateway.loadingtechnology.app -> <tunnel-id>.cfargotunnel.com` (proxied). The DNS
+record is the only part that matters to clients; recreating the tunnel means updating that CNAME.
+
 ## Deploying (maintainer, one time)
 
 On the VM (Debian/Ubuntu, **Node 22.5 or newer** – that is when `node:sqlite` appeared):
