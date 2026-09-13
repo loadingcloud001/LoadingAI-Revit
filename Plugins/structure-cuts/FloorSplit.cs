@@ -16,7 +16,8 @@ internal static class FloorSplit
         IReadOnlyList<string> floorIds,
         IReadOnlyList<string> beamIds,
         IReadOnlyList<string> columnIds,
-        int limit)
+        int limit,
+        bool dryRun = false)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -53,8 +54,8 @@ internal static class FloorSplit
         var skipUnchanged = 0;
         var paramSkipped = 0;
 
-        using var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams");
-        tx.Start();
+        Transaction? tx = dryRun ? null : new Transaction(doc, "LoadingAI for Revit: split floors by beams");
+        tx?.Start();
         foreach (var el in floors)
         {
             if (el is not Floor floor)
@@ -75,10 +76,17 @@ internal static class FloorSplit
                 continue;
             }
 
-            var (created, openCount, skipped, error) = ProcessFloor(doc, floor, pts, z.Value, beams, columns);
+            var (created, regions, openCount, skipped, error) = ProcessFloor(doc, floor, pts, z.Value, beams, columns, dryRun);
             if (error == "unchanged")
             {
                 skipUnchanged++;
+                continue;
+            }
+            if (dryRun && error == "dryrun")
+            {
+                splitFloors++;
+                newCount += regions;
+                openings += openCount;
                 continue;
             }
             if (created.Count == 0)
@@ -92,33 +100,36 @@ internal static class FloorSplit
             paramSkipped += skipped;
             deleted++;
         }
-        tx.Commit();
+        tx?.Commit();
 
-        var msg = $"Split {splitFloors} floors into {newCount}. Openings: {openings}. Originals deleted: {deleted}.";
+        var msg = dryRun
+            ? $"Dry-run. Would split {splitFloors} floors into {newCount}. Openings: {openings}. No changes made."
+            : $"Split {splitFloors} floors into {newCount}. Openings: {openings}. Originals deleted: {deleted}.";
         var skips = new List<string>();
         if (skipNoBoundary > 0) skips.Add($"{skipNoBoundary} no boundary");
         if (skipSloped > 0) skips.Add($"{skipSloped} sloped/curved");
         if (skipUnchanged > 0) skips.Add($"{skipUnchanged} unchanged");
         if (skipFailed > 0) skips.Add($"{skipFailed} failed");
         if (skips.Count > 0) msg += $" Skipped: {string.Join(", ", skips)}.";
-        if (splitFloors > 0) msg += " Instance parameters copied to new pieces.";
-        if (paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
+        if (!dryRun && splitFloors > 0) msg += " Instance parameters copied to new pieces.";
+        if (!dryRun && paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
         if (stopped) msg += $" Stopped at {limit}.";
         return msg;
     }
 
-    private static (List<Floor> created, int openings, int paramSkipped, string? error) ProcessFloor(
+    private static (List<Floor> created, int regions, int openings, int paramSkipped, string? error) ProcessFloor(
         Document doc,
         Floor floor,
         List<(double X, double Y)> boundary,
         double zElev,
         IReadOnlyList<Element> beams,
-        IReadOnlyList<Element> columns)
+        IReadOnlyList<Element> columns,
+        bool dryRun)
     {
         var typeId = floor.GetTypeId();
         var level = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
         if (level == null || level == ElementId.InvalidElementId || doc.GetElement(level) is not Level)
-            return (new List<Floor>(), 0, 0, "no level");
+            return (new List<Floor>(), 0, 0, 0, "no level");
 
         var heightOffset = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.AsDouble() ?? 0;
         var isStructural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1;
@@ -151,9 +162,23 @@ internal static class FloorSplit
 
         polygons = polygons.Where(p => Math.Abs(PolygonArea(p)) > MinAreaSqFt).ToList();
         if (polygons.Count == 0)
-            return (new List<Floor>(), 0, 0, "no regions");
+            return (new List<Floor>(), 0, 0, 0, "no regions");
         if (polygons.Count == 1 && columnOpenings.Count == 0)
-            return (new List<Floor>(), 0, 0, "unchanged");
+            return (new List<Floor>(), 0, 0, 0, "unchanged");
+
+        if (dryRun)
+        {
+            var wouldOpen = 0;
+            foreach (var poly in polygons)
+            {
+                foreach (var opening in columnOpenings)
+                {
+                    if (PointInPolygon(Mid(opening[0], opening[2]), poly))
+                        wouldOpen++;
+                }
+            }
+            return (new List<Floor>(), polygons.Count, wouldOpen, 0, "dryrun");
+        }
 
         var snap = ParamCopy.Take(floor);
         var created = new List<Floor>();
@@ -175,7 +200,7 @@ internal static class FloorSplit
                 {
                     try { doc.Delete(f.Id); } catch { }
                 }
-                return (new List<Floor>(), 0, 0, "partial");
+                return (new List<Floor>(), 0, 0, 0, "partial");
             }
             paramSkipped += ParamCopy.Apply(snap, neu);
             created.Add(neu);
@@ -189,9 +214,9 @@ internal static class FloorSplit
             {
                 try { doc.Delete(f.Id); } catch { }
             }
-            return (new List<Floor>(), 0, 0, "delete failed");
+            return (new List<Floor>(), 0, 0, 0, "delete failed");
         }
-        return (created, openingCount, paramSkipped, null);
+        return (created, created.Count, openingCount, paramSkipped, null);
     }
 
     private static (List<(double X, double Y)>? points, double? z, bool sloped) GetFloorBoundary(Floor floor)

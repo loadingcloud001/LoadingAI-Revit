@@ -11,7 +11,7 @@ internal static class BeamSplit
     private static readonly double ZTolFt = Metric.MmToFt(30);
     private static readonly double XyPadFt = Metric.MmToFt(150);
 
-    public static string Run(UIApplication uiApp, IReadOnlyList<string> beamIds, IReadOnlyList<string> columnIds, int limit)
+    public static string Run(UIApplication uiApp, IReadOnlyList<string> beamIds, IReadOnlyList<string> columnIds, int limit, bool dryRun = false)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -45,8 +45,8 @@ internal static class BeamSplit
         var skipFailed = 0;
         var paramSkipped = 0;
 
-        using var tx = new Transaction(doc, "LoadingAI for Revit: split beams by columns");
-        tx.Start();
+        Transaction? tx = dryRun ? null : new Transaction(doc, "LoadingAI for Revit: split beams by columns");
+        tx?.Start();
         foreach (var beam in beams)
         {
             if (GetBeamCurve(beam) == null)
@@ -60,6 +60,12 @@ internal static class BeamSplit
                 skipNoHit++;
                 continue;
             }
+            if (dryRun)
+            {
+                split++;
+                segments += pars.Count + 1;
+                continue;
+            }
             var (ids, skipped) = SplitAtParams(doc, beam, pars);
             paramSkipped += skipped;
             if (ids.Count > 1)
@@ -70,13 +76,16 @@ internal static class BeamSplit
             else
                 skipFailed++;
         }
-        tx.Commit();
+        tx?.Commit();
 
-        var msg = $"Split {split} beams into {segments} segments. Skipped: {skipNoCurve} no curve, {skipNoHit} no column hit";
+        var msg = dryRun
+            ? $"Dry-run. Would split {split} beams into {segments} segments. No changes made."
+            : $"Split {split} beams into {segments} segments.";
+        msg += $" Skipped: {skipNoCurve} no curve, {skipNoHit} no column hit";
         if (skipFailed > 0) msg += $", {skipFailed} failed";
         msg += ".";
-        if (split > 0) msg += " Instance parameters copied to new pieces.";
-        if (paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
+        if (!dryRun && split > 0) msg += " Instance parameters copied to new pieces.";
+        if (!dryRun && paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
         if (stopped) msg += $" Stopped at {limit}.";
         return msg;
     }

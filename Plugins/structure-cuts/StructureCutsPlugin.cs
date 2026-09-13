@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.2.0";
+    public string Version => "1.3.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -26,7 +26,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_beams_by_columns",
-                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Copies instance parameters onto new pieces. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), limit default 50 max 200.",
+                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Copies instance parameters onto new pieces. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), dryRun boolean counts only without changing the model, limit default 50 max 200.",
                 Parameters = new
                 {
                     type = "object",
@@ -34,6 +34,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                     {
                         beamIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection filtered to structural framing." },
                         columnIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection columns, else all columns in the model." },
+                        dryRun = new { type = "boolean", description = "Optional. When true, counts the beam splits and segments that would be created without modifying the model. Default false." },
                         limit = new { type = "integer", description = "Max beams to process. Default 50, hard cap 200." }
                     },
                     required = Array.Empty<string>()
@@ -43,15 +44,17 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         Presets = new[]
         {
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
-            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick structural columns, then Finish." }
+            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick structural columns, then Finish." },
+            new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json =>
         {
             var args = Args.Parse(json);
+            var dryRun = ToolPresets.IsDryRun(json);
             return await context.FullAccess!.RunRevitAsync(session =>
             {
                 var uiApp = session.As<UIApplication>();
-                return BeamSplit.Run(uiApp, args.Strings("beamIds"), args.Strings("columnIds"), args.Limit());
+                return BeamSplit.Run(uiApp, args.Strings("beamIds"), args.Strings("columnIds"), args.Limit(), dryRun);
             });
         }
     };
@@ -64,7 +67,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_floors_by_beams",
-                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Copies instance parameters onto new pieces. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, limit default 50 max 200. Skips sloped/curved.",
+                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Copies instance parameters onto new pieces. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, dryRun boolean counts only without changing the model, limit default 50 max 200. Skips sloped/curved.",
                 Parameters = new
                 {
                     type = "object",
@@ -73,6 +76,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                         floorIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection filtered to floors and structural foundation slabs." },
                         beamIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection framing, else beams whose bbox hits the floors." },
                         columnIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection columns, else columns whose bbox hits the floors." },
+                        dryRun = new { type = "boolean", description = "Optional. When true, counts the floor regions and column openings that would be created without modifying the model. Default false." },
                         limit = new { type = "integer", description = "Max floors to process. Default 50, hard cap 200." }
                     },
                     required = Array.Empty<string>()
@@ -83,15 +87,17 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             new PresetField { Id = "floorIds", Label = "Floors", Kind = PresetFieldKind.PickElements, Category = "floors", Prompt = "Pick floors, then Finish." },
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick beams that split the floors, then Finish." },
-            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick columns for openings, then Finish." }
+            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick columns for openings, then Finish." },
+            new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json =>
         {
             var args = Args.Parse(json);
+            var dryRun = ToolPresets.IsDryRun(json);
             return await context.FullAccess!.RunRevitAsync(session =>
             {
                 var uiApp = session.As<UIApplication>();
-                return FloorSplit.Run(uiApp, args.Strings("floorIds"), args.Strings("beamIds"), args.Strings("columnIds"), args.Limit());
+                return FloorSplit.Run(uiApp, args.Strings("floorIds"), args.Strings("beamIds"), args.Strings("columnIds"), args.Limit(), dryRun);
             });
         }
     };

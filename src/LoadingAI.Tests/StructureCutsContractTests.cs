@@ -33,11 +33,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion120()
+    public void PluginJson_IsVersion130()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.2.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.3.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -121,6 +121,67 @@ public class StructureCutsContractTests
             Assert.DoesNotContain("PickObjects", text, StringComparison.Ordinal);
             Assert.DoesNotContain("Selection.Pick", text, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void DryRunPreset_IsOptionalBooleanDefaultFalse()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
+        var preset = "new PresetField { Id = \"dryRun\", Label = \"Dry-run (count only)\", Kind = PresetFieldKind.Boolean, Default = false }";
+        Assert.Equal(2, CountOccurrences(src, preset));
+        Assert.Contains("dryRun = new { type = \"boolean\"", src, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DryRun_ReadsThroughSharedHelper_AndSkipsEveryWrite()
+    {
+        var root = RepoRoot();
+        var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
+
+        // Same helper the host gates the L3 confirm with, so both sides agree.
+        Assert.Equal(2, CountOccurrences(src, "ToolPresets.IsDryRun(json)"));
+
+        var beam = File.ReadAllText(Path.Combine(pluginDir, "BeamSplit.cs"));
+        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+
+        Assert.Contains("bool dryRun = false", beam, StringComparison.Ordinal);
+        Assert.Contains("bool dryRun = false", floor, StringComparison.Ordinal);
+        Assert.Contains("Dry-run. ", beam, StringComparison.Ordinal);
+        Assert.Contains("Dry-run. ", floor, StringComparison.Ordinal);
+
+        // The transaction is only created on the write path, and the floor dry-run branch
+        // returns before ParamCopy.Take / CreateFloor / doc.Delete.
+        Assert.Contains("dryRun ? null : new Transaction(", beam, StringComparison.Ordinal);
+        Assert.Contains("dryRun ? null : new Transaction(", floor, StringComparison.Ordinal);
+        Assert.Contains("if (dryRun && error == \"dryrun\")", floor, StringComparison.Ordinal);
+
+        var dryStart = floor.IndexOf("if (dryRun)", StringComparison.Ordinal);
+        var writeStart = floor.IndexOf("var snap = ParamCopy.Take", StringComparison.Ordinal);
+        Assert.True(dryStart >= 0 && writeStart > dryStart, "FloorSplit must branch on dryRun before the write path.");
+        var dryBranch = floor.Substring(dryStart, writeStart - dryStart);
+        Assert.Contains("\"dryrun\"", dryBranch, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PluginJson_DescribesDryRunOnBothTools()
+    {
+        var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
+        using var doc = JsonDocument.Parse(json);
+        foreach (var tool in doc.RootElement.GetProperty("tools").EnumerateArray())
+        {
+            var desc = tool.GetProperty("description").GetString() ?? "";
+            Assert.Contains("dryRun", desc, StringComparison.Ordinal);
+            Assert.Contains("count only", desc, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     private static string RepoRoot()
