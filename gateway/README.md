@@ -55,7 +55,7 @@ On the VM (Debian/Ubuntu, **Node 22.5 or newer** – that is when `node:sqlite` 
 ```bash
 # copy gateway/ to the VM, e.g. from the checkout on your workstation:
 #   rsync -a --exclude node_modules --exclude '.wrangler' gateway/ vm:/tmp/gateway/
-sudo /tmp/gateway/deploy/install.sh /tmp/gateway
+sudo bash /tmp/gateway/deploy/install.sh /tmp/gateway
 ```
 
 `install.sh` creates the `loadingai` service account, installs the code under `/opt/loadingai-gateway`,

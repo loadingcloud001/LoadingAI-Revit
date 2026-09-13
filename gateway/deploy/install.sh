@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installs the LoadingAI gateway on a Debian/Ubuntu VM as a systemd service.
 #
-#   sudo ./gateway/deploy/install.sh            # from the checkout root
-#   sudo ./install.sh /tmp/gateway              # or from a copied directory
+#   sudo bash gateway/deploy/install.sh            # from the checkout root
+#   sudo bash /tmp/gateway/deploy/install.sh /tmp/gateway
 #
 # Idempotent: re-running updates the code and restarts the service, but never
 # overwrites /etc/loadingai-gateway.env once it exists. The upstream key and the
