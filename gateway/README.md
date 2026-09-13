@@ -1,15 +1,20 @@
 # LoadingAI free-tier gateway
 
-The LoadingAI add-in's built-in provider ("LoadingAI", included free) talks to this Worker instead of
-calling the model vendor directly. The worker:
+The LoadingAI add-in's built-in provider ("LoadingAI", included free) talks to this gateway instead
+of calling the model vendor directly. The gateway:
 
-* holds the upstream API key as a Cloudflare Worker **secret** – the key is never in the add-in DLL;
-* allows **100 chat sends per device per UTC day**, counted in Workers KV;
+* holds the upstream API key in an environment file on the VM – the key is never in the add-in DLL,
+  never in git, and never in a Cloudflare variable;
+* allows **100 chat sends per device per UTC day**, counted in SQLite on the VM;
 * signs a ticket per send, so one send can make many upstream calls (tool rounds) without spending
   more than one unit of quota.
 
 A ticket is a signature, not a stored record: it carries `<device>.<expiry>` signed with HMAC. That
 costs nothing to keep and means a long agent run never loses its ticket mid-flight.
+
+The same request handler (`src/index.js`) runs two ways: as a Cloudflare Worker (for `wrangler dev`
+and for tests) and as a plain Node process (`src/server.mjs`) on the VM. Only the transport and the
+counter store differ – `src/quota.js` and the routes are shared, so behaviour cannot drift.
 
 ## Routes
 
@@ -26,51 +31,116 @@ Headers the add-in sends:
 * `X-LoadingAI-Device` – an anonymous GUID from `%AppData%\LoadingAI\device.json`.
 * `X-LoadingAI-Ticket` – from the last successful `POST /v1/quota`. Valid 30 minutes by default.
 
-Any `Authorization` header from the client is dropped; only the Worker secret reaches the model.
+Any `Authorization` header from the client is dropped; only the server-side key reaches the model.
 Streaming responses (`stream: true`) are piped straight through, so the in-chat progress bar works.
 
-## One-time deployment
+## Production topology
 
-```powershell
-cd gateway
-npx wrangler login
-npx wrangler kv namespace create QUOTA
-#   copy the printed id into wrangler.toml -> [[kv_namespaces]].id
-npx wrangler secret put MINIMAX_API_KEY   # paste the MiniMax key, never commit it
-npx wrangler deploy
+```
+add-in  ──https──▶  Cloudflare  ──tunnel──▶  cloudflared (VM)  ──http──▶  127.0.0.1:8787  ──https──▶  MiniMax
+              gateway.loadingtechnology.app        node src/server.mjs              api.minimaxi.com
 ```
 
-`wrangler deploy` prints the public URL. Point the add-in at it by editing
-`DefaultLlm.PublicGatewayBaseUrl` in `src/LoadingAI.Core/Llm/DefaultLlm.cs`, or without rebuilding by
-setting the environment variable `LOADINGAI_GATEWAY_URL` to e.g.
-`https://loadingai-gateway.<your-subdomain>.workers.dev/v1`.
+* `cloudflared` dials out to Cloudflare, so the VM needs **no inbound ports** and no public IP – the
+  origin is reachable only through the tunnel.
+* The Node process binds `127.0.0.1:8787`, so even on the VM itself other users cannot reach it.
+* Cloudflare holds no secret beyond its own tunnel credential; the upstream key lives only in
+  `/etc/loadingai-gateway.env` (mode `600`, root-owned).
+* Cloudflare terminates TLS with an edge certificate for the zone, and the tunnel hop is encrypted.
+
+## Deploying (maintainer, one time)
+
+On the VM (Debian/Ubuntu, **Node 22.5 or newer** – that is when `node:sqlite` appeared):
+
+```bash
+sudo useradd --system --home /opt/loadingai-gateway --shell /usr/sbin/nologin loadingai
+
+sudo mkdir -p /opt/loadingai-gateway /var/lib/loadingai-gateway
+# copy gateway/ to the VM, e.g. from the checkout on your workstation:
+#   rsync -a --exclude node_modules --exclude '.wrangler' gateway/ vm:/tmp/gateway/
+sudo cp -r /tmp/gateway/. /opt/loadingai-gateway/
+sudo chown -R loadingai:loadingai /opt/loadingai-gateway /var/lib/loadingai-gateway
+
+# secrets: root-owned, 600, never committed
+sudo install -m 600 -o root -g root /opt/loadingai-gateway/deploy/env.example /etc/loadingai-gateway.env
+sudo nano /etc/loadingai-gateway.env          # MINIMAX_API_KEY=...  TICKET_SECRET=$(openssl rand -hex 32)
+
+sudo install -m 644 /opt/loadingai-gateway/deploy/loadingai-gateway.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now loadingai-gateway
+curl -s http://127.0.0.1:8787/health          # -> {"status":"ok",...}
+```
+
+Then the tunnel. The quickest route is the Zero Trust dashboard, which hands you a token-managed
+connector and creates the DNS record for you:
+
+1. **Networking → Tunnels → Create a tunnel**, name it `loadingai-gateway`, choose Debian/Ubuntu.
+2. **Routes → Add route → Published application**: subdomain `gateway`, domain
+   `loadingtechnology.app`, service URL `http://127.0.0.1:8787`. That is exactly the ingress rule in
+   `deploy/tunnel-config.json`.
+3. Run the install command the dashboard shows on the VM, then start it:
+
+```bash
+sudo <the dashboard's install command>          # writes /etc/cloudflared and its own unit
+sudo systemctl enable --now cloudflared
+systemctl status cloudflared                    # expect "Registered tunnel connection"
+```
+
+To use our hardened unit instead, create the `cloudflared` service account and hand the connector its
+token from a `600` file, so it never lands in shell history or in the process list:
+
+```bash
+sudo useradd --system --home /etc/cloudflared --shell /usr/sbin/nologin cloudflared
+sudo mkdir -p /etc/cloudflared
+sudo install -m 600 -o cloudflared -g cloudflared /dev/null /etc/cloudflared/loadingai-tunnel.env
+sudo nano /etc/cloudflared/loadingai-tunnel.env   # TUNNEL_TOKEN=<token from the dashboard>
+sudo install -m 644 /opt/loadingai-gateway/deploy/cloudflared.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared
+```
+
+For a locally-managed tunnel instead (`cloudflared tunnel create`, credentials JSON on the VM), put
+the same ingress in `/etc/cloudflared/config.yml` — start from `deploy/config.yml.example` — route
+DNS with `cloudflared tunnel route dns loadingai-gateway gateway.loadingtechnology.app`, and set
+`TUNNEL_ID` in place of `TUNNEL_TOKEN`. `deploy/tunnel-config.json` is the same ingress as an API
+body, for `PUT /accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations`.
+
+The add-in reaches the gateway at the constant in `DefaultLlm.PublicGatewayBaseUrl`
+(`https://gateway.loadingtechnology.app/v1`). To point a build somewhere else without editing code,
+set `LOADINGAI_GATEWAY_URL` (e.g. `http://127.0.0.1:8787/v1` for local work).
 
 ## Configuration
 
-| Name | Where | Default | Purpose |
-| --- | --- | --- | --- |
-| `MINIMAX_API_KEY` | secret | – | upstream key, also the ticket signing secret when `TICKET_SECRET` is unset |
-| `TICKET_SECRET` | secret | `MINIMAX_API_KEY` | set it to decouple ticket signing from the upstream key |
-| `MINIMAX_BASE_URL` | `[vars]` | `https://api.minimaxi.com/v1` | upstream base, includes `/v1` |
-| `MINIMAX_MODEL` | `[vars]` | `MiniMax-M3` | model forced on every proxied call |
-| `DAILY_LIMIT` | `[vars]` | `100` | sends per device per UTC day |
-| `TICKET_TTL_SECONDS` | `[vars]` | `1800` | how long a send's ticket stays valid |
+Set in `/etc/loadingai-gateway.env` (see `deploy/env.example`):
+
+| Name | Default | Purpose |
+| --- | --- | --- |
+| `MINIMAX_API_KEY` | – | upstream key. Rotate it if it was ever stored anywhere else |
+| `TICKET_SECRET` | `MINIMAX_API_KEY` | set it (32 random bytes) to decouple ticket signing from the upstream key |
+| `MINIMAX_BASE_URL` | `https://api.minimaxi.com/v1` | upstream base, includes `/v1` |
+| `MINIMAX_MODEL` | `MiniMax-M3` | model forced on every proxied call |
+| `DAILY_LIMIT` | `100` | sends per device per UTC day |
+| `TICKET_TTL_SECONDS` | `1800` | how long a send's ticket stays valid |
+| `HOST` | `127.0.0.1` | bind address – leave on loopback |
+| `PORT` | `8787` | must match the tunnel ingress service |
+| `QUOTA_DB` | `quota.db` | counter database; `/var/lib/loadingai-gateway/quota.db` in the unit |
 
 ## Local development
 
 ```powershell
 cd gateway
-npm test                      # unit tests, no network, no Cloudflare account
-npx wrangler dev              # local worker on http://127.0.0.1:8787
+npm test                      # 42 tests, no network, no Cloudflare account
+npm start                     # Node transport on http://127.0.0.1:8787, SQLite in ./quota.db
+npx wrangler dev              # optional: the Worker transport, counters in a local KV shim
 ```
 
-To drive the add-in against the local worker, set `LOADINGAI_GATEWAY_URL=http://127.0.0.1:8787/v1`
+`npm start` reads the same environment variables and warns when `MINIMAX_API_KEY` or `TICKET_SECRET`
+are missing. To drive the add-in against it, set `LOADINGAI_GATEWAY_URL=http://127.0.0.1:8787/v1`
 before starting Revit. `DEVICE` below stands for the value in `%AppData%\LoadingAI\device.json`.
 
 ## Verifying a deployment
 
 ```powershell
-$base = 'https://loadingai-gateway.<your-subdomain>.workers.dev'
+$base = 'https://gateway.loadingtechnology.app'
 $device = (Get-Content "$env:AppData\LoadingAI\device.json" | ConvertFrom-Json).id
 
 curl.exe -s "$base/health"
@@ -84,26 +154,36 @@ curl.exe -s -X POST -H "x-loadingai-device: $device" -H "x-loadingai-ticket: $ti
 ```
 
 The `POST /v1/quota` above costs one unit, exactly like a chat Send. Repeat it 100 times and the
-101st answers `429` with `code: "daily_limit"` and a `resetUtc` timestamp.
+101st answers `429` with `code: "daily_limit"` and a `resetUtc` timestamp. A missing, wrong-device or
+expired ticket answers `401`; a device id that is not 8–64 URL-safe characters answers `400`.
+
+## Operations
+
+```bash
+sudo systemctl status loadingai-gateway cloudflared
+journalctl -u loadingai-gateway -n 50            # one line per request, no keys and no bodies
+sudo systemctl restart loadingai-gateway         # counters survive: they are in SQLite
+sqlite3 /var/lib/loadingai-gateway/quota.db 'select key, value from kv order by key limit 20'
+```
+
+Update by re-copying the directory, then `sudo systemctl restart loadingai-gateway` – restarting never
+resets anyone's counter. Back up `quota.db` (plus its `-wal` file) if you care about the current day's
+counts; the data is disposable, so a lost database just hands everyone a fresh allowance.
 
 ## Limits of this design
 
-The daily cap is an allowance check, not tamper-proof licensing: the device id is
-generated on the client, so a determined user can reset it. The security win is that the upstream
-key is not distributable, and that quota is enforced server-side rather than by the add-in.
+The daily cap is an allowance check, not tamper-proof licensing: the device id is generated on the
+client, so a determined user can reset it. The security win is that the upstream key is not
+distributable, and that quota is enforced server-side rather than by the add-in.
 
-KV is eventually consistent, so simultaneous sends from one device can read the same counter. The
-add-in sends serially, so the practical overshoot is a unit or two. A Durable Object fixes both that
-and the free-plan write cap below; switch to one when the user base outgrows KV.
+SQLite replaces the earlier Workers KV store because one send costs one KV **write** and Cloudflare's
+free plan allows only 1,000 writes/day (~10 active users at 100/day). One row per device per UTC day
+is written here, in WAL mode, so tens of thousands of devices fit in one small file. The trades are
+that the counters are ours to back up, and that the VM and the tunnel are now on the request path.
 
 A ticket stays valid for `TICKET_TTL_SECONDS` and can accompany many upstream calls in that window,
 which is what lets one Send drive several tool rounds. A user who scripts the endpoint directly could
 stretch one unit that way; lower the TTL to tighten that gap.
 
-## Cloudflare plan
-
-One send costs one KV **write** (the day counter) and the ticket costs none. Cloudflare's free plan
-allows 1,000 KV writes per day, so the free plan caps the whole user base at roughly 1,000 sends/day
-– about ten active users at the full 100/day allowance. The Workers Paid plan (USD 5/month) raises
-that to 1,000,000 writes/day. Check the numbers before promoting the add-in widely, and watch the
-KV write metric in the Cloudflare dashboard.
+If the VM ever becomes a bottleneck, the same `src/index.js` handler runs unchanged on Cloudflare
+Workers with a Durable Object (or the paid KV plan) in place of `sqlite-kv.js`.

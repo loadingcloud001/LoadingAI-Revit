@@ -18,8 +18,11 @@ public static class DefaultLlm
     public const string Group = "cloud";
     public const string Icon = "✦";
 
-    /// <summary>Shipped gateway endpoint. Bump this when the Worker is redeployed elsewhere.</summary>
-    public const string PublicGatewayBaseUrl = "https://loadingai-gateway.loadingai.workers.dev/v1";
+    /// <summary>
+    /// Shipped gateway endpoint: Cloudflare in front of the LoadingAI VM, which holds the upstream
+    /// key. Bump this when the hostname changes.
+    /// </summary>
+    public const string PublicGatewayBaseUrl = "https://gateway.loadingtechnology.app/v1";
 
     /// <summary>Upstream called directly only by the development escape hatch below.</summary>
     public const string DirectApiBaseUrl = "https://api.minimaxi.com/v1";

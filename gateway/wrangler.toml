@@ -1,8 +1,12 @@
-# LoadingAI free-tier gateway.
+# LoadingAI free-tier gateway — local Worker emulation only.
 #
-# The upstream model key is a Worker secret:
-#   npx wrangler secret put MINIMAX_API_KEY
-# It is never shipped in the add-in.
+# Production does NOT run here: it runs as a Node service on our VM behind a
+# Cloudflare Tunnel (see README.md and deploy/). This file is kept so
+# `npx wrangler dev` can exercise the Worker transport with a local KV shim.
+#
+# If this path is ever promoted to production, the upstream key is a Worker
+# secret (`npx wrangler secret put MINIMAX_API_KEY`) and is never shipped in
+# the add-in.
 
 name = "loadingai-gateway"
 main = "src/index.js"

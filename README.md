@@ -32,19 +32,9 @@ A "request" is one message you send; the tool calls the model makes while answer
 
 ## The LoadingAI gateway
 
-The built-in provider never talks to the upstream vendor directly from your machine. It calls a small Cloudflare Worker (`gateway/`) that holds the upstream credential as a secret, checks the device's daily allowance, and streams the answer back. Requests carry a random device id (`%AppData%\LoadingAI\device.json`) and a short-lived ticket issued for that one message; no key is stored on the client and none is compiled into the add-in.
+The built-in provider never talks to the upstream vendor directly from your machine. It calls a small gateway (`gateway/`) that holds the upstream credential, checks the device's daily allowance, and streams the answer back. Requests carry a random device id (`%AppData%\LoadingAI\device.json`) and a short-lived ticket issued for that one message; no key is stored on the client and none is compiled into the add-in.
 
-Setup (one time, maintainer only, needs a Cloudflare account):
-
-```powershell
-cd gateway
-npm install
-npx wrangler kv namespace create QUOTA          # paste the id into wrangler.toml
-npx wrangler secret put MINIMAX_API_KEY         # type the key when prompted — never commit it
-npx wrangler deploy                             # prints the public URL
-```
-
-Then set that URL in `DefaultLlm.PublicGatewayBaseUrl` (or point `LOADINGAI_GATEWAY_URL` at it for local testing) and rebuild. See [`gateway/README.md`](gateway/README.md) for routes, headers, quota rules and local dev.
+The gateway is a small Node service on our VM, reached over a Cloudflare Tunnel at `https://gateway.loadingtechnology.app/v1`. The upstream key lives only in a root-owned `600` environment file on that VM — never in git, never in a Cloudflare variable, never in the DLL. The daily counters are SQLite on the same VM, so one send costs one row rather than one Cloudflare KV write. Deploy steps are in [`gateway/README.md`](gateway/README.md); the add-in finds the default endpoint through `DefaultLlm.PublicGatewayBaseUrl`, and `LOADINGAI_GATEWAY_URL` overrides it at runtime for local testing.
 
 Release builds contain no upstream key: packing one is an explicit, dev-only opt-in (`dotnet build ... -p:PackDefaultLlmKey=true` plus `LOADINGAI_DIRECT_MINIMAX=1`), and CI fails if a generated `DefaultLlmKey.g.cs` shows up in a release.
 
@@ -81,7 +71,7 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2027   # also 2024, 2025, 2026
 | `src/LoadingAI.RevitUtil` | Parse helpers for FullAccess plugins |
 | `Plugins/` | Shipped plugins (Core + RevitUtil, never the host) |
 | `web/` | Vite + React pane |
-| `gateway/` | Cloudflare Worker that holds the upstream key and enforces the 100/day free allowance |
+| `gateway/` | The free-tier gateway: request handler, SQLite counters, Node transport and systemd/cloudflared templates |
 | `CONTRIBUTING.md` | How to add a plugin |
 
 CI (`.github/workflows/ci.yml`) builds 2024–2027 and tests 2027.
