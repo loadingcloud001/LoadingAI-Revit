@@ -33,11 +33,38 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion110()
+    public void PluginJson_IsVersion111()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.1.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.1.1", doc.RootElement.GetProperty("version").GetString());
+    }
+
+    [Fact]
+    public void PluginClass_ReportsSameVersionAsPluginJson()
+    {
+        var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
+        using var doc = JsonDocument.Parse(json);
+        var declared = doc.RootElement.GetProperty("version").GetString();
+
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
+        Assert.Contains($"public string Version => \"{declared}\";", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PluginShipsIsExternalInitPolyfill_ForNet48InitAccessors()
+    {
+        var root = RepoRoot();
+        var polyfillPath = Path.Combine(root, "Plugins", "structure-cuts", "IsExternalInit.cs");
+        Assert.True(File.Exists(polyfillPath), "structure-cuts must ship its own IsExternalInit polyfill for Revit 2024 (net48).");
+
+        var polyfill = File.ReadAllText(polyfillPath);
+        Assert.Contains("#if NETFRAMEWORK", polyfill, StringComparison.Ordinal);
+        Assert.Contains("namespace System.Runtime.CompilerServices", polyfill, StringComparison.Ordinal);
+        Assert.Contains("class IsExternalInit", polyfill, StringComparison.Ordinal);
+
+        var paramCopy = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs"));
+        Assert.Contains("get; init;", paramCopy, StringComparison.Ordinal);
     }
 
     [Fact]

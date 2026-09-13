@@ -29,7 +29,7 @@ internal static class ParamCopy
             try { name = p.Definition?.Name; }
             catch { continue; }
             if (string.IsNullOrEmpty(name)) continue;
-            if (name.Contains("Extension", StringComparison.OrdinalIgnoreCase)) continue;
+            if (name.IndexOf("Extension", StringComparison.OrdinalIgnoreCase) >= 0) continue;
 
             var builtIn = BuiltInOf(p);
             try
