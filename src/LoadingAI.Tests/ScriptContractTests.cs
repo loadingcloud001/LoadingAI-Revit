@@ -42,6 +42,32 @@ public class ScriptContractTests
     }
 
     [Fact]
+    public void GatewayAndClient_AgreeOnHeadersAndQuotaFields()
+    {
+        var worker = File.ReadAllText(Path.Combine(RepoRoot(), "gateway", "src", "index.js"));
+        var quota = File.ReadAllText(Path.Combine(RepoRoot(), "gateway", "src", "quota.js"));
+        var client = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "BuiltinQuota.cs"));
+
+        Assert.Contains("'x-loadingai-device'", worker);
+        Assert.Contains("'x-loadingai-ticket'", worker);
+        Assert.Contains("X-LoadingAI-Device", client);
+        Assert.Contains("X-LoadingAI-Ticket", client);
+
+        foreach (var field in new[] { "\"limit\"", "\"used\"", "\"remaining\"", "\"resetUtc\"", "\"ticket\"" })
+            Assert.Contains(field, client);
+
+        Assert.Contains("DEFAULT_LIMIT = 100", quota);
+        Assert.Contains("DailyLimit = 100", client);
+    }
+
+    [Fact]
+    public void FreeAllowance_IsDescribedInThePane()
+    {
+        var tsx = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        Assert.Contains("100 requests per day per device", tsx);
+    }
+
+    [Fact]
     public void ReleaseYml_BuildAndPack_SerializeMsBuild()
     {
         var yml = File.ReadAllText(Path.Combine(RepoRoot(), ".github", "workflows", "release.yml"));
@@ -50,8 +76,8 @@ public class ScriptContractTests
         Assert.Contains("-m:1", yml);
         Assert.Contains("pack-addin.ps1", yml);
         Assert.Contains("-SkipBuild", yml);
-        Assert.Contains("LOADINGAI_DEFAULT_KEY", yml);
-        Assert.Contains("LOADINGAI_DEFAULT_KEY is empty", yml);
+        Assert.DoesNotContain("LOADINGAI_DEFAULT_KEY", yml);
+        Assert.Contains("DefaultLlmKey.g.cs", yml);
     }
 
     [Fact]
@@ -60,6 +86,16 @@ public class ScriptContractTests
         var csproj = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "LoadingAI.Core.csproj"));
         Assert.DoesNotContain("IgnoreExitCode", csproj);
         Assert.Contains("gen-default-llm-key.ps1", csproj);
+        Assert.Contains("PackDefaultLlmKey", csproj);
+        Assert.Contains("LOADINGAI_PACKED_KEY", csproj);
+    }
+
+    [Fact]
+    public void GenDefaultLlmKey_CompilesBytesOnlyUnderThePackedDefine()
+    {
+        var ps1 = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "gen-default-llm-key.ps1"));
+        Assert.Contains("#if LOADINGAI_PACKED_KEY", ps1);
+        Assert.Contains("#endif", ps1);
     }
 
     [Fact]

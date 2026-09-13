@@ -201,6 +201,26 @@ public partial class HostPage : Page
         return $"Active: {active.Name} | {active.BaseUrl} | {active.Model}";
     }
 
+    /// <summary>Sends the free-tier allowance to the pane. Never includes the ticket.</summary>
+    private void PostQuota(QuotaStatus quota)
+    {
+        PostToWeb(new
+        {
+            type = "quota",
+            quota = new
+            {
+                providerId = DefaultLlm.Id,
+                limit = quota.Limit,
+                used = quota.Used,
+                remaining = quota.Remaining,
+                resetUtc = quota.ResetUtc,
+                exhausted = quota.Exhausted,
+                ok = quota.Ok,
+                message = quota.Message
+            }
+        });
+    }
+
     private ProviderConfig? ResolveProviderForTest(JsonDocument doc)
     {
         try
@@ -262,6 +282,16 @@ public partial class HostPage : Page
                 case "requestSettings":
                     PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
                     PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            if (!DefaultLlm.HasKey) return;
+                            var quota = await _client.PeekBuiltinQuotaAsync();
+                            Dispatcher.Invoke(() => PostQuota(quota));
+                        }
+                        catch { }
+                    });
                     break;
 
                 case "saveSettings":
@@ -289,26 +319,32 @@ public partial class HostPage : Page
                         var prov = ResolveProviderForTest(doc);
                         if (prov == null) { PostToWeb(new { type = "testResult", ok = false, message = "Provider not found." }); break; }
                         PostToWeb(new { type = "status", text = $"Testing {prov.Name}..." });
+                        if (DefaultLlm.IsBuiltin(prov.Id))
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                var quota = await _client.PeekBuiltinQuotaAsync();
+                                var msg = quota.Ok
+                                    ? $"{DefaultLlm.DisplayName} is reachable. {quota.Remaining} of {quota.Limit} free requests left today."
+                                    : quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable.";
+                                Dispatcher.Invoke(() =>
+                                {
+                                    PostQuota(quota);
+                                    PostToWeb(new { type = "testResult", ok = quota.Ok, message = msg, providerId = prov.Id, models = new List<string> { DefaultLlm.DisplayModel } });
+                                });
+                            });
+                            break;
+                        }
                         _ = Task.Run(async () =>
                         {
                             try
                             {
                                 var (ok, msg, models) = await _client.TestAsync(prov);
-                                if (DefaultLlm.IsBuiltin(prov.Id))
-                                {
-                                    models = new List<string> { DefaultLlm.DisplayModel };
-                                    msg = ok
-                                        ? $"{DefaultLlm.DisplayName} is reachable."
-                                        : $"{DefaultLlm.DisplayName} is unavailable.";
-                                }
                                 Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok, message = msg, models, providerId = prov.Id }));
                             }
                             catch (Exception ex)
                             {
-                                var fail = DefaultLlm.IsBuiltin(prov.Id)
-                                    ? $"{DefaultLlm.DisplayName} is unavailable."
-                                    : ex.Message;
-                                Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = fail, providerId = prov.Id }));
+                                Dispatcher.Invoke(() => PostToWeb(new { type = "testResult", ok = false, message = ex.Message, providerId = prov.Id }));
                             }
                         });
                         break;
@@ -596,12 +632,17 @@ public partial class HostPage : Page
                             PostToWeb(new { type = "error", text = "No provider configured." });
                             break;
                         }
-                        if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
+                        if (DefaultLlm.IsBuiltin(provider.Id))
                         {
-                            var missing = DefaultLlm.IsBuiltin(provider.Id)
-                                ? $"{DefaultLlm.DisplayName} is not available in this build."
-                                : $"Provider '{provider.Name}' has no API key. Open Settings and paste your key.";
-                            PostToWeb(new { type = "error", text = missing });
+                            if (!DefaultLlm.HasKey)
+                            {
+                                PostToWeb(new { type = "error", text = $"{DefaultLlm.DisplayName} is not available in this build." });
+                                break;
+                            }
+                        }
+                        else if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
+                        {
+                            PostToWeb(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });
                             break;
                         }
 
@@ -612,6 +653,22 @@ public partial class HostPage : Page
                         }
 
                         _isRunning = true;
+
+                        // The free tier counts one unit per send; the ticket it returns covers
+                        // every model call this run makes.
+                        if (DefaultLlm.IsBuiltin(provider.Id))
+                        {
+                            PostToWeb(new { type = "status", text = $"Checking {DefaultLlm.DisplayName} allowance..." });
+                            var quota = await _client.ConsumeBuiltinQuotaAsync();
+                            PostQuota(quota);
+                            if (!quota.Ok)
+                            {
+                                _isRunning = false;
+                                PostToWeb(new { type = "error", text = quota.Exhausted ? BuiltinQuota.LimitMessage(quota) : quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable." });
+                                break;
+                            }
+                        }
+
                         _cts?.Dispose();
                         _cts = new CancellationTokenSource();
                         var ct = _cts.Token;
@@ -712,6 +769,7 @@ public partial class HostPage : Page
                             }
                             finally
                             {
+                                BuiltinQuota.ClearTicket();
                                 Dispatcher.Invoke(() =>
                                 {
                                     _isRunning = false;

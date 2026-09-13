@@ -1,0 +1,10 @@
+{
+  "name": "loadingai-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LoadingAI free-tier gateway: proxies chat completions to the upstream model and enforces a per-device daily quota.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

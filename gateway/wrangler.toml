@@ -1,0 +1,26 @@
+# LoadingAI free-tier gateway.
+#
+# The upstream model key is a Worker secret:
+#   npx wrangler secret put MINIMAX_API_KEY
+# It is never shipped in the add-in.
+
+name = "loadingai-gateway"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[observability]
+enabled = true
+
+# One counter per device per UTC day. Send tickets are signed, not stored.
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[vars]
+# Base URL including the API version segment.
+MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
+MINIMAX_MODEL = "MiniMax-M3"
+DAILY_LIMIT = "100"
+# Optional: tickets are signed with MINIMAX_API_KEY unless TICKET_SECRET is set.
+# TICKET_SECRET = "..."        # prefer: npx wrangler secret put TICKET_SECRET
+TICKET_TTL_SECONDS = "1800"

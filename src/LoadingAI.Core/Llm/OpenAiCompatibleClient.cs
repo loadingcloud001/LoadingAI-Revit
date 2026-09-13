@@ -206,8 +206,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
     {
         var url = BuildModelsUrl(provider.BaseUrl);
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        if (!string.IsNullOrWhiteSpace(provider.ApiKey))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(req, provider);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(15));
         using var resp = await _http.SendAsync(req, cts.Token);
@@ -296,8 +295,13 @@ public sealed class OpenAiCompatibleClient : IDisposable
         Action<string>? onDelta,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(provider.ApiKey) && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        if (!DefaultLlm.IsBuiltin(provider.Id)
+            && string.IsNullOrWhiteSpace(provider.ApiKey)
+            && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Provider '{provider.Name}' has no API key. Please add it in settings.");
+
+        if (DefaultLlm.IsBuiltin(provider.Id) && !DefaultLlm.DirectUpstreamEnabled && BuiltinQuota.Ticket == null)
+            throw new InvalidOperationException($"{DefaultLlm.DisplayName} has no active request ticket. Send your message again to start a new request.");
 
         var kind = ResolveApiKind(provider);
         if (kind == "anthropic")
@@ -358,7 +362,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
 
         using var resp = await _http.SendAsync(httpReq, ct);
         var body = await resp.Content.ReadAsStringAsync();
@@ -374,7 +378,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
             }
             catch { }
             LogHttpFailure("chat.once", provider, messages, tools, json, (int)resp.StatusCode, body);
-            if ((int)resp.StatusCode == 401) throw new HttpRequestException($"Provider '{provider.Name}' key invalid or expired (401): {err}. Open Settings and check your API key.");
+            if ((int)resp.StatusCode == 401 && !DefaultLlm.IsBuiltin(provider.Id)) throw new HttpRequestException($"Provider '{provider.Name}' key invalid or expired (401): {err}. Open Settings and check your API key.");
             throw new HttpRequestException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {err}");
         }
 
@@ -414,7 +418,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
@@ -582,7 +586,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
         httpReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
         using var resp = await _http.SendAsync(httpReq, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -703,6 +707,101 @@ public sealed class OpenAiCompatibleClient : IDisposable
             });
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Credentials for one request. The built-in provider authenticates with the
+    /// anonymous device id plus the ticket from its last send; every other
+    /// provider uses its own bearer key.
+    /// </summary>
+    private static void ApplyAuth(HttpRequestMessage req, ProviderConfig provider)
+    {
+        if (DefaultLlm.IsBuiltin(provider.Id))
+        {
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
+            var ticket = BuiltinQuota.Ticket;
+            if (!string.IsNullOrWhiteSpace(ticket))
+                req.Headers.TryAddWithoutValidation(BuiltinQuota.TicketHeader, ticket);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(provider.ApiKey))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+    }
+
+    /// <summary>Spends one free request for this device and keeps the returned ticket.</summary>
+    public Task<QuotaStatus> ConsumeBuiltinQuotaAsync(CancellationToken ct = default)
+        => SendQuotaAsync(HttpMethod.Post, ct);
+
+    /// <summary>Reads the remaining free allowance without spending it.</summary>
+    public Task<QuotaStatus> PeekBuiltinQuotaAsync(CancellationToken ct = default)
+        => SendQuotaAsync(HttpMethod.Get, ct);
+
+    private async Task<QuotaStatus> SendQuotaAsync(HttpMethod method, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(method, BuildQuotaUrl(DefaultLlm.GatewayBaseUrl));
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(20));
+            using var resp = await _http.SendAsync(req, cts.Token);
+            var body = await resp.Content.ReadAsStringAsync();
+            var status = ParseQuota(body) ?? new QuotaStatus();
+
+            if (method == HttpMethod.Post)
+            {
+                if (resp.IsSuccessStatusCode) BuiltinQuota.SetTicket(status.Ticket);
+                else BuiltinQuota.ClearTicket();
+            }
+
+            if (resp.IsSuccessStatusCode)
+            {
+                status.Ok = true;
+                return status;
+            }
+
+            status.Ok = false;
+            status.Exhausted = string.Equals(status.Error?.Code, "daily_limit", StringComparison.OrdinalIgnoreCase)
+                || (int)resp.StatusCode == 429;
+            status.Message = status.Exhausted
+                ? BuiltinQuota.LimitMessage(status)
+                : !string.IsNullOrWhiteSpace(status.Error?.Message)
+                    ? status.Error!.Message!
+                    : $"{DefaultLlm.DisplayName} gateway error (HTTP {(int)resp.StatusCode}). Try again, or add your own API key in Settings.";
+            return status;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return QuotaUnreachable($"{DefaultLlm.DisplayName} gateway timed out. Check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            return QuotaUnreachable($"{DefaultLlm.DisplayName} gateway unreachable: {ex.Message}");
+        }
+    }
+
+    private static QuotaStatus QuotaUnreachable(string message)
+        => new() { Ok = false, Message = message };
+
+    private static QuotaStatus? ParseQuota(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try { return JsonSerializer.Deserialize<QuotaStatus>(body); }
+        catch { return null; }
+    }
+
+    private static string BuildQuotaUrl(string baseUrl)
+    {
+        var url = (baseUrl ?? "").Trim().TrimEnd('/');
+        if (url.Length == 0) return "/v1/quota";
+        if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/chat/completions".Length);
+        else if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/responses".Length);
+        else if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/messages".Length);
+        return url + "/quota";
     }
 
     private static string BuildUrl(string baseUrl)
