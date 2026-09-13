@@ -81,6 +81,8 @@ export type ToHost =
   | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
   | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
+  | { type: 'submitPreset'; toolCallId: string; approved: boolean; values?: Record<string, unknown> }
+  | { type: 'presetPick'; toolCallId: string; fieldId: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
   | { type: 'setPluginTierEnabled'; tier: string; enabled: boolean }
@@ -124,12 +126,49 @@ export type ApprovalPayload = {
   description?: string;
 };
 
+export type PresetFieldKind = 'String' | 'Number' | 'Boolean' | 'Select' | 'PickElements' | 'PickBox';
+
+export type PresetFieldPayload = {
+  id: string;
+  label: string;
+  kind: PresetFieldKind;
+  required?: boolean;
+  options?: string[];
+  category?: string;
+  prompt?: string;
+};
+
+export type PresetPayload = {
+  toolCallId: string;
+  toolName: string;
+  tier?: string;
+  description?: string;
+  fields: PresetFieldPayload[];
+  values?: Record<string, unknown>;
+};
+
+export type PresetPickResult = {
+  toolCallId: string;
+  fieldId: string;
+  result?: {
+    ok?: boolean;
+    cancelled?: boolean;
+    error?: string;
+    ids?: string[];
+    box?: { minMm?: number[]; maxMm?: number[] };
+  };
+  ok?: boolean;
+  error?: string;
+};
+
 export type FromHost =
   | { type: 'status'; text: string }
   | { type: 'trace'; text: string }
   | { type: 'tool_call'; text: string }
   | { type: 'tool_result'; text: string }
   | { type: 'tool_approval'; approval: ApprovalPayload }
+  | { type: 'tool_preset'; preset: PresetPayload }
+  | { type: 'presetPickResult'; toolCallId: string; fieldId: string; result?: PresetPickResult['result']; ok?: boolean; error?: string }
   | { type: 'plan'; plan: PlanPayload }
   | { type: 'todo'; todos: TodoPayload[] }
   | { type: 'context'; context: ContextPayload }
