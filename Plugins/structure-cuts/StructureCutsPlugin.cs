@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.3.0";
+    public string Version => "1.4.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -26,7 +26,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_beams_by_columns",
-                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Copies instance parameters onto new pieces. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), dryRun boolean counts only without changing the model, limit default 50 max 200.",
+                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Straight and curved beams (curves are tessellated); cuts at the real column footprint, not a bounding box. Copies instance parameters onto new pieces unless copyParams is off. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -35,6 +35,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                         beamIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection filtered to structural framing." },
                         columnIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection columns, else all columns in the model." },
                         dryRun = new { type = "boolean", description = "Optional. When true, counts the beam splits and segments that would be created without modifying the model. Default false." },
+                        uniqueMark = new { type = "boolean", description = "Optional. When true, the first piece keeps the original Mark and later pieces become <Mark>-1, -2, ... Default false." },
+                        copyParams = new { type = "boolean", description = "Optional. When false, new pieces keep their type defaults instead of the original's instance parameters. Default true." },
                         limit = new { type = "integer", description = "Max beams to process. Default 50, hard cap 200." }
                     },
                     required = Array.Empty<string>()
@@ -45,16 +47,19 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
             new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick structural columns, then Finish." },
+            new PresetField { Id = "uniqueMark", Label = "Unique Marks (-1, -2, ...)", Kind = PresetFieldKind.Boolean, Default = false },
+            new PresetField { Id = "copyParams", Label = "Copy instance parameters", Kind = PresetFieldKind.Boolean, Default = true },
+            new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit },
             new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json =>
         {
             var args = Args.Parse(json);
-            var dryRun = ToolPresets.IsDryRun(json);
+            var options = Options(args, json);
             return await context.FullAccess!.RunRevitAsync(session =>
             {
                 var uiApp = session.As<UIApplication>();
-                return BeamSplit.Run(uiApp, args.Strings("beamIds"), args.Strings("columnIds"), args.Limit(), dryRun);
+                return BeamSplit.Run(uiApp, args.Strings("beamIds"), args.Strings("columnIds"), options);
             });
         }
     };
@@ -67,7 +72,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             Function = new ToolFunction
             {
                 Name = "split_floors_by_beams",
-                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Copies instance parameters onto new pieces. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, dryRun boolean counts only without changing the model, limit default 50 max 200. Skips sloped/curved.",
+                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Handles floors with openings, curved beams (tessellated) and real column footprints, and skips slabs it cannot rebuild exactly. Copies instance parameters onto new pieces unless copyParams is off. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -77,6 +82,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                         beamIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection framing, else beams whose bbox hits the floors." },
                         columnIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection columns, else columns whose bbox hits the floors." },
                         dryRun = new { type = "boolean", description = "Optional. When true, counts the floor regions and column openings that would be created without modifying the model. Default false." },
+                        uniqueMark = new { type = "boolean", description = "Optional. When true, the first piece keeps the original Mark and later pieces become <Mark>-1, -2, ... Default false." },
+                        copyParams = new { type = "boolean", description = "Optional. When false, new pieces keep their type defaults instead of the original's instance parameters. Default true." },
                         limit = new { type = "integer", description = "Max floors to process. Default 50, hard cap 200." }
                     },
                     required = Array.Empty<string>()
@@ -88,18 +95,33 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             new PresetField { Id = "floorIds", Label = "Floors", Kind = PresetFieldKind.PickElements, Category = "floors", Prompt = "Pick floors, then Finish." },
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick beams that split the floors, then Finish." },
             new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick columns for openings, then Finish." },
+            new PresetField { Id = "uniqueMark", Label = "Unique Marks (-1, -2, ...)", Kind = PresetFieldKind.Boolean, Default = false },
+            new PresetField { Id = "copyParams", Label = "Copy instance parameters", Kind = PresetFieldKind.Boolean, Default = true },
+            new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit },
             new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json =>
         {
             var args = Args.Parse(json);
-            var dryRun = ToolPresets.IsDryRun(json);
+            var options = Options(args, json);
             return await context.FullAccess!.RunRevitAsync(session =>
             {
                 var uiApp = session.As<UIApplication>();
-                return FloorSplit.Run(uiApp, args.Strings("floorIds"), args.Strings("beamIds"), args.Strings("columnIds"), args.Limit(), dryRun);
+                return FloorSplit.Run(uiApp, args.Strings("floorIds"), args.Strings("beamIds"), args.Strings("columnIds"), options);
             });
         }
+    };
+
+    /// <summary>
+    /// Builds the shared options. dryRun goes through <see cref="ToolPresets.IsDryRun"/> so the plugin
+    /// and the host's L3 write-confirm gate always agree on whether a call may write.
+    /// </summary>
+    private static SplitOptions Options(in Args args, string json) => new()
+    {
+        Limit = args.Limit(),
+        DryRun = ToolPresets.IsDryRun(json),
+        UniqueMark = args.Bool("uniqueMark", false),
+        CopyParams = args.Bool("copyParams", true)
     };
 
     private readonly struct Args
@@ -121,7 +143,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         public List<string> Strings(string name)
         {
             var list = new List<string>();
-            if (_root is not { } r || !r.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array)
+            if (!TryGet(name, out var v) || v.ValueKind != JsonValueKind.Array)
                 return list;
             foreach (var item in v.EnumerateArray())
             {
@@ -136,17 +158,47 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
             return list;
         }
 
+        public bool Bool(string name, bool fallback)
+        {
+            if (!TryGet(name, out var v)) return fallback;
+            return v.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number => v.TryGetInt32(out var n) && n != 0,
+                JsonValueKind.String => bool.TryParse(v.GetString(), out var b) ? b : fallback,
+                _ => fallback
+            };
+        }
+
         public int Limit()
         {
-            var n = 50;
-            if (_root is { } r && r.TryGetProperty("limit", out var v))
+            var n = SplitOptions.DefaultLimit;
+            if (TryGet("limit", out var v))
             {
                 if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)) n = i;
                 else if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) n = s;
             }
             if (n < 1) n = 1;
-            if (n > 200) n = 200;
+            if (n > SplitOptions.MaxLimit) n = SplitOptions.MaxLimit;
             return n;
+        }
+
+        /// <summary>Case-insensitive on purpose: the host's own preset reader is, so both sides agree.</summary>
+        private bool TryGet(string name, out JsonElement value)
+        {
+            value = default;
+            if (_root is not { } r) return false;
+            if (r.TryGetProperty(name, out value)) return true;
+            foreach (var p in r.EnumerateObject())
+            {
+                if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = p.Value;
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

@@ -33,11 +33,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion130()
+    public void PluginJson_IsVersion140()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.3.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.4.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -75,6 +75,8 @@ public class StructureCutsContractTests
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitOptions.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GeometryRevit.cs")));
         Assert.False(File.Exists(Path.Combine(root, "src", "LoadingAI", "Tools", "StructureCutsPlugin.cs")));
         var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*Split*.cs", SearchOption.AllDirectories);
         Assert.DoesNotContain(hostTools, f => Path.GetFileName(f).Contains("BeamSplit") || Path.GetFileName(f).Contains("FloorSplit"));
@@ -100,7 +102,10 @@ public class StructureCutsContractTests
         Assert.Contains("Kind = PresetFieldKind.PickElements", src, StringComparison.Ordinal);
         Assert.DoesNotContain("PresetFieldKind.PickBox", src, StringComparison.Ordinal);
         Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
-        Assert.DoesNotContain("Id = \"limit\"", src, StringComparison.Ordinal);
+
+        // The element cap is host-owned too: a Number field both tools share, clamped by the plugin.
+        var limitPreset = "new PresetField { Id = \"limit\", Label = \"Max elements\", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit }";
+        Assert.Equal(2, CountOccurrences(src, limitPreset));
 
         foreach (var expected in new[]
         {
@@ -139,28 +144,45 @@ public class StructureCutsContractTests
         var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
         var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
 
-        // Same helper the host gates the L3 confirm with, so both sides agree.
-        Assert.Equal(2, CountOccurrences(src, "ToolPresets.IsDryRun(json)"));
+        // Same helper the host gates the L3 confirm with, so both sides agree. The plugin reads it once,
+        // in the Options factory that both split tools share, instead of parsing the flag per tool.
+        Assert.Equal(1, CountOccurrences(src, "ToolPresets.IsDryRun(json)"));
+        Assert.Contains("DryRun = ToolPresets.IsDryRun(json)", src, StringComparison.Ordinal);
 
         var beam = File.ReadAllText(Path.Combine(pluginDir, "BeamSplit.cs"));
         var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
 
-        Assert.Contains("bool dryRun = false", beam, StringComparison.Ordinal);
-        Assert.Contains("bool dryRun = false", floor, StringComparison.Ordinal);
         Assert.Contains("Dry-run. ", beam, StringComparison.Ordinal);
         Assert.Contains("Dry-run. ", floor, StringComparison.Ordinal);
 
-        // The transaction is only created on the write path, and the floor dry-run branch
-        // returns before ParamCopy.Take / CreateFloor / doc.Delete.
-        Assert.Contains("dryRun ? null : new Transaction(", beam, StringComparison.Ordinal);
-        Assert.Contains("dryRun ? null : new Transaction(", floor, StringComparison.Ordinal);
-        Assert.Contains("if (dryRun && error == \"dryrun\")", floor, StringComparison.Ordinal);
+        // A dry run leaves before a transaction is even opened, so nothing that writes can be reached:
+        // the only piece of the split that touches the document runs inside that transaction.
+        AssertOrdered("BeamSplit.cs", beam,
+            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc, plan, options)");
+        AssertOrdered("FloorSplit.cs", floor,
+            "if (options.DryRun)", "new Transaction(", "Write(doc, plan, options)");
+    }
 
-        var dryStart = floor.IndexOf("if (dryRun)", StringComparison.Ordinal);
-        var writeStart = floor.IndexOf("var snap = ParamCopy.Take", StringComparison.Ordinal);
-        Assert.True(dryStart >= 0 && writeStart > dryStart, "FloorSplit must branch on dryRun before the write path.");
-        var dryBranch = floor.Substring(dryStart, writeStart - dryStart);
-        Assert.Contains("\"dryrun\"", dryBranch, StringComparison.Ordinal);
+    [Fact]
+    public void BothTools_ExposeUniqueMarkAndCopyParams_WithSharedDefaults()
+    {
+        var root = RepoRoot();
+        var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
+
+        Assert.Equal(2, CountOccurrences(src, "Id = \"uniqueMark\""));
+        Assert.Equal(2, CountOccurrences(src, "Id = \"copyParams\""));
+        Assert.Contains("uniqueMark = new { type = \"boolean\"", src, StringComparison.Ordinal);
+        Assert.Contains("copyParams = new { type = \"boolean\"", src, StringComparison.Ordinal);
+
+        // One shared Options factory, so the two tools cannot drift apart on the defaults.
+        Assert.Contains("UniqueMark = args.Bool(\"uniqueMark\", false)", src, StringComparison.Ordinal);
+        Assert.Contains("CopyParams = args.Bool(\"copyParams\", true)", src, StringComparison.Ordinal);
+
+        // A slab that cannot be rebuilt exactly is counted as unsupported, never guessed at.
+        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+        Assert.Contains("GeometryRevit.TrySlabRegion", floor, StringComparison.Ordinal);
+        Assert.Contains("unsupported", floor, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -173,6 +195,17 @@ public class StructureCutsContractTests
             var desc = tool.GetProperty("description").GetString() ?? "";
             Assert.Contains("dryRun", desc, StringComparison.Ordinal);
             Assert.Contains("count only", desc, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void AssertOrdered(string file, string text, params string[] needles)
+    {
+        var cursor = -1;
+        foreach (var needle in needles)
+        {
+            var index = text.IndexOf(needle, StringComparison.Ordinal);
+            Assert.True(index > cursor, $"{file}: expected '{needle}' after the previous step.");
+            cursor = index;
         }
     }
 

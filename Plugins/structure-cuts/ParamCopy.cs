@@ -73,6 +73,47 @@ internal static class ParamCopy
     public static int Apply(Element source, Element dest)
         => Apply(Take(source), dest);
 
+    /// <summary>
+    /// Copies the snapshot, then applies <paramref name="markOverride"/> last so a unique-Mark run wins
+    /// over the copied Mark. A null override leaves whatever the copy produced.
+    /// </summary>
+    public static int Apply(Snapshot snap, Element dest, string? markOverride)
+    {
+        var skipped = Apply(snap, dest);
+        SetMark(dest, markOverride);
+        return skipped;
+    }
+
+    /// <summary>The element's current Mark, or null when it has none to build on.</summary>
+    public static string? Mark(Element source)
+    {
+        try
+        {
+            var p = source.get_Parameter(BuiltInParameter.ALL_MODEL_MARK) ?? source.LookupParameter("Mark");
+            if (p == null || p.StorageType != StorageType.String)
+                return null;
+            var value = p.AsString();
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Used on its own when the caller turned parameter copying off but still wants unique Marks.</summary>
+    public static void SetMark(Element dest, string? mark)
+    {
+        if (mark == null) return;
+        try
+        {
+            var p = dest.get_Parameter(BuiltInParameter.ALL_MODEL_MARK) ?? dest.LookupParameter("Mark");
+            if (p != null && !p.IsReadOnly && p.StorageType == StorageType.String)
+                p.Set(mark);
+        }
+        catch { }
+    }
+
     public static int Apply(Snapshot snap, Element dest)
     {
         var skipped = 0;

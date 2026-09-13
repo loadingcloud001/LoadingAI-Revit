@@ -1,7 +1,7 @@
 {
   "id": "structure-cuts",
   "name": "Structure Split Tools",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.StructureCuts.dll",
@@ -9,13 +9,13 @@
     {
       "name": "split_beams_by_columns",
       "tier": "L3",
-      "description": "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Copies instance parameters (Mark, Comments, offsets) onto new pieces. Params: beamIds[], columnIds[] optional (else selection; columns fall back to all in model), dryRun boolean (count only, no model changes), limit (default 50, max 200). Lengths in mm.",
+      "description": "Split structural beams at columns (pyRevit: Cutbeambycolumn). Recreates location-curve segments; not a solid cut. Straight and curved beams (curves are tessellated) and cuts at the real column footprint. Copies instance parameters (Mark, Comments, offsets) onto new pieces. Params: beamIds[], columnIds[] optional (else selection; columns fall back to all in model), dryRun boolean (count only, no model changes), uniqueMark boolean (suffix new Marks -1, -2, ...), copyParams boolean (default true), limit (default 50, max 200). Lengths in mm.",
       "enabledByDefault": false
     },
     {
       "name": "split_floors_by_beams",
       "tier": "L3",
-      "description": "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Copies instance parameters (Mark, Comments, offsets) onto new pieces. Params: floorIds[], beamIds[], columnIds[] optional (else selection; beams/columns fall back to bbox hits), dryRun boolean (count only, no model changes), limit (default 50, max 200). Skips sloped/curved. Lengths in mm.",
+      "description": "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Recreates planar floor regions; not a solid cut. Handles floors with openings, curved beams and real column footprints; slabs that cannot be rebuilt exactly are skipped and counted. Copies instance parameters (Mark, Comments, offsets) onto new pieces. Params: floorIds[], beamIds[], columnIds[] optional (else selection; beams/columns fall back to bbox hits), dryRun boolean (count only, no model changes), uniqueMark boolean (suffix new Marks -1, -2, ...), copyParams boolean (default true), limit (default 50, max 200). Lengths in mm.",
       "enabledByDefault": false
     }
   ],
