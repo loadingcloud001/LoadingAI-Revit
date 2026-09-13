@@ -78,24 +78,23 @@ Doing it by hand instead is the same five steps: `useradd --system loadingai`, c
 `install -m 644 deploy/loadingai-gateway.service /etc/systemd/system/`, then
 `systemctl daemon-reload && systemctl enable --now loadingai-gateway`.
 
-Then the tunnel. The quickest route is the Zero Trust dashboard, which hands you a token-managed
-connector and creates the DNS record for you:
-
-1. **Networking → Tunnels → Create a tunnel**, name it `loadingai-gateway`, choose Debian/Ubuntu.
-2. **Routes → Add route → Published application**: subdomain `gateway`, domain
-   `loadingtechnology.app`, service URL `http://127.0.0.1:8787`. That is exactly the ingress rule in
-   `deploy/tunnel-config.json`.
-3. Run the install command the dashboard shows on the VM, then start it:
+Then the tunnel. One script does the whole Cloudflare side — creates the tunnel, writes the remote
+ingress (`deploy/tunnel-config.json`), points `gateway.loadingtechnology.app` at `127.0.0.1:8787`,
+stores the connector token in a `600` file, installs the hardened unit and starts it:
 
 ```bash
-sudo <the dashboard's install command>          # writes /etc/cloudflared and its own unit
-sudo systemctl enable --now cloudflared
-systemctl status cloudflared                    # expect "Registered tunnel connection"
+sudo node /opt/loadingai-gateway/deploy/setup-tunnel.mjs
+#   Cloudflare API token (hidden): ****       <- Zone:Read, DNS:Edit, Account:Cloudflare Tunnel:Edit
 ```
 
-To use our hardened unit instead, create the `cloudflared` service account and hand the connector its
-token from a `600` file, so it never lands in shell history or in the process list. Read the token with
-`read -rs` rather than `export TUNNEL_TOKEN=…`:
+The token is read from `CF_API_TOKEN`, from `--token-file`, or from a hidden prompt, and is never
+echoed, logged or written to disk; only the connector token that the API returns is stored, in
+`/etc/cloudflared/loadingai-tunnel.env`. The script is idempotent — it reuses an existing tunnel and
+DNS record — and takes `--zone`, `--hostname`, `--service` and `--tunnel` overrides.
+
+Doing it by hand instead: **Networking → Tunnels → Create a tunnel** named `loadingai-gateway`, add a
+route for subdomain `gateway` on `loadingtechnology.app` to `http://127.0.0.1:8787`, then give the
+connector its token from a `600` file so it never lands in shell history or the process list:
 
 ```bash
 sudo useradd --system --no-create-home --home-dir /var/lib/cloudflared --shell /usr/sbin/nologin cloudflared
