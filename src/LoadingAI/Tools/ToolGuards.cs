@@ -9,6 +9,9 @@ public static class ToolGuards
     {
         if (entry.Tier == ToolTier.L1 || entry.Tier == ToolTier.L3 || entry.RequiresWriteConfirm)
             return entry;
+        // Chat preset form is the confirm; do not add a second TaskDialog.
+        if (ToolPresets.HasPresets(entry))
+            return entry;
 
         var inner = entry.Handler;
         var name = entry.Definition.Function.Name;
@@ -17,6 +20,7 @@ public static class ToolGuards
             Definition = entry.Definition,
             Tier = entry.Tier,
             RequiresWriteConfirm = true,
+            Presets = entry.Presets,
             Handler = async json =>
             {
                 var preview = json.Length > 400 ? json.Substring(0, 400) + "..." : json;
