@@ -116,6 +116,17 @@ export type ContextPayload = {
   warningPreview?: string;
 };
 
+/** Host-owned run/tool progress. Idle when phase is idle. */
+export type ProgressPayload = {
+  phase: 'idle' | 'thinking' | 'tool' | 'complete' | 'cancelled' | 'error' | string;
+  label: string;
+  tool?: string;
+  percent?: number | null;
+  current?: number;
+  total?: number;
+  indeterminate?: boolean;
+};
+
 export type CheckpointInfo = { id: string; createdAt: string; mode?: string; preview: string; messageCount: number };
 
 export type ApprovalPayload = {
@@ -171,6 +182,7 @@ export type FromHost =
   | { type: 'presetPickResult'; toolCallId: string; fieldId: string; result?: PresetPickResult['result']; ok?: boolean; error?: string }
   | { type: 'plan'; plan: PlanPayload }
   | { type: 'todo'; todos: TodoPayload[] }
+  | { type: 'progress'; progress: ProgressPayload }
   | { type: 'context'; context: ContextPayload }
   | { type: 'checkpoints'; checkpoints: CheckpointInfo[] }
   | { type: 'reasoning'; text: string; isStreaming?: boolean }

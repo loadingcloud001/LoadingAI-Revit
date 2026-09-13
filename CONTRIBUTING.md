@@ -17,6 +17,7 @@ All code is MIT. No billing, no closed-source plugins.
    }
    ```
    ProjectReference `src/LoadingAI.Core` — never `src/LoadingAI` (the host). FullAccess plugins also reference `src/LoadingAI.RevitUtil` and Nice3point RevitAPI packages (`Private=false`, `ExcludeAssets=runtime`).
+   Optional: `context.Progress.Report("Exporting", 40)` for determinate percent. The host already shows a progress bar around every tool, so this is optional.
    Optional: implement `IPluginLifecycle` (`IsBusy`) so the host can wait before ALC unload (Revit 2025+).
    Optional: set `ToolEntry.Presets` so the host shows a chat form (string / number / boolean / select / pick-elements / pick-box) before execute. Leave it empty (the default) to keep today’s path. Confirm merges form values over the LLM args; L3 still shows the native `Confirm L3:` TaskDialog. Do not call `PickObjects` yourself — declare `PresetFieldKind.PickElements` or `PickBox` and the host owns the pick.
    ```csharp
