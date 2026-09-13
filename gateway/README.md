@@ -53,23 +53,27 @@ add-in  ──https──▶  Cloudflare  ──tunnel──▶  cloudflared (VM
 On the VM (Debian/Ubuntu, **Node 22.5 or newer** – that is when `node:sqlite` appeared):
 
 ```bash
-sudo useradd --system --home /opt/loadingai-gateway --shell /usr/sbin/nologin loadingai
-
-sudo mkdir -p /opt/loadingai-gateway /var/lib/loadingai-gateway
 # copy gateway/ to the VM, e.g. from the checkout on your workstation:
 #   rsync -a --exclude node_modules --exclude '.wrangler' gateway/ vm:/tmp/gateway/
-sudo cp -r /tmp/gateway/. /opt/loadingai-gateway/
-sudo chown -R loadingai:loadingai /opt/loadingai-gateway /var/lib/loadingai-gateway
-
-# secrets: root-owned, 600, never committed
-sudo install -m 600 -o root -g root /opt/loadingai-gateway/deploy/env.example /etc/loadingai-gateway.env
-sudo nano /etc/loadingai-gateway.env          # MINIMAX_API_KEY=...  TICKET_SECRET=$(openssl rand -hex 32)
-
-sudo install -m 644 /opt/loadingai-gateway/deploy/loadingai-gateway.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now loadingai-gateway
-curl -s http://127.0.0.1:8787/health          # -> {"status":"ok",...}
+sudo /tmp/gateway/deploy/install.sh /tmp/gateway
 ```
+
+`install.sh` creates the `loadingai` service account, installs the code under `/opt/loadingai-gateway`,
+seeds `/etc/loadingai-gateway.env` (root-owned, mode `600`) and enables the unit. It is idempotent,
+keeps an existing env file, and refuses to run on Node older than 22.5.
+
+Then paste the two secrets and restart:
+
+```bash
+sudo nano /etc/loadingai-gateway.env   # MINIMAX_API_KEY=...  TICKET_SECRET=$(openssl rand -hex 32)
+sudo systemctl restart loadingai-gateway
+curl -s http://127.0.0.1:8787/health   # -> {"ok":true,"service":"loadingai-gateway"}
+```
+
+Doing it by hand instead is the same five steps: `useradd --system loadingai`, copy the directory to
+`/opt/loadingai-gateway`, `install -m 600 deploy/env.example /etc/loadingai-gateway.env`,
+`install -m 644 deploy/loadingai-gateway.service /etc/systemd/system/`, then
+`systemctl daemon-reload && systemctl enable --now loadingai-gateway`.
 
 Then the tunnel. The quickest route is the Zero Trust dashboard, which hands you a token-managed
 connector and creates the DNS record for you:
