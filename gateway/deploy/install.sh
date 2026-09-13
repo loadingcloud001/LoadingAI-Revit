@@ -82,7 +82,10 @@ fi
 
 install -m 644 "$APP_DIR/deploy/loadingai-gateway.service" "$UNIT_DIR/loadingai-gateway.service"
 systemctl daemon-reload
-systemctl enable --now loadingai-gateway
+systemctl enable loadingai-gateway
+# `enable --now` only starts a *stopped* unit, so an updating re-run would leave
+# the previous process serving the previous code. Restart explicitly.
+systemctl restart loadingai-gateway
 sleep 1
 systemctl is-active --quiet loadingai-gateway ||
   { echo "the gateway did not start:" >&2; journalctl -u loadingai-gateway -n 30 --no-pager >&2; exit 1; }
