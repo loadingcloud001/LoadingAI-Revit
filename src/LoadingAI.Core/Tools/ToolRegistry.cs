@@ -19,10 +19,44 @@ public sealed class ToolRegistry
 
 public enum ToolTier { L1, L2, L3 }
 
+public enum PresetFieldKind
+{
+    String,
+    Number,
+    Boolean,
+    Select,
+    PickElements,
+    PickBox
+}
+
+/// <summary>
+/// One host-rendered field shown in the chat pane before the tool handler runs.
+/// Optional: omit <see cref="ToolEntry.Presets"/> to keep the current execute path.
+/// </summary>
+public sealed class PresetField
+{
+    /// <summary>JSON argument key written on confirm.</summary>
+    public string Id { get; init; } = "";
+    public string Label { get; init; } = "";
+    public PresetFieldKind Kind { get; init; }
+    public bool Required { get; init; }
+    public object? Default { get; init; }
+    /// <summary>Choices for <see cref="PresetFieldKind.Select"/>.</summary>
+    public IReadOnlyList<string>? Options { get; init; }
+    /// <summary>Optional category hint for <see cref="PresetFieldKind.PickElements"/> (e.g. "Walls").</summary>
+    public string? Category { get; init; }
+    /// <summary>Status-bar prompt while picking in the model.</summary>
+    public string? Prompt { get; init; }
+}
+
 public sealed class ToolEntry
 {
     public ToolDefinition Definition { get; init; } = new();
     public Func<string, Task<string>> Handler { get; init; } = _ => Task.FromResult("");
     public bool RequiresWriteConfirm { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
+    /// <summary>
+    /// Opt-in pre-execute form. Empty (the default) keeps today’s path for existing plugins.
+    /// </summary>
+    public IReadOnlyList<PresetField> Presets { get; init; } = Array.Empty<PresetField>();
 }

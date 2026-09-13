@@ -6,6 +6,7 @@ using Autodesk.Revit.UI;
 using Microsoft.Web.WebView2.Core;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
+using LoadingAI.Progress;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -28,6 +29,8 @@ public partial class HostPage : Page
     private CancellationTokenSource? _cts;
     private string _lastUserText = "";
     private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingApprovals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TaskCompletionSource<(bool approved, string? valuesJson)>> _pendingPresets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ToolEntry> _pendingPresetTools = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _approvalLock = new();
 
     public HostPage()
@@ -469,6 +472,26 @@ public partial class HostPage : Page
                         break;
                     }
 
+                case "submitPreset":
+                    {
+                        var toolCallId = doc.RootElement.TryGetProperty("toolCallId", out var ptc) ? ptc.GetString() ?? "" : "";
+                        var approved = doc.RootElement.TryGetProperty("approved", out var pap) && pap.ValueKind == JsonValueKind.True;
+                        string? valuesJson = null;
+                        if (doc.RootElement.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Object)
+                            valuesJson = vals.GetRawText();
+                        CompletePreset(toolCallId, approved, valuesJson);
+                        PostToWeb(new { type = "status", text = approved ? $"Confirmed preset {toolCallId}" : $"Cancelled preset {toolCallId}" });
+                        break;
+                    }
+
+                case "presetPick":
+                    {
+                        var toolCallId = doc.RootElement.TryGetProperty("toolCallId", out var pk) ? pk.GetString() ?? "" : "";
+                        var fieldId = doc.RootElement.TryGetProperty("fieldId", out var fid) ? fid.GetString() ?? "" : "";
+                        await RunPresetPickAsync(toolCallId, fieldId);
+                        break;
+                    }
+
                 case "listCheckpoints":
                     {
                         var cps = CheckpointStore.List();
@@ -490,12 +513,13 @@ public partial class HostPage : Page
 
                 case "clear":
                     _cts?.Cancel();
+                    DenyAllPending();
                     _agent?.ClearHistory();
                     try { HistoryStore.Append("system", "Cleared."); } catch { }
                     break;
 
                 case "cancel":
-                    try { _cts?.Cancel(); PostToWeb(new { type = "status", text = "Cancelling..." }); } catch { }
+                    try { _cts?.Cancel(); DenyAllPending(); PostToWeb(new { type = "status", text = "Cancelling..." }); PostProgress(ProgressSnapshot.Cancelled()); } catch { }
                     break;
 
                 case "send":
@@ -517,7 +541,7 @@ public partial class HostPage : Page
                             else if (slash.Equals("clear", StringComparison.OrdinalIgnoreCase)) { _cts?.Cancel(); _agent?.ClearHistory(); try { HistoryStore.Append("system", "Cleared."); } catch { } PostToWeb(new { type = "status", text = "Cleared." }); break; }
                             else if (slash.Equals("help", StringComparison.OrdinalIgnoreCase))
                             {
-                                var help = "Commands: /plan <目標> 只讀規劃 | /build <目標> 可寫執行 | /ask <問題> 只讀問答 | /clear 清空 | /help 幫助 | /export ifc/dwg/pdf | /isolate 隔離選中 | /hide 隱藏選中 | /resume 恢復 | /checkpoints 列檢查點\nMentions: @selection @activeView @visible @warnings @levels @sheets";
+                                var help = "Commands: /plan <goal> read-only plan | /build <goal> write and execute | /ask <question> read-only Q&A | /clear clear session | /help help | /export ifc/dwg/pdf | /isolate isolate selection | /hide hide selection | /resume resume | /checkpoints list checkpoints\nMentions: @selection @activeView @visible @warnings @levels @sheets";
                                 PostToWeb(new { type = "assistant", text = help }); break;
                             }
                             else if (slash.Equals("checkpoints", StringComparison.OrdinalIgnoreCase))
@@ -592,6 +616,11 @@ public partial class HostPage : Page
                         _cts = new CancellationTokenSource();
                         var ct = _cts.Token;
                         var agent = _agent;
+                        var progress = new ProgressReporter(snap =>
+                        {
+                            try { Dispatcher.Invoke(() => PostProgress(snap)); } catch { }
+                        });
+                        progress.Report(ProgressSnapshot.Thinking());
                         PostToWeb(new { type = "status", text = mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..." });
                         // auto context injection
                         ContextSnapshot? ctxSnap = null;
@@ -610,6 +639,8 @@ public partial class HostPage : Page
 
                         _ = Task.Run(async () =>
                         {
+                            using (ProgressReporter.Push(progress))
+                            {
                             try
                             {
                                 var enrichedText = text;
@@ -633,6 +664,7 @@ public partial class HostPage : Page
                                     {
                                         try { Dispatcher.Invoke(() => PostToWeb(new { type = "todo", todos = todos.Select(t => new { id = t.Id, title = t.Title, tool = t.Tool, status = t.Status, error = t.Error }).ToList() })); } catch { }
                                     },
+                                    snap => progress.Report(snap),
                                     ct);
 
                                 Dispatcher.Invoke(() =>
@@ -661,10 +693,12 @@ public partial class HostPage : Page
                                         }
                                     }
                                     PostToWeb(new { type = "status", text = GetStatusText() });
+                                    PostProgress(ProgressSnapshot.Complete());
                                 });
                             }
                             catch (OperationCanceledException)
                             {
+                                progress.Report(ProgressSnapshot.Cancelled());
                                 Dispatcher.Invoke(() =>
                                 {
                                     PostToWeb(new { type = "error", text = "Cancelled." });
@@ -673,6 +707,7 @@ public partial class HostPage : Page
                             }
                             catch (Exception ex)
                             {
+                                progress.Report(ProgressSnapshot.Error(ex.Message));
                                 Dispatcher.Invoke(() => PostToWeb(new { type = "error", text = ex.Message }));
                             }
                             finally
@@ -682,6 +717,7 @@ public partial class HostPage : Page
                                     _isRunning = false;
                                     try { _cts?.Dispose(); _cts = null; } catch { }
                                 });
+                            }
                             }
                         }, ct);
                         break;
@@ -706,8 +742,27 @@ public partial class HostPage : Page
             return hint;
         }
 
+        if (ToolPresets.HasPresets(entry))
+        {
+            var preset = await AwaitPresetAsync(entry, name, argsJson);
+            if (!preset.approved)
+            {
+                try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_result", text = $"{name} {preset.message}" })); } catch { }
+                return preset.message;
+            }
+            argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
+            if (entry.Tier == ToolTier.L3)
+            {
+                if (!await ConfirmL3NativeAsync(name, argsJson))
+                    return "Cancelled by user.";
+            }
+            else
+            {
+                try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
+            }
+        }
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
-        if (entry.Tier == ToolTier.L3)
+        else if (entry.Tier == ToolTier.L3)
         {
             var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -730,20 +785,8 @@ public partial class HostPage : Page
                 return "Cancelled by user (denied).";
             }
 
-            var raw = App.Bridge;
-            if (raw == null) return "Cancelled: no Revit bridge.";
-            bool native = await raw.RunAsync(_ =>
-            {
-                var td = new TaskDialog("LoadingAI for Revit")
-                {
-                    MainInstruction = $"Confirm L3: {name}?",
-                    MainContent = Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
-                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                    DefaultButton = TaskDialogResult.No
-                };
-                return td.Show() == TaskDialogResult.Yes;
-            });
-            if (!native) return "Cancelled by user.";
+            if (!await ConfirmL3NativeAsync(name, argsJson))
+                return "Cancelled by user.";
         }
         else
         {
@@ -753,6 +796,7 @@ public partial class HostPage : Page
         string result;
         try
         {
+            ProgressReporter.Current.Report($"Running {name}");
             result = await entry.Handler(argsJson);
         }
         catch (Exception ex) { result = $"Tool {name} failed: {ex.Message}"; }
@@ -779,6 +823,180 @@ public partial class HostPage : Page
             catch { }
         }
         return result;
+    }
+
+    private void PostProgress(ProgressSnapshot snap)
+    {
+        PostToWeb(new
+        {
+            type = "progress",
+            progress = new
+            {
+                phase = snap.Phase,
+                label = snap.Label,
+                tool = snap.Tool,
+                percent = snap.Percent,
+                current = snap.Current,
+                total = snap.Total,
+                indeterminate = snap.Indeterminate
+            }
+        });
+    }
+
+    private async Task<(bool approved, string? valuesJson, string message)> AwaitPresetAsync(ToolEntry entry, string name, string argsJson)
+    {
+        var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
+        var tcs = new TaskCompletionSource<(bool approved, string? valuesJson)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_approvalLock)
+        {
+            _pendingPresets[callId] = tcs;
+            _pendingPresetTools[callId] = entry;
+        }
+
+        var fields = entry.Presets.Select(f => new
+        {
+            id = f.Id,
+            label = string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
+            kind = ToolPresets.KindName(f.Kind),
+            required = f.Required,
+            options = f.Options,
+            category = f.Category,
+            prompt = f.Prompt
+        }).ToList();
+        var values = ToolPresets.Prefill(entry.Presets, argsJson);
+
+        try
+        {
+            Dispatcher.Invoke(() => PostToWeb(new
+            {
+                type = "tool_preset",
+                preset = new
+                {
+                    toolCallId = callId,
+                    toolName = name,
+                    tier = entry.Tier.ToString(),
+                    description = entry.Definition.Function.Description,
+                    fields,
+                    values
+                }
+            }));
+        }
+        catch { }
+        try { Dispatcher.Invoke(() => PostToWeb(new { type = "tool_call", text = $"{name}: {argsJson} (awaiting preset {callId})" })); } catch { }
+
+        var timeout = Task.Delay(TimeSpan.FromMinutes(15));
+        Task completed;
+        try
+        {
+            completed = await Task.WhenAny(tcs.Task, timeout);
+        }
+        catch (OperationCanceledException)
+        {
+            CompletePreset(callId, false, null);
+            return (false, null, "Cancelled by user.");
+        }
+
+        if (completed != tcs.Task)
+        {
+            CompletePreset(callId, false, null);
+            return (false, null, "Cancelled: preset timeout.");
+        }
+
+        var (approved, valuesJson) = await tcs.Task;
+        return approved
+            ? (true, valuesJson, "")
+            : (false, null, "Cancelled by user.");
+    }
+
+    private void CompletePreset(string toolCallId, bool approved, string? valuesJson)
+    {
+        lock (_approvalLock)
+        {
+            _pendingPresetTools.Remove(toolCallId);
+            if (_pendingPresets.TryGetValue(toolCallId, out var tcs))
+            {
+                _pendingPresets.Remove(toolCallId);
+                try { tcs.TrySetResult((approved, valuesJson)); } catch { }
+            }
+        }
+    }
+
+    private void DenyAllPending()
+    {
+        lock (_approvalLock)
+        {
+            foreach (var kv in _pendingApprovals.ToList())
+            {
+                _pendingApprovals.Remove(kv.Key);
+                try { kv.Value.TrySetResult(false); } catch { }
+            }
+            foreach (var kv in _pendingPresets.ToList())
+            {
+                _pendingPresets.Remove(kv.Key);
+                _pendingPresetTools.Remove(kv.Key);
+                try { kv.Value.TrySetResult((false, null)); } catch { }
+            }
+        }
+    }
+
+    private async Task<bool> ConfirmL3NativeAsync(string name, string argsJson)
+    {
+        var raw = App.Bridge;
+        if (raw == null) return false;
+        return await raw.RunAsync(_ =>
+        {
+            var td = new TaskDialog("LoadingAI for Revit")
+            {
+                MainInstruction = $"Confirm L3: {name}?",
+                MainContent = Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
+                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                DefaultButton = TaskDialogResult.No
+            };
+            return td.Show() == TaskDialogResult.Yes;
+        });
+    }
+
+    private async Task RunPresetPickAsync(string toolCallId, string fieldId)
+    {
+        ToolEntry? entry = null;
+        lock (_approvalLock)
+        {
+            _pendingPresetTools.TryGetValue(toolCallId, out entry);
+        }
+        var field = entry?.Presets.FirstOrDefault(f => string.Equals(f.Id, fieldId, StringComparison.OrdinalIgnoreCase));
+        if (entry == null || field == null)
+        {
+            PostToWeb(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "No matching preset field." });
+            return;
+        }
+        if (field.Kind is not PresetFieldKind.PickElements and not PresetFieldKind.PickBox)
+        {
+            PostToWeb(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "Field is not a pick." });
+            return;
+        }
+
+        var bridge = App.Bridge;
+        if (bridge == null)
+        {
+            PostToWeb(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "No Revit bridge." });
+            return;
+        }
+
+        object result;
+        try
+        {
+            if (field.Kind == PresetFieldKind.PickElements)
+                result = await bridge.RunAsync(app => PresetPickHost.PickElements(app, field.Category, field.Prompt), PresetPickHost.PickTimeout);
+            else
+                result = await bridge.RunAsync(app => PresetPickHost.PickBox(app, field.Prompt), PresetPickHost.PickTimeout);
+        }
+        catch (Exception ex)
+        {
+            PostToWeb(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = ex.Message });
+            return;
+        }
+
+        PostToWeb(new { type = "presetPickResult", toolCallId, fieldId, result });
     }
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n) + "...";

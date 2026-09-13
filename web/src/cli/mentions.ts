@@ -7,14 +7,14 @@ export type Mention = {
 
 // Static catalogue; HostPage will auto-inject runtime counts via context bar, but mentions provide stable shortcuts
 export const MENTIONS: Mention[] = [
-  { id: 'selection', label: '@selection', description: '當前選中構件', prefix: '@selection' },
-  { id: 'activeView', label: '@activeView', description: '活動視圖', prefix: '@activeView' },
-  { id: 'visible', label: '@visible', description: '當前視圖可見構件', prefix: '@visible' },
-  { id: 'warnings', label: '@warnings', description: '模型警告', prefix: '@warnings' },
-  { id: 'levels', label: '@levels', description: '標高與軸網', prefix: '@levels' },
-  { id: 'sheets', label: '@sheets', description: '圖紙', prefix: '@sheets' },
-  { id: 'rooms', label: '@rooms', description: '房間', prefix: '@rooms' },
-  { id: 'walls', label: '@walls', description: '牆', prefix: '@walls' },
+  { id: 'selection', label: '@selection', description: 'Currently selected elements', prefix: '@selection' },
+  { id: 'activeView', label: '@activeView', description: 'Active view', prefix: '@activeView' },
+  { id: 'visible', label: '@visible', description: 'Elements visible in the current view', prefix: '@visible' },
+  { id: 'warnings', label: '@warnings', description: 'Model warnings', prefix: '@warnings' },
+  { id: 'levels', label: '@levels', description: 'Levels and grids', prefix: '@levels' },
+  { id: 'sheets', label: '@sheets', description: 'Sheets', prefix: '@sheets' },
+  { id: 'rooms', label: '@rooms', description: 'Rooms', prefix: '@rooms' },
+  { id: 'walls', label: '@walls', description: 'Walls', prefix: '@walls' },
 ];
 
 export function filterMentions(query: string): Mention[] {

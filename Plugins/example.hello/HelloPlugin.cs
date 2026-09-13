@@ -30,8 +30,10 @@ public sealed class HelloPlugin : IRevitToolPlugin
             },
             Handler = async _ =>
             {
+                context.Progress.Report("Hello…", 40);
                 var dto = await context.Bridge.GetModelSummaryAsync();
                 if (dto == null) return "Hello! No document open.";
+                context.Progress.Report("Hello done", 100);
                 return $"Hello from Example Plugin! Active doc: {dto.Title}";
             }
         };

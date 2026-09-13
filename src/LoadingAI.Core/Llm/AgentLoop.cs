@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LoadingAI.Progress;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -97,6 +98,18 @@ public sealed class AgentLoop
         Action<string>? onDelta,
         Action<IReadOnlyList<TodoItem>>? onTodo,
         CancellationToken ct = default)
+        => await RunAsync(provider, userMsg, mode, toolExecutor, onTrace, onDelta, onTodo, null, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        Action<IReadOnlyList<TodoItem>>? onTodo,
+        Action<ProgressSnapshot>? onProgress,
+        CancellationToken ct = default)
     {
         lock (_historyLock)
         {
@@ -131,9 +144,15 @@ public sealed class AgentLoop
         }
 
         const int MaxRounds = 64;
+        void Report(ProgressSnapshot snap)
+        {
+            try { onProgress?.Invoke(snap); } catch { }
+        }
+
         for (int round = 0; round < MaxRounds; round++)
         {
             ct.ThrowIfCancellationRequested();
+            Report(ProgressSnapshot.Thinking(round + 1));
 
             List<ChatMessage> snapshot;
             lock (_historyLock) snapshot = new List<ChatMessage>(_history);
@@ -238,8 +257,12 @@ public sealed class AgentLoop
                 }).ToList()
             });
 
+            var callTotal = msgOut.ToolCalls.Count;
+            var callIndex = 0;
             foreach (var tc in msgOut.ToolCalls)
             {
+                callIndex++;
+                Report(ProgressSnapshot.ForTool(tc.Function.Name, callIndex, callTotal));
                 string toolResult;
                 bool isError = false;
                 try

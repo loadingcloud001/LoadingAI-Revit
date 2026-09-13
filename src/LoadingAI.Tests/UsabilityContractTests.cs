@@ -31,6 +31,68 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void ToolEntry_PresetsDefaultEmpty_ExistingPluginsUnchanged()
+    {
+        var registry = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Tools", "ToolRegistry.cs"));
+        Assert.Contains("IReadOnlyList<PresetField> Presets", registry);
+        Assert.Contains("Array.Empty<PresetField>()", registry);
+        foreach (var rel in new[]
+        {
+            Path.Combine("Plugins", "example.hello", "HelloPlugin.cs"),
+            Path.Combine("Plugins", "qs-formwork", "QsFormworkPlugin.cs"),
+            Path.Combine("Plugins", "structure-cuts", "StructureCutsPlugin.cs"),
+        })
+        {
+            var src = File.ReadAllText(Path.Combine(RepoRoot(), rel));
+            Assert.DoesNotContain("Presets =", src);
+        }
+    }
+
+    [Fact]
+    public void ToolGuards_SkipsL2WrapWhenPresetsExist()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
+        Assert.Contains("ToolPresets.HasPresets(entry)", src);
+        Assert.Contains("Presets = entry.Presets", src);
+    }
+
+    [Fact]
+    public void HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        Assert.Contains("type = \"tool_preset\"", src);
+        Assert.Contains("case \"submitPreset\"", src);
+        Assert.Contains("case \"presetPick\"", src);
+        Assert.Contains("type = \"presetPickResult\"", src);
+        Assert.Contains("ConfirmL3NativeAsync", src);
+        Assert.Contains("Confirm L3:", src);
+        Assert.Contains("ToolPresets.HasPresets(entry)", src);
+        Assert.Contains("DenyAllPending", src);
+        var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
+        Assert.Contains("Chat preset form is the confirm", guards);
+    }
+
+    [Fact]
+    public void PresetPick_IsHostOwned_IRevitBridgeUnchanged()
+    {
+        var pick = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "PresetPickHost.cs"));
+        Assert.Contains("PickObjects", pick);
+        Assert.Contains("PickBox", pick);
+        Assert.Contains("SetElementIds", pick);
+        Assert.Contains("FtToMm", pick);
+        var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
+        Assert.DoesNotContain("PickObjects", bridge);
+        Assert.DoesNotContain("PickBox", bridge);
+        Assert.DoesNotContain("Preset", bridge);
+        var web = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        Assert.Contains("submitPreset", web);
+        Assert.Contains("presetPick", web);
+        Assert.Contains("Confirm", web);
+        Assert.Contains("setPendingPreset(cur =>", web);
+        Assert.Contains("text.includes(cur.toolName)", web);
+    }
+
+    [Fact]
     public void CompatWriteTools_DoNotShowTheirOwnTaskDialog()
     {
         var rotate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "GeometryCreateTools.cs"));
@@ -90,6 +152,26 @@ public class UsabilityContractTests
         Assert.True(ProviderSettings.IsToolEnabled(s, "get_model_summary", defaultEnabled: true));
         s.Plugins["delete_elements"] = true;
         Assert.True(ProviderSettings.IsToolEnabled(s, "delete_elements", defaultEnabled: false));
+    }
+
+    [Fact]
+    public void ProgressBar_IsHostOwnedAndReusable()
+    {
+        var root = RepoRoot();
+        var ctx = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Plugins", "IPluginContext.cs"));
+        Assert.Contains("IProgressReporter Progress", ctx);
+        var host = File.ReadAllText(Path.Combine(root, "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        Assert.Contains("type = \"progress\"", host);
+        Assert.Contains("ProgressReporter.Push", host);
+        var loop = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Llm", "AgentLoop.cs"));
+        Assert.Contains("Action<ProgressSnapshot>? onProgress", loop);
+        Assert.Contains("ProgressSnapshot.ForTool", loop);
+        var bridge = File.ReadAllText(Path.Combine(root, "web", "src", "bridge.ts"));
+        Assert.Contains("type: 'progress'", bridge);
+        Assert.Contains("ProgressPayload", bridge);
+        var app = File.ReadAllText(Path.Combine(root, "web", "src", "App.tsx"));
+        Assert.Contains("function ProgressBar", app);
+        Assert.Contains("msg.type === 'progress'", app);
     }
 
     [Fact]

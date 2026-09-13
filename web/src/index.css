@@ -24,6 +24,10 @@
 }
 * { border-color: hsl(var(--border)); }
 html, body, #root { height: 100%; margin: 0; }
+@keyframes lai-progress {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(380%); }
+}
 body {
   overscroll-behavior: none;
   background: hsl(var(--background));

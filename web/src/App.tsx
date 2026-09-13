@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -8,7 +8,37 @@ import { PluginShelf } from './plugins/PluginShelf';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
-type Message = { id: string; role: 'you' | 'assistant' | 'trace' | 'system' | 'tool_call' | 'tool_result' | 'plan' | 'approval' | 'reasoning'; text: string; attachments?: Attachment[]; plan?: PlanPayload; approval?: ApprovalPayload; isStreaming?: boolean };
+type Message = { id: string; role: 'you' | 'assistant' | 'trace' | 'system' | 'tool_call' | 'tool_result' | 'plan' | 'approval' | 'preset' | 'reasoning'; text: string; attachments?: Attachment[]; plan?: PlanPayload; approval?: ApprovalPayload; preset?: PresetPayload; isStreaming?: boolean };
+
+function isFilledPresetValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') {
+    const box = value as { minMm?: unknown; maxMm?: unknown };
+    return Array.isArray(box.minMm) && Array.isArray(box.maxMm);
+  }
+  return false;
+}
+
+function requiredPresetsFilled(preset: PresetPayload, values: Record<string, unknown>): boolean {
+  return (preset.fields ?? []).every(f => !f.required || isFilledPresetValue(values[f.id]));
+}
+
+function formatPickSummary(field: PresetFieldPayload, value: unknown): string {
+  if (field.kind === 'PickElements') {
+    const ids = Array.isArray(value) ? value : [];
+    return ids.length ? `${ids.length} element${ids.length === 1 ? '' : 's'}` : 'None';
+  }
+  if (value && typeof value === 'object' && Array.isArray((value as any).minMm) && Array.isArray((value as any).maxMm)) {
+    const min = (value as any).minMm as number[];
+    const max = (value as any).maxMm as number[];
+    return `${min.map(n => Math.round(n)).join(',')} → ${max.map(n => Math.round(n)).join(',')} mm`;
+  }
+  return 'None';
+}
 
 function normalizeSettings(raw: any): AppSettings | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -70,6 +100,26 @@ const rowStyle: CSSProperties = { padding: '8px 10px', borderBottom: '1px solid 
 const inp = 'w-full px-2 py-1.5 border bg-white text-xs outline-none';
 const btn = 'px-2 py-1.5 border bg-white text-xs';
 
+function ProgressBar({ progress }: { progress: ProgressPayload }) {
+  const pct = typeof progress.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : null;
+  const indeterminate = progress.indeterminate || pct == null;
+  const isError = progress.phase === 'error' || progress.phase === 'cancelled';
+  const fill = isError ? '#8a1f11' : '#2b2b2b';
+  return (
+    <div style={{ padding: '4px 10px 6px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3', flexShrink: 0 }} aria-live="polite">
+      <div style={{ fontSize: 10, color: '#5c5c5c', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {progress.label || (progress.phase === 'thinking' ? 'Thinking…' : 'Working…')}
+        {!indeterminate && pct != null ? ` · ${pct}%` : ''}
+      </div>
+      <div style={{ height: 3, background: '#d0d0d0', overflow: 'hidden', position: 'relative' }}>
+        {indeterminate
+          ? <div style={{ position: 'absolute', height: '100%', width: '36%', background: fill, animation: 'lai-progress 1.1s ease-in-out infinite' }} />
+          : <div style={{ height: '100%', width: `${pct}%`, background: fill, transition: 'width 160ms linear' }} />}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const settingsRef = useRef<AppSettings | null>(null);
@@ -92,7 +142,11 @@ export default function App() {
   const [currentPlan, setCurrentPlan] = useState<PlanPayload | null>(null);
   const [todos, setTodos] = useState<TodoPayload[]>([]);
   const [todoOpen, setTodoOpen] = useState(false);
+  const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
+  const [pendingPreset, setPendingPreset] = useState<PresetPayload | null>(null);
+  const [presetValues, setPresetValues] = useState<Record<string, unknown>>({});
+  const [presetPickBusy, setPresetPickBusy] = useState<string | null>(null);
   const [context, setContext] = useState<ContextPayload | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
 
@@ -195,6 +249,14 @@ export default function App() {
           setTodos(next);
           const busy = next.some(x => x.status === 'running' || x.status === 'pending');
           setTodoOpen(busy);
+        } else if (msg.type === 'progress') {
+          const p = (msg as any).progress as ProgressPayload | undefined;
+          if (!p || p.phase === 'idle') { setProgress(null); return; }
+          setProgress(p);
+          if (p.phase === 'thinking' || p.phase === 'tool') setIsRunning(true);
+          if (p.phase === 'complete' || p.phase === 'cancelled' || p.phase === 'error') {
+            window.setTimeout(() => setProgress(cur => cur && cur.phase === p.phase ? null : cur), 700);
+          }
         } else if (msg.type === 'context') {
           setContext((msg as any).context as ContextPayload);
         } else if (msg.type === 'checkpoints') {
@@ -208,6 +270,29 @@ export default function App() {
         } else if (msg.type === 'tool_approval') {
           setPendingApproval(msg.approval);
           setMessages(m => [...m, { id: nextId(), role: 'approval', text: `Approval: ${msg.approval.toolName}`, approval: msg.approval }]);
+        } else if (msg.type === 'tool_preset') {
+          const preset = msg.preset;
+          setPendingPreset(preset);
+          setPresetValues({ ...(preset.values ?? {}) });
+          setPresetPickBusy(null);
+          setMessages(m => [...m, { id: nextId(), role: 'preset', text: `Preset: ${preset.toolName}`, preset }]);
+        } else if (msg.type === 'presetPickResult') {
+          setPresetPickBusy(null);
+          const result = msg.result;
+          if (msg.ok === false || result?.ok === false) {
+            setMessages(m => [...m, { id: nextId(), role: 'system', text: `Pick failed: ${msg.error ?? result?.error ?? 'unknown'}` }]);
+            return;
+          }
+          if (result?.cancelled) {
+            setMessages(m => [...m, { id: nextId(), role: 'system', text: 'Pick cancelled.' }]);
+            return;
+          }
+          setPresetValues(v => {
+            const next = { ...v };
+            if (Array.isArray(result?.ids)) next[msg.fieldId] = result!.ids;
+            else if (result?.box) next[msg.fieldId] = result.box;
+            return next;
+          });
         } else if (msg.type === 'reasoning') {
           setReasoning({ text: String(msg.text ?? ''), isStreaming: !!msg.isStreaming });
           if (!msg.isStreaming) setMessages(m => [...m, { id: nextId(), role: 'reasoning', text: String(msg.text ?? '') }]);
@@ -218,7 +303,17 @@ export default function App() {
           setMessages(m => [...m, { id: nextId(), role: 'tool_call', text: String(msg.text ?? '') }]);
         }
         else if (msg.type === 'tool_result') {
-          setMessages(m => [...m, { id: nextId(), role: 'tool_result', text: String(msg.text ?? '') }]); setPendingApproval(null);
+          setMessages(m => [...m, { id: nextId(), role: 'tool_result', text: String(msg.text ?? '') }]);
+          setPendingApproval(null);
+          const text = String(msg.text ?? '');
+          setPendingPreset(cur => {
+            if (!cur) return cur;
+            if (text.includes(cur.toolName) && (text.includes('Cancelled') || text.includes('denied') || text.includes('timeout') || text.includes('result:'))) {
+              setPresetPickBusy(null);
+              return null;
+            }
+            return cur;
+          });
         }
         else if (msg.type === 'assistant') {
           const incoming = String(msg.text ?? '');
@@ -237,11 +332,13 @@ export default function App() {
             return [...m, { id: nextId(), role: 'assistant', text: incoming }];
           });
           setIsRunning(false);
+          setProgress(null);
           const cur = settingsRef.current; const active = cur?.providers.find(p => p.id === cur.activeProviderId) ?? cur?.providers[0];
           setStatus(active ? `Active: ${active.name}` : 'Ready');
         } else if (msg.type === 'error') {
           setMessages(m => [...m, { id: nextId(), role: 'system', text: `Error: ${String(msg.text ?? '')}` }]);
           setIsRunning(false); streamedRef.current = false; pendingDeltaRef.current = '';
+          setProgress(null);
           const cur = settingsRef.current; const active = cur?.providers.find(p => p.id === cur.activeProviderId);
           setStatus(active ? `Active: ${active.name}` : 'Ready');
         } else if (msg.type === 'delta') {
@@ -264,7 +361,7 @@ export default function App() {
     return () => { clearTimeout(t); off(); };
   }, []);
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, isRunning, currentPlan, pendingApproval, reasoning]);
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, isRunning, currentPlan, pendingApproval, pendingPreset, reasoning]);
 
   const providers = settings?.providers ?? [];
   const activeProvider = useMemo(() => providers.find(p => p.id === (selectedProviderId || settings?.activeProviderId)) ?? providers[0] ?? null, [providers, selectedProviderId, settings?.activeProviderId]);
@@ -300,6 +397,7 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '(image)' : ''), attachments: atts.length ? atts : undefined }]);
     setInput(''); setAttachments([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
     setIsRunning(true); streamedRef.current = false; pendingDeltaRef.current = '';
+    setProgress({ phase: 'thinking', label: effMode === 'plan' ? 'Planning…' : 'Thinking…', indeterminate: true });
     setStatus(effMode === 'plan' ? 'Planning...' : effMode === 'ask' ? 'Thinking...' : 'Working...');
     postToHost({ type: 'send', text: text || raw.trim(), attachments: atts.length ? atts : undefined, mode: effMode, slash: parsed.slash?.name, mentions: parsed.mentions } as any);
   };
@@ -309,8 +407,21 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `Approved ${pendingApproval.toolName}` : `Denied ${pendingApproval.toolName}` }]);
     setPendingApproval(null);
   };
-  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); streamedRef.current = false; };
-  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setPendingApproval(null); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
+  const handleSubmitPreset = (approved: boolean) => {
+    if (!pendingPreset) return;
+    if (approved && !requiredPresetsFilled(pendingPreset, presetValues)) return;
+    postToHost({ type: 'submitPreset', toolCallId: pendingPreset.toolCallId, approved, values: approved ? presetValues : undefined });
+    setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `Confirmed ${pendingPreset.toolName}` : `Cancelled ${pendingPreset.toolName}` }]);
+    setPendingPreset(null);
+    setPresetPickBusy(null);
+  };
+  const handlePresetPick = (fieldId: string) => {
+    if (!pendingPreset || presetPickBusy) return;
+    setPresetPickBusy(fieldId);
+    postToHost({ type: 'presetPick', toolCallId: pendingPreset.toolCallId, fieldId });
+  };
+  const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); setProgress({ phase: 'cancelled', label: 'Cancelled' }); streamedRef.current = false; setPendingPreset(null); setPresetPickBusy(null); };
+  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setProgress(null); setPendingApproval(null); setPendingPreset(null); setPresetPickBusy(null); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
@@ -488,9 +599,10 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ fontSize: 11, color: '#5c5c5c', padding: '6px 10px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {isRunning ? 'Working…' : ctxLine}
+      <div style={{ fontSize: 11, color: '#5c5c5c', padding: '6px 10px', borderBottom: progress ? 'none' : '1px solid #d0d0d0', background: '#f3f3f3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {isRunning ? (progress?.label || 'Working…') : ctxLine}
       </div>
+      {progress && progress.phase !== 'idle' && <ProgressBar progress={progress} />}
 
       {showSettings && (
         <div className="border-b overflow-y-auto" style={{ maxHeight: '52vh', background: '#f3f3f3', borderColor: '#d0d0d0' }}>
@@ -573,7 +685,7 @@ export default function App() {
                 </div>
               )}
               <label className="text-[11px] font-semibold">API Key
-                <input value={editForm.apiKey} onChange={e => setEditForm(f => ({ ...f, apiKey: e.target.value }))} type="password" placeholder={editForm.baseUrl.includes('localhost') ? 'ollama 或留空' : 'sk-...'} className={`${inp} font-mono`} />
+                <input value={editForm.apiKey} onChange={e => setEditForm(f => ({ ...f, apiKey: e.target.value }))} type="password" placeholder={editForm.baseUrl.includes('localhost') ? 'ollama or leave empty' : 'sk-...'} className={`${inp} font-mono`} />
                 <span className="text-[10px] font-normal text-muted-foreground">DPAPI · %AppData%\LoadingAI\settings.json</span>
               </label>
               {testState && testState.id === editing.id && <div className="text-xs px-2 py-1" style={{ border: '1px solid #d0d0d0' }}>{testState.message}</div>}
@@ -638,6 +750,48 @@ export default function App() {
                 <div style={kLabel}>Plan</div>
                 <div className="font-semibold text-xs">{m.plan.title}</div>
                 {m.plan.steps.map((s, i) => <div key={i} className="text-xs">{i + 1}. {s.title}</div>)}
+              </div>
+            );
+          }
+          if (m.role === 'preset' && m.preset) {
+            const isPending = pendingPreset?.toolCallId === m.preset.toolCallId;
+            const fields = m.preset.fields ?? [];
+            const canConfirm = isPending && requiredPresetsFilled(m.preset, presetValues) && !presetPickBusy;
+            return (
+              <div key={m.id} style={{ borderTop: '2px solid #2b2b2b', borderBottom: '1px solid #d0d0d0', background: '#fff', padding: 10, fontSize: 12.5 }}>
+                <div style={kLabel}>Confirm options</div>
+                <div>{m.preset.toolName}{m.preset.tier ? ` · ${m.preset.tier}` : ''}</div>
+                {m.preset.description ? <div className="mt-1" style={{ color: '#5c5c5c' }}>{m.preset.description}</div> : null}
+                {isPending ? (
+                  <div className="mt-2 grid gap-2">
+                    {fields.map(f => (
+                      <label key={f.id} className="grid gap-1">
+                        <span className="text-[11px] font-semibold">{f.label || f.id}{f.required ? ' *' : ''}</span>
+                        {f.kind === 'Boolean' ? (
+                          <input type="checkbox" checked={!!presetValues[f.id]} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.checked }))} />
+                        ) : f.kind === 'Select' ? (
+                          <select className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))}>
+                            <option value="">Select…</option>
+                            {(f.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : f.kind === 'Number' ? (
+                          <input type="number" className={inp} value={presetValues[f.id] == null ? '' : String(presetValues[f.id])} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value === '' ? '' : Number(e.target.value) }))} />
+                        ) : f.kind === 'PickElements' || f.kind === 'PickBox' ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="flex-1 text-[11px]" style={{ color: '#5c5c5c' }}>{formatPickSummary(f, presetValues[f.id])}</span>
+                            <button type="button" className={btn} disabled={!!presetPickBusy} onClick={() => handlePresetPick(f.id)}>{presetPickBusy === f.id ? 'Picking…' : 'Pick'}</button>
+                          </div>
+                        ) : (
+                          <input type="text" className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))} />
+                        )}
+                      </label>
+                    ))}
+                    <div className="grid grid-cols-2 gap-1.5 mt-1">
+                      <button type="button" className={btn} onClick={() => handleSubmitPreset(false)}>Cancel</button>
+                      <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!canConfirm} onClick={() => handleSubmitPreset(true)}>Confirm</button>
+                    </div>
+                  </div>
+                ) : <div className="text-[11px] text-muted-foreground mt-1">(done)</div>}
               </div>
             );
           }
