@@ -664,7 +664,7 @@ public partial class HostPage : Page
                             if (!quota.Ok)
                             {
                                 _isRunning = false;
-                                PostToWeb(new { type = "error", text = quota.Exhausted ? BuiltinQuota.LimitMessage(quota) : quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable." });
+                                PostToWeb(new { type = "error", text = quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable." });
                                 break;
                             }
                         }

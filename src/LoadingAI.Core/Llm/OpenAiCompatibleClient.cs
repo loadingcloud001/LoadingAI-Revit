@@ -718,6 +718,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
     {
         if (DefaultLlm.IsBuiltin(provider.Id))
         {
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.ClientHeader, BuiltinQuota.ClientToken);
             req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
             var ticket = BuiltinQuota.Ticket;
             if (!string.IsNullOrWhiteSpace(ticket))
@@ -742,6 +743,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         try
         {
             using var req = new HttpRequestMessage(method, BuildQuotaUrl(DefaultLlm.GatewayBaseUrl));
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.ClientHeader, BuiltinQuota.ClientToken);
             req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(20));

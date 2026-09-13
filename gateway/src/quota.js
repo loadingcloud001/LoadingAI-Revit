@@ -1,15 +1,14 @@
 /**
- * Per-device daily counters in Workers KV, plus per-send tickets signed with a
- * server-only secret.
+ * Per-device daily counters plus per-send tickets signed with a server-only
+ * secret.
  *
  * Tickets are stateless: they carry the device and an expiry signed with HMAC,
- * so they need no storage. That keeps a chat send at one KV write instead of
- * two, and lets a ticket stay valid for a whole long agent run.
+ * so they need no storage. One consume is one counter write, and a ticket stays
+ * valid for a whole long agent run.
  *
- * KV is eventually consistent, so two simultaneous POSTs from the same device
- * can read the same count. A device is a single add-in install, which sends
- * serially, so the practical overshoot is negligible. Move to a Durable Object
- * if the exact accounting ever matters.
+ * The store is KV-shaped (`get`/`put`) so tests can use an in-memory map and
+ * production uses SQLite (`sqlite-kv.js`). A device is a single add-in install
+ * and sends serially, so overlapping POSTs are not a practical concern.
  */
 
 export const DEFAULT_LIMIT = 100;
