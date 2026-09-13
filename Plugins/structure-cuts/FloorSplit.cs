@@ -1,533 +1,507 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+
+using LoadingAI.Geometry;
 using LoadingAI.Revit;
-using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.StructureCuts;
 
+/// <summary>
+/// Splits slabs along the beams that run through them. The slab's real outline is read back as a region,
+/// so inner boundaries survive, beams cut along their own width with the slab's openings kept, and
+/// columns become openings in the piece they land in. A slab that leans is rebuilt with a slope arrow so
+/// the pieces keep their fall. Nothing is written until every floor has been planned, every floor is
+/// written inside its own sub-transaction so a bad piece takes that floor back to how it was, and a
+/// floor that cannot be rebuilt is named and left alone rather than guessed at.
+/// </summary>
 internal static class FloorSplit
 {
-    private const double Tol = 0.001;
-    private static readonly double ZTolFt = Metric.MmToFt(30);
+    /// <summary>Smaller than this and a piece is shaving left by a cut rather than a usable slab.</summary>
     private static readonly double MinAreaSqFt = 0.09 / Metric.SqMPerSqFt;
+
+    /// <summary>How far a rebuilt slab may lean away from the slab it replaced before it is taken back (~0.6 degrees).</summary>
+    private static readonly double SlopeTolRad = 0.01;
 
     public static string Run(
         UIApplication uiApp,
         IReadOnlyList<string> floorIds,
         IReadOnlyList<string> beamIds,
         IReadOnlyList<string> columnIds,
-        int limit)
+        SplitOptions options)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
-        if (uidoc == null || doc == null) return "Please open a model first.";
+        if (uidoc == null || doc == null)
+            return "Please open a model first.";
 
-        var selection = GetSelection(uidoc);
-        var floors = Resolve(doc, floorIds, IsFloorLike);
+        var selection = SplitElements.GetSelection(uidoc);
+        var floors = SplitElements.Resolve(doc, floorIds, SplitElements.IsFloorLike);
         if (floors.Count == 0)
-            floors = selection.Where(IsFloorLike).ToList();
-        if (floors.Count == 0) return "Please select elements first.";
+            floors = selection.Where(SplitElements.IsFloorLike).ToList();
+        if (floors.Count == 0)
+            return "Please select elements first.";
 
-        var beams = Resolve(doc, beamIds, IsBeam);
+        var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
         if (beams.Count == 0)
-            beams = selection.Where(IsBeam).ToList();
+            beams = selection.Where(SplitElements.IsBeam).ToList();
         if (beams.Count == 0)
-            beams = HitElements(doc, BuiltInCategory.OST_StructuralFraming, floors, IsBeam);
+            beams = HitElements(doc, BuiltInCategory.OST_StructuralFraming, floors, SplitElements.IsBeam);
+        if (beams.Count == 0)
+            return "No beams found to split along.";
 
-        var columns = Resolve(doc, columnIds, IsColumn);
+        var columns = SplitElements.Resolve(doc, columnIds, SplitElements.IsColumn);
         if (columns.Count == 0)
-            columns = selection.Where(IsColumn).ToList();
+            columns = selection.Where(SplitElements.IsColumn).ToList();
         if (columns.Count == 0)
-            columns = HitElements(doc, BuiltInCategory.OST_StructuralColumns, floors, IsColumn);
+            columns = HitElements(doc, BuiltInCategory.OST_StructuralColumns, floors, SplitElements.IsColumn);
 
-        var stopped = floors.Count > limit;
-        if (stopped) floors = floors.Take(limit).ToList();
+        var stopped = floors.Count > options.Limit;
+        if (stopped)
+            floors = floors.Take(options.Limit).ToList();
 
+        var skips = new Skips();
+        var plans = new List<Plan>();
+        foreach (var element in floors)
+        {
+            if (element is not Floor floor)
+            {
+                skips.NotASlab++;
+                continue;
+            }
+
+            var (plan, error) = Prepare(doc, floor, beams, columns);
+            switch (error)
+            {
+                case "shape-edited":
+                    skips.ShapeEdited++;
+                    continue;
+                case "no-planar-face":
+                    skips.NoPlanarFace++;
+                    continue;
+                case "no-level":
+                    skips.NoLevel++;
+                    continue;
+                case "no-regions":
+                    skips.NoRegions++;
+                    continue;
+                case "unchanged":
+                    skips.Unchanged++;
+                    continue;
+                case null:
+                    plans.Add(plan!);
+                    break;
+            }
+        }
+
+        var notes = skips.Note(stopped, options.Limit);
+
+        if (options.DryRun)
+        {
+            var pieces = plans.Sum(plan => plan.Regions.Count);
+            var openings = plans.Sum(plan => plan.Regions.Sum(region => region.Holes.Count));
+            var sloped = plans.Count(plan => plan.Leans);
+            return "Dry-run. " + $"Would split {plans.Count} floors into {pieces} pieces. Openings: {openings}. No changes made."
+                + notes
+                + (sloped > 0 ? $" Replaced with a slope arrow: {sloped}." : "");
+        }
+
+        if (plans.Count == 0)
+            return "Nothing to split." + notes;
+
+        var created = new List<ElementId>();
         var splitFloors = 0;
-        var newCount = 0;
-        var openings = 0;
-        var deleted = 0;
-        var skipNoBoundary = 0;
-        var skipSloped = 0;
-        var skipFailed = 0;
-        var skipUnchanged = 0;
+        var piecesMade = 0;
+        var openingsMade = 0;
+        var slopedMade = 0;
+        var dependents = 0;
         var paramSkipped = 0;
 
-        using var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams");
-        tx.Start();
-        foreach (var el in floors)
+        using (var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams"))
         {
-            if (el is not Floor floor)
+            tx.Start();
+            foreach (var plan in plans)
             {
-                skipNoBoundary++;
-                continue;
+                var (ids, openings, skipped, lost, error) = Write(doc, plan, options);
+                paramSkipped += skipped;
+                if (error != null || ids.Count == 0)
+                {
+                    switch (error)
+                    {
+                        case "sloped-mismatch":
+                            skips.SlopedMismatch++;
+                            break;
+                        case "delete-failed":
+                            skips.DeleteFailed++;
+                            break;
+                        default:
+                            skips.Partial++;
+                            break;
+                    }
+
+                    continue;
+                }
+
+                splitFloors++;
+                piecesMade += ids.Count;
+                openingsMade += openings;
+                dependents += lost;
+                if (plan.Leans)
+                    slopedMade++;
+
+                created.AddRange(ids);
             }
 
-            var (pts, z, sloped) = GetFloorBoundary(floor);
-            if (sloped)
-            {
-                skipSloped++;
-                continue;
-            }
-            if (pts == null || pts.Count < 3 || z == null)
-            {
-                skipNoBoundary++;
-                continue;
-            }
-
-            var (created, openCount, skipped, error) = ProcessFloor(doc, floor, pts, z.Value, beams, columns);
-            if (error == "unchanged")
-            {
-                skipUnchanged++;
-                continue;
-            }
-            if (created.Count == 0)
-            {
-                skipFailed++;
-                continue;
-            }
-            splitFloors++;
-            newCount += created.Count;
-            openings += openCount;
-            paramSkipped += skipped;
-            deleted++;
+            tx.Commit();
         }
-        tx.Commit();
 
-        var msg = $"Split {splitFloors} floors into {newCount}. Openings: {openings}. Originals deleted: {deleted}.";
-        var skips = new List<string>();
-        if (skipNoBoundary > 0) skips.Add($"{skipNoBoundary} no boundary");
-        if (skipSloped > 0) skips.Add($"{skipSloped} sloped/curved");
-        if (skipUnchanged > 0) skips.Add($"{skipUnchanged} unchanged");
-        if (skipFailed > 0) skips.Add($"{skipFailed} failed");
-        if (skips.Count > 0) msg += $" Skipped: {string.Join(", ", skips)}.";
-        if (splitFloors > 0) msg += " Instance parameters copied to new pieces.";
-        if (paramSkipped > 0) msg += $" Param copy skipped: {paramSkipped}.";
-        if (stopped) msg += $" Stopped at {limit}.";
-        return msg;
+        var message = $"Split {splitFloors} floors into {piecesMade} pieces. Openings: {openingsMade}."
+            + skips.Note(stopped, options.Limit);
+        message += options.CopyParams
+            ? " Instance parameters copied to new pieces."
+            : " Copy params: off.";
+        if (slopedMade > 0)
+            message += $" Replaced with a slope arrow: {slopedMade}.";
+        if (options.CopyParams && paramSkipped > 0)
+            message += $" Param copy skipped: {paramSkipped}.";
+        if (splitFloors > 0)
+            message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
+        if (created.Count > 0)
+            message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+
+        SplitElements.Select(uidoc, created);
+        return message;
     }
 
-    private static (List<Floor> created, int openings, int paramSkipped, string? error) ProcessFloor(
-        Document doc,
-        Floor floor,
-        List<(double X, double Y)> boundary,
-        double zElev,
-        IReadOnlyList<Element> beams,
-        IReadOnlyList<Element> columns)
+    /// <summary>
+    /// Works out the pieces a floor would become without touching the document: the slab outline as a
+    /// region (inner boundaries included), a column footprint turned into an opening wherever it lands
+    /// inside, and one cut per beam edge.
+    /// </summary>
+    private static (Plan? Plan, string? Error) Prepare(Document doc, Floor floor, IReadOnlyList<Element> beams, IReadOnlyList<Element> columns)
     {
-        var typeId = floor.GetTypeId();
-        var level = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
-        if (level == null || level == ElementId.InvalidElementId || doc.GetElement(level) is not Level)
-            return (new List<Floor>(), 0, 0, "no level");
+        // A slab whose shape has been edited by hand carries creases no slope arrow can express, so it is
+        // left alone by name. Ask before reading the geometry: the name is the more useful of the two.
+        if (GeometryRevit.IsShapeEdited(floor))
+            return (null, "shape-edited");
 
-        var heightOffset = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.AsDouble() ?? 0;
-        var isStructural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1;
+        if (!GeometryRevit.TrySlabRegion(floor, out var plane, out var tilt, out var slab) || slab == null)
+            return (null, "no-planar-face");
 
-        boundary = EnsureCcw(boundary);
+        var levelId = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
+        if (levelId == null || levelId == ElementId.InvalidElementId || doc.GetElement(levelId) is not Level)
+            return (null, "no-level");
 
-        var columnOpenings = new List<List<(double X, double Y)>>();
+        var originalHoles = slab.Holes.Count;
+        var region = slab;
+
         foreach (var column in columns)
         {
-            if (!BboxIntersectXy(floor, column) || !BboxOverlapZ(floor, column)) continue;
-            var footprint = ColumnFootprint(column);
-            if (footprint == null) continue;
-            var center = Mid(footprint[0], footprint[2]);
-            if (PointInPolygon(center, boundary))
-                columnOpenings.Add(footprint);
+            if (!GeometryRevit.Reaches(floor, column))
+                continue;
+
+            // Only the outer outline: a hollow column still blocks the slab, so its inner ring is not a
+            // hole. A footprint below the smallest usable piece is noise rather than an opening.
+            var ring = Polygon2D.Largest(GeometryRevit.HorizontalRings(column, plane));
+            if (ring == null || Polygon2D.Area(ring) <= MinAreaSqFt)
+                continue;
+            if (!Inside(region, ring))
+                continue;
+
+            region = region.WithHole(ring);
         }
 
-        var polygons = new List<List<(double X, double Y)>> { boundary };
+        var regions = new List<Region2D> { region };
         foreach (var beam in beams)
         {
-            if (!BboxIntersectXy(floor, beam) || !BboxOverlapZ(floor, beam)) continue;
-            foreach (var (start, end) in BeamEdges(doc, beam, zElev))
+            if (!GeometryRevit.Reaches(floor, beam))
+                continue;
+
+            foreach (var edge in GeometryRevit.BeamEdges(beam, plane, out _))
             {
-                var next = new List<List<(double X, double Y)>>();
-                foreach (var poly in polygons)
-                    next.AddRange(SplitPolygonByLine(poly, start, end));
-                polygons = next;
+                var next = new List<Region2D>();
+                foreach (var piece in regions)
+                    next.AddRange(Cut(piece, edge));
+                regions = next;
             }
         }
 
-        polygons = polygons.Where(p => Math.Abs(PolygonArea(p)) > MinAreaSqFt).ToList();
-        if (polygons.Count == 0)
-            return (new List<Floor>(), 0, 0, "no regions");
-        if (polygons.Count == 1 && columnOpenings.Count == 0)
-            return (new List<Floor>(), 0, 0, "unchanged");
+        regions = regions.Where(piece => piece.Area > MinAreaSqFt).ToList();
+        if (regions.Count == 0)
+            return (null, "no-regions");
+        if (regions.Count == 1 && region.Holes.Count == originalHoles)
+            return (null, "unchanged");
 
-        var snap = ParamCopy.Take(floor);
-        var created = new List<Floor>();
-        var openingCount = 0;
-        var paramSkipped = 0;
-        foreach (var poly in polygons)
+        var plan = new Plan
         {
-            var polyOpenings = new List<List<(double X, double Y)>>();
-            foreach (var opening in columnOpenings)
-            {
-                var center = Mid(opening[0], opening[2]);
-                if (PointInPolygon(center, poly))
-                    polyOpenings.Add(opening);
-            }
-            var neu = CreateFloor(doc, poly, typeId, level, zElev, polyOpenings, isStructural, heightOffset);
-            if (neu == null)
-            {
-                foreach (var f in created)
-                {
-                    try { doc.Delete(f.Id); } catch { }
-                }
-                return (new List<Floor>(), 0, 0, "partial");
-            }
-            paramSkipped += ParamCopy.Apply(snap, neu);
-            created.Add(neu);
-            openingCount += polyOpenings.Count;
-        }
-
-        try { doc.Delete(floor.Id); }
-        catch
-        {
-            foreach (var f in created)
-            {
-                try { doc.Delete(f.Id); } catch { }
-            }
-            return (new List<Floor>(), 0, 0, "delete failed");
-        }
-        return (created, openingCount, paramSkipped, null);
+            Floor = floor,
+            Plane = plane,
+            Tilt = tilt,
+            Regions = regions,
+            TypeId = floor.GetTypeId(),
+            LevelId = levelId,
+            Structural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1,
+            HeightOffset = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.AsDouble() ?? 0
+        };
+        return (plan, null);
     }
 
-    private static (List<(double X, double Y)>? points, double? z, bool sloped) GetFloorBoundary(Floor floor)
+    /// <summary>
+    /// Splits one region with a beam edge. The edge is trimmed to the outline first and then pushed just
+    /// past it, because a cut that stops exactly on the boundary does not read as a crossing; an edge
+    /// that only clips a corner, or that runs flush along the boundary, leaves the region whole.
+    /// </summary>
+    private static List<Region2D> Cut(Region2D region, IReadOnlyList<Point2> edge)
     {
-        try
+        foreach (var run in Polygon2D.ClipPolylineToPolygon(region.Outer, edge))
         {
-            var options = new Options { DetailLevel = ViewDetailLevel.Fine };
-            var geo = floor.get_Geometry(options);
-            if (geo == null) return (null, null, false);
+            var cut = Polygon2D.ExtendEnds(run, GeometryRevit.NudgeFt);
+            if (cut.Count < 2)
+                continue;
 
-            var sawSolid = false;
-            foreach (var obj in geo)
+            var (left, right) = region.Split(cut);
+            if (left != null && right != null)
+                return new List<Region2D> { left, right };
+        }
+
+        return new List<Region2D> { region };
+    }
+
+    /// <summary>
+    /// Replaces the original floor with one floor per region, carrying the openings each piece kept, all
+    /// inside its own sub-transaction: a piece that will not build, or a piece that comes back leaning
+    /// the wrong way, takes the whole floor back to how it was, so a partial split never survives as a
+    /// silently shrunk slab.
+    /// </summary>
+    private static (List<ElementId> Ids, int Openings, int ParamSkipped, int Dependent, string? Error) Write(Document doc, Plan plan, SplitOptions options)
+    {
+        var created = new List<Floor>();
+        var openings = 0;
+        var paramSkipped = 0;
+        var dependents = 0;
+        string? failed = null;
+
+        var mark = options.UniqueMark ? ParamCopy.Mark(plan.Floor) : null;
+        var snapshot = options.CopyParams ? ParamCopy.Take(plan.Floor) : null;
+
+        using (var sub = new SubTransaction(doc))
+        {
+            sub.Start();
+            try
             {
-                if (obj is not Solid solid || solid.Volume <= 0) continue;
-                sawSolid = true;
-                foreach (Face face in solid.Faces)
+                for (var i = 0; i < plan.Regions.Count; i++)
                 {
-                    if (face is not PlanarFace planar || planar.FaceNormal.Z <= 0.9) continue;
-                    foreach (EdgeArray loop in face.EdgeLoops)
+                    var region = plan.Regions[i];
+                    var piece = CreateFloor(doc, plan, region, out var error);
+                    if (piece == null)
                     {
-                        var points = new List<(double X, double Y)>();
-                        double? z = null;
-                        foreach (Edge edge in loop)
-                        {
-                            var pt = edge.AsCurve().GetEndPoint(0);
-                            z ??= pt.Z;
-                            points.Add((pt.X, pt.Y));
-                        }
-                        if (points.Count >= 3)
-                            return (points, z, false);
+                        failed = error ?? "partial";
+                        break;
+                    }
+
+                    var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
+                    if (snapshot != null)
+                        paramSkipped += ParamCopy.Apply(snapshot, piece, markFor);
+                    else
+                        ParamCopy.SetMark(piece, markFor);
+
+                    created.Add(piece);
+                    openings += region.Holes.Count;
+                }
+
+                if (failed == null && !Leans(plan, created))
+                    failed = "sloped-mismatch";
+
+                if (failed == null)
+                {
+                    dependents = SplitElements.Dependent(plan.Floor);
+                    try
+                    {
+                        doc.Delete(plan.Floor.Id);
+                    }
+                    catch
+                    {
+                        failed = "delete-failed";
                     }
                 }
             }
-            return (null, null, sawSolid);
+            catch
+            {
+                if (failed == null)
+                    failed = "partial";
+            }
+
+            if (failed != null)
+            {
+                sub.RollBack();
+                return (new List<ElementId>(), 0, 0, 0, failed);
+            }
+
+            sub.Commit();
+        }
+
+        return (created.Select(piece => piece.Id).ToList(), openings, paramSkipped, dependents, null);
+    }
+
+    /// <summary>
+    /// Builds one piece. Its outline is written in the horizontal plane, because Floor.Create only takes
+    /// loops parallel to the XY plane, and it is set back up onto the face it was cut from - a piece from
+    /// the top of a leaning slab starts higher than one from the bottom. A leaning slab also hands over
+    /// the slope arrow that puts the fall back.
+    /// </summary>
+    private static Floor? CreateFloor(Document doc, Plan plan, Region2D region, out string? error)
+    {
+        error = null;
+
+        var plane = GeometryRevit.HorizontalPlane(new XYZ(0, 0, GeometryRevit.FaceZ(plan.Plane, plan.Tilt, region.Outer)));
+        var outer = GeometryRevit.Loop(plane, region.Outer, clockwise: false);
+        if (outer == null)
+        {
+            error = "partial";
+            return null;
+        }
+
+        var loops = new List<CurveLoop> { outer };
+        foreach (var hole in region.Holes)
+        {
+            var inner = GeometryRevit.Loop(plane, hole, clockwise: true);
+            if (inner != null)
+                loops.Add(inner);
+        }
+
+        Line? arrow = null;
+        var slope = 0.0;
+        if (plan.Leans)
+        {
+            arrow = GeometryRevit.SlopeArrowFor(plane, region.Outer, plan.Tilt);
+            if (arrow == null)
+            {
+                error = "partial";
+                return null;
+            }
+
+            slope = plan.Tilt.Slope;
+        }
+
+        try
+        {
+            var piece = Floor.Create(doc, loops, plan.TypeId, plan.LevelId, plan.Structural, arrow, slope);
+            if (piece == null)
+            {
+                error = "partial";
+                return null;
+            }
+
+            if (Math.Abs(plan.HeightOffset) > 1e-9)
+                piece.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.Set(plan.HeightOffset);
+            return piece;
         }
         catch
         {
-            return (null, null, false);
-        }
-    }
-
-    private static List<(XYZ Start, XYZ End)> BeamEdges(Document doc, Element beam, double zElev)
-    {
-        var edges = new List<(XYZ, XYZ)>();
-        if (beam.Location is not LocationCurve lc || lc.Curve is not Line line)
-            return edges;
-        var bbox = beam.get_BoundingBox(null);
-        if (bbox == null) return edges;
-
-        var start = line.GetEndPoint(0);
-        var end = line.GetEndPoint(1);
-        var dirXy = new XYZ(end.X - start.X, end.Y - start.Y, 0);
-        if (dirXy.GetLength() < Tol) return edges;
-        dirXy = dirXy.Normalize();
-        var perp = new XYZ(-dirXy.Y, dirXy.X, 0);
-
-        var halfWidth = BeamHalfWidth(doc, beam, bbox, start, end, perp);
-        var start2d = new XYZ(start.X, start.Y, zElev);
-        var end2d = new XYZ(end.X, end.Y, zElev);
-        const double extend = 1.0;
-        var e1s = start2d + perp * halfWidth - dirXy * extend;
-        var e1e = end2d + perp * halfWidth + dirXy * extend;
-        var e2s = start2d - perp * halfWidth - dirXy * extend;
-        var e2e = end2d - perp * halfWidth + dirXy * extend;
-        edges.Add((e1s, e1e));
-        edges.Add((e2s, e2e));
-        return edges;
-    }
-
-    private static double BeamHalfWidth(Document doc, Element beam, BoundingBoxXYZ bbox, XYZ start, XYZ end, XYZ perp)
-    {
-        try
-        {
-            var beamType = doc.GetElement(beam.GetTypeId());
-            Parameter? widthParam = beamType?.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
-            if (widthParam is not { HasValue: true })
-                widthParam = beamType?.LookupParameter("Width");
-            if (widthParam is not { HasValue: true })
-                widthParam = beamType?.LookupParameter("b");
-            if (widthParam is { HasValue: true })
-            {
-                var w = widthParam.AsDouble() / 2.0;
-                if (w > 0) return w;
-            }
-        }
-        catch { }
-
-        var mid = new XYZ((start.X + end.X) / 2.0, (start.Y + end.Y) / 2.0, 0);
-        var corners = new[]
-        {
-            new XYZ(bbox.Min.X - mid.X, bbox.Min.Y - mid.Y, 0),
-            new XYZ(bbox.Max.X - mid.X, bbox.Min.Y - mid.Y, 0),
-            new XYZ(bbox.Min.X - mid.X, bbox.Max.Y - mid.Y, 0),
-            new XYZ(bbox.Max.X - mid.X, bbox.Max.Y - mid.Y, 0)
-        };
-        var projections = corners.Select(c => c.X * perp.X + c.Y * perp.Y).ToList();
-        return (projections.Max() - projections.Min()) / 2.0;
-    }
-
-    private static List<(double X, double Y)>? ColumnFootprint(Element column)
-    {
-        var bbox = column.get_BoundingBox(null);
-        if (bbox == null) return null;
-        return new List<(double, double)>
-        {
-            (bbox.Min.X, bbox.Min.Y),
-            (bbox.Max.X, bbox.Min.Y),
-            (bbox.Max.X, bbox.Max.Y),
-            (bbox.Min.X, bbox.Max.Y)
-        };
-    }
-
-    private static Floor? CreateFloor(
-        Document doc,
-        List<(double X, double Y)> points,
-        ElementId typeId,
-        ElementId levelId,
-        double zElev,
-        List<List<(double X, double Y)>> openings,
-        bool structural,
-        double heightOffset)
-    {
-        if (points.Count < 3) return null;
-        try
-        {
-            var outer = LoopFromPoints(points, zElev, clockwise: false);
-            if (outer == null) return null;
-            var loops = new List<CurveLoop> { outer };
-            foreach (var opening in openings)
-            {
-                if (opening.Count < 3) continue;
-                var inner = LoopFromPoints(opening, zElev, clockwise: true);
-                if (inner != null) loops.Add(inner);
-            }
-
-            var neu = Floor.Create(doc, loops, typeId, levelId);
-            if (neu == null) return null;
-            if (Math.Abs(heightOffset) > 1e-9)
-                neu.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.Set(heightOffset);
-            if (structural)
-                neu.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.Set(1);
-            return neu;
-        }
-        catch
-        {
+            error = "partial";
             return null;
         }
     }
 
-    private static CurveLoop? LoopFromPoints(List<(double X, double Y)> points, double zElev, bool clockwise)
+    /// <summary>
+    /// Whether what was built leans the way the original did. A piece whose top face tilts somewhere else
+    /// is a slab with the wrong geometry - the one outcome this tool must never leave behind - so the
+    /// floor goes back and the run names it instead.
+    /// </summary>
+    private static bool Leans(Plan plan, IReadOnlyList<Floor> pieces)
     {
-        var ordered = clockwise ? EnsureCw(points) : EnsureCcw(points);
-        var curves = new List<Curve>();
-        for (var i = 0; i < ordered.Count; i++)
-        {
-            var p1 = ordered[i];
-            var p2 = ordered[(i + 1) % ordered.Count];
-            var start = new XYZ(p1.X, p1.Y, zElev);
-            var end = new XYZ(p2.X, p2.Y, zElev);
-            if (start.DistanceTo(end) <= Tol) continue;
-            try { curves.Add(Line.CreateBound(start, end)); }
-            catch { return null; }
-        }
-        if (curves.Count < 3) return null;
-        try { return CurveLoop.Create(curves); }
-        catch { return null; }
+        if (!plan.Leans)
+            return true;
+
+        foreach (var piece in pieces)
+            if (!GeometryRevit.TrySlabRegion(piece, out _, out var built, out _) || !plan.Tilt.Matches(built.Normal, SlopeTolRad))
+                return false;
+
+        return true;
     }
 
-    private static List<List<(double X, double Y)>> SplitPolygonByLine(
-        List<(double X, double Y)> polygon,
-        XYZ lineStart,
-        XYZ lineEnd)
+    /// <summary>Whether a column outline sits wholly inside the slab, so it can be an opening at all.</summary>
+    private static bool Inside(Region2D region, IReadOnlyList<Point2> ring)
     {
-        if (polygon.Count < 3) return new List<List<(double X, double Y)>> { polygon };
+        foreach (var point in ring)
+            if (!Polygon2D.PointInPolygon(point, region.Outer))
+                return false;
 
-        var intersections = new List<(int Index, double T, (double X, double Y) Pt)>();
-        var n = polygon.Count;
-        for (var i = 0; i < n; i++)
-        {
-            var p1 = polygon[i];
-            var p2 = polygon[(i + 1) % n];
-            var hit = LineIntersection(p1, p2, (lineStart.X, lineStart.Y), (lineEnd.X, lineEnd.Y));
-            if (hit == null) continue;
-            var dx = p2.X - p1.X;
-            var dy = p2.Y - p1.Y;
-            double t;
-            if (Math.Abs(dx) > Math.Abs(dy))
-                t = Math.Abs(dx) > Tol ? (hit.Value.X - p1.X) / dx : 0;
-            else
-                t = Math.Abs(dy) > Tol ? (hit.Value.Y - p1.Y) / dy : 0;
-            intersections.Add((i, t, hit.Value));
-        }
-
-        if (intersections.Count != 2)
-            return new List<List<(double X, double Y)>> { polygon };
-
-        intersections.Sort((a, b) =>
-        {
-            var c = a.Index.CompareTo(b.Index);
-            return c != 0 ? c : a.T.CompareTo(b.T);
-        });
-
-        var (idx1, _, pt1) = intersections[0];
-        var (idx2, _, pt2) = intersections[1];
-
-        var poly1 = new List<(double X, double Y)> { pt1 };
-        var iWalk = (idx1 + 1) % n;
-        while (iWalk != (idx2 + 1) % n)
-        {
-            poly1.Add(polygon[iWalk]);
-            iWalk = (iWalk + 1) % n;
-        }
-        poly1.Add(pt2);
-
-        var poly2 = new List<(double X, double Y)> { pt2 };
-        iWalk = (idx2 + 1) % n;
-        while (iWalk != (idx1 + 1) % n)
-        {
-            poly2.Add(polygon[iWalk]);
-            iWalk = (iWalk + 1) % n;
-        }
-        poly2.Add(pt1);
-
-        var result = new List<List<(double X, double Y)>>();
-        foreach (var poly in new[] { poly1, poly2 })
-        {
-            if (poly.Count >= 3 && Math.Abs(PolygonArea(poly)) > Tol)
-                result.Add(poly);
-        }
-        return result.Count > 0 ? result : new List<List<(double X, double Y)>> { polygon };
+        return true;
     }
 
-    private static (double X, double Y)? LineIntersection(
-        (double X, double Y) p1, (double X, double Y) p2,
-        (double X, double Y) p3, (double X, double Y) p4)
-    {
-        var denom = (p1.X - p2.X) * (p3.Y - p4.Y) - (p1.Y - p2.Y) * (p3.X - p4.X);
-        if (Math.Abs(denom) < Tol) return null;
-        var t = ((p1.X - p3.X) * (p3.Y - p4.Y) - (p1.Y - p3.Y) * (p3.X - p4.X)) / denom;
-        var u = -((p1.X - p2.X) * (p1.Y - p3.Y) - (p1.Y - p2.Y) * (p1.X - p3.X)) / denom;
-        if (t is < 0 or > 1 || u is < 0 or > 1) return null;
-        return (p1.X + t * (p2.X - p1.X), p1.Y + t * (p2.Y - p1.Y));
-    }
-
-    private static bool PointInPolygon((double X, double Y) point, List<(double X, double Y)> polygon)
-    {
-        var inside = false;
-        var n = polygon.Count;
-        var j = n - 1;
-        for (var i = 0; i < n; i++)
-        {
-            var (xi, yi) = polygon[i];
-            var (xj, yj) = polygon[j];
-            if ((yi > point.Y) != (yj > point.Y) &&
-                point.X < (xj - xi) * (point.Y - yi) / (yj - yi) + xi)
-                inside = !inside;
-            j = i;
-        }
-        return inside;
-    }
-
-    private static double PolygonArea(List<(double X, double Y)> points)
-    {
-        double area = 0;
-        for (var i = 0; i < points.Count; i++)
-        {
-            var j = (i + 1) % points.Count;
-            area += points[i].X * points[j].Y;
-            area -= points[j].X * points[i].Y;
-        }
-        return area / 2;
-    }
-
-    private static List<(double X, double Y)> EnsureCcw(List<(double X, double Y)> points)
-        => PolygonArea(points) < 0 ? points.AsEnumerable().Reverse().ToList() : points;
-
-    private static List<(double X, double Y)> EnsureCw(List<(double X, double Y)> points)
-        => PolygonArea(points) > 0 ? points.AsEnumerable().Reverse().ToList() : points;
-
-    private static (double X, double Y) Mid((double X, double Y) a, (double X, double Y) b)
-        => ((a.X + b.X) / 2, (a.Y + b.Y) / 2);
-
-    private static bool BboxIntersectXy(Element a, Element b)
-    {
-        var bb1 = a.get_BoundingBox(null);
-        var bb2 = b.get_BoundingBox(null);
-        if (bb1 == null || bb2 == null) return false;
-        return !(bb1.Max.X < bb2.Min.X || bb1.Min.X > bb2.Max.X ||
-                 bb1.Max.Y < bb2.Min.Y || bb1.Min.Y > bb2.Max.Y);
-    }
-
-    private static bool BboxOverlapZ(Element a, Element b)
-    {
-        var bb1 = a.get_BoundingBox(null);
-        var bb2 = b.get_BoundingBox(null);
-        if (bb1 == null || bb2 == null) return true;
-        return !(bb1.Max.Z < bb2.Min.Z - ZTolFt || bb2.Max.Z < bb1.Min.Z - ZTolFt);
-    }
-
-    private static List<Element> HitElements(Document doc, BuiltInCategory cat, IReadOnlyList<Element> floors, Func<Element, bool> pred)
+    private static List<Element> HitElements(Document doc, BuiltInCategory category, IReadOnlyList<Element> floors, Func<Element, bool> wanted)
         => new FilteredElementCollector(doc)
-            .OfCategory(cat)
+            .OfCategory(category)
             .WhereElementIsNotElementType()
             .ToElements()
-            .Where(el => pred(el) && floors.Any(f => BboxIntersectXy(f, el) && BboxOverlapZ(f, el)))
+            .Where(el => wanted(el) && floors.Any(floor => GeometryRevit.Reaches(floor, el)))
             .ToList();
 
-    private static List<Element> Resolve(Document doc, IReadOnlyList<string> ids, Func<Element, bool> pred)
+    /// <summary>
+    /// Why floors were left alone, counted one name at a time. Nothing is lumped under one blanket
+    /// reason: a shape edited slab, a slab with no usable top face and a slab that simply has nothing
+    /// crossing it are three different things for the person reading the report.
+    /// </summary>
+    private sealed class Skips
     {
-        var list = new List<Element>();
-        foreach (var s in ids)
+        public int NotASlab { get; set; }
+
+        public int ShapeEdited { get; set; }
+
+        public int NoPlanarFace { get; set; }
+
+        public int SlopedMismatch { get; set; }
+
+        public int NoLevel { get; set; }
+
+        public int NoRegions { get; set; }
+
+        public int Unchanged { get; set; }
+
+        public int Partial { get; set; }
+
+        public int DeleteFailed { get; set; }
+
+        public string Note(bool stopped, int limit)
         {
-            try
-            {
-                var el = doc.GetElement(RevitParse.ParseEid(s));
-                if (el != null && pred(el)) list.Add(el);
-            }
-            catch { }
+            var parts = new List<string>();
+            SplitElements.AddSkip(parts, NotASlab, "not a slab");
+            SplitElements.AddSkip(parts, ShapeEdited, "shape edited");
+            SplitElements.AddSkip(parts, NoPlanarFace, "no planar top face");
+            SplitElements.AddSkip(parts, SlopedMismatch, "sloped rebuild did not match");
+            SplitElements.AddSkip(parts, NoLevel, "no level");
+            SplitElements.AddSkip(parts, NoRegions, "no regions");
+            SplitElements.AddSkip(parts, Unchanged, "unchanged");
+            SplitElements.AddSkip(parts, Partial, "piece not built");
+            SplitElements.AddSkip(parts, DeleteFailed, "original not deleted");
+
+            var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
+            if (stopped)
+                note += $" Stopped at {limit}.";
+            return note;
         }
-        return list;
     }
 
-    private static List<Element> GetSelection(UIDocument uidoc)
-        => uidoc.Selection.GetElementIds()
-            .Select(id => uidoc.Document.GetElement(id))
-            .Where(e => e != null)
-            .Cast<Element>()
-            .ToList();
+    /// <summary>A floor and the pieces it was planned to become, before anything is written.</summary>
+    private sealed class Plan
+    {
+        public Floor Floor { get; init; } = null!;
 
-    private static bool IsFloorLike(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_Floors
-           || el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralFoundation;
+        public Plane2D Plane { get; init; } = null!;
 
-    private static bool IsBeam(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralFraming;
+        public PlanarTilt Tilt { get; init; }
 
-    private static bool IsColumn(Element el)
-        => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns;
+        public List<Region2D> Regions { get; init; } = new();
+
+        public ElementId TypeId { get; init; } = ElementId.InvalidElementId;
+
+        public ElementId LevelId { get; init; } = ElementId.InvalidElementId;
+
+        public bool Structural { get; init; }
+
+        public double HeightOffset { get; init; }
+
+        /// <summary>Whether the slab leans enough that its pieces have to be rebuilt with a slope arrow.</summary>
+        public bool Leans => !Tilt.IsHorizontal(GeometryRevit.HorizontalZTol);
+    }
 }

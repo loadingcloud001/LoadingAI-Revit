@@ -809,7 +809,8 @@ public partial class HostPage : Page
                 return preset.message;
             }
             argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
-            if (entry.Tier == ToolTier.L3)
+            // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
+            if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
             {
                 if (!await ConfirmL3NativeAsync(name, argsJson))
                     return "Cancelled by user.";
@@ -820,7 +821,7 @@ public partial class HostPage : Page
             }
         }
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
-        else if (entry.Tier == ToolTier.L3)
+        else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
         {
             var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -33,11 +33,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion120()
+    public void PluginJson_IsVersion150()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.2.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.5.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -75,6 +75,8 @@ public class StructureCutsContractTests
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitOptions.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GeometryRevit.cs")));
         Assert.False(File.Exists(Path.Combine(root, "src", "LoadingAI", "Tools", "StructureCutsPlugin.cs")));
         var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*Split*.cs", SearchOption.AllDirectories);
         Assert.DoesNotContain(hostTools, f => Path.GetFileName(f).Contains("BeamSplit") || Path.GetFileName(f).Contains("FloorSplit"));
@@ -100,7 +102,10 @@ public class StructureCutsContractTests
         Assert.Contains("Kind = PresetFieldKind.PickElements", src, StringComparison.Ordinal);
         Assert.DoesNotContain("PresetFieldKind.PickBox", src, StringComparison.Ordinal);
         Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
-        Assert.DoesNotContain("Id = \"limit\"", src, StringComparison.Ordinal);
+
+        // The element cap is host-owned too: a Number field both tools share, clamped by the plugin.
+        var limitPreset = "new PresetField { Id = \"limit\", Label = \"Max elements\", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit }";
+        Assert.Equal(2, CountOccurrences(src, limitPreset));
 
         foreach (var expected in new[]
         {
@@ -121,6 +126,138 @@ public class StructureCutsContractTests
             Assert.DoesNotContain("PickObjects", text, StringComparison.Ordinal);
             Assert.DoesNotContain("Selection.Pick", text, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void DryRunPreset_IsOptionalBooleanDefaultFalse()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
+        var preset = "new PresetField { Id = \"dryRun\", Label = \"Dry-run (count only)\", Kind = PresetFieldKind.Boolean, Default = false }";
+        Assert.Equal(2, CountOccurrences(src, preset));
+        Assert.Contains("dryRun = new { type = \"boolean\"", src, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DryRun_ReadsThroughSharedHelper_AndSkipsEveryWrite()
+    {
+        var root = RepoRoot();
+        var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
+
+        // Same helper the host gates the L3 confirm with, so both sides agree. The plugin reads it once,
+        // in the Options factory that both split tools share, instead of parsing the flag per tool.
+        Assert.Equal(1, CountOccurrences(src, "ToolPresets.IsDryRun(json)"));
+        Assert.Contains("DryRun = ToolPresets.IsDryRun(json)", src, StringComparison.Ordinal);
+
+        var beam = File.ReadAllText(Path.Combine(pluginDir, "BeamSplit.cs"));
+        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+
+        Assert.Contains("Dry-run. ", beam, StringComparison.Ordinal);
+        Assert.Contains("Dry-run. ", floor, StringComparison.Ordinal);
+
+        // A dry run leaves before a transaction is even opened, so nothing that writes can be reached:
+        // the only piece of the split that touches the document runs inside that transaction.
+        AssertOrdered("BeamSplit.cs", beam,
+            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc, plan, options)");
+        AssertOrdered("FloorSplit.cs", floor,
+            "if (options.DryRun)", "new Transaction(", "Write(doc, plan, options)");
+    }
+
+    [Fact]
+    public void BothTools_ExposeUniqueMarkAndCopyParams_WithSharedDefaults()
+    {
+        var root = RepoRoot();
+        var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
+
+        Assert.Equal(2, CountOccurrences(src, "Id = \"uniqueMark\""));
+        Assert.Equal(2, CountOccurrences(src, "Id = \"copyParams\""));
+        Assert.Contains("uniqueMark = new { type = \"boolean\"", src, StringComparison.Ordinal);
+        Assert.Contains("copyParams = new { type = \"boolean\"", src, StringComparison.Ordinal);
+
+        // One shared Options factory, so the two tools cannot drift apart on the defaults.
+        Assert.Contains("UniqueMark = args.Bool(\"uniqueMark\", false)", src, StringComparison.Ordinal);
+        Assert.Contains("CopyParams = args.Bool(\"copyParams\", true)", src, StringComparison.Ordinal);
+
+        // A slab that cannot be rebuilt exactly is left alone and named by reason, never guessed at,
+        // and a member Revit can split itself is split rather than re-created.
+        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+        Assert.Contains("GeometryRevit.TrySlabRegion", floor, StringComparison.Ordinal);
+        Assert.Contains("SlopeArrowFor", floor, StringComparison.Ordinal);
+        Assert.Contains("Floor.Create(doc,", floor, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", floor, StringComparison.Ordinal);
+
+        // Each reason a slab is left alone is named, so a run says what it could not do and why.
+        foreach (var reason in new[]
+        {
+            "\"shape-edited\"",
+            "\"no-planar-face\"",
+            "\"sloped-mismatch\"",
+            "\"no-level\"",
+            "\"no-regions\"",
+            "\"unchanged\""
+        })
+        {
+            Assert.Contains(reason, floor, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void BeamSplit_UsesRevitNativeSplitBeforeRecreatingPieces()
+    {
+        var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs"));
+
+        // Revit's own split keeps the member, its host and its parameters, so it runs before the
+        // fallback, which re-creates pieces and has to copy parameters across by hand.
+        Assert.Contains("instance.CanSplit", beam, StringComparison.Ordinal);
+        Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
+        Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
+        AssertOrdered("BeamSplit.cs", beam,
+            "TryNativeSplit(doc, plan, options, out var ids)",
+            "Recreate(doc, plan, options)");
+
+        // The native path is the one Revit keeps the parameters for, so the note that says parameters
+        // were copied across belongs to the fallback.
+        Assert.Contains("Native split preserved parameters.", beam, StringComparison.Ordinal);
+        Assert.Contains("ParamCopy.Apply(snapshot, made, markFor)", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", beam, StringComparison.Ordinal);
+
+        // Nothing splits without a sub-transaction to undo it, and the document is never regenerated
+        // from inside the outer transaction.
+        Assert.Contains("new SubTransaction(doc)", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("Regenerate()", beam, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PluginJson_DescribesDryRunOnBothTools()
+    {
+        var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
+        using var doc = JsonDocument.Parse(json);
+        foreach (var tool in doc.RootElement.GetProperty("tools").EnumerateArray())
+        {
+            var desc = tool.GetProperty("description").GetString() ?? "";
+            Assert.Contains("dryRun", desc, StringComparison.Ordinal);
+            Assert.Contains("count only", desc, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void AssertOrdered(string file, string text, params string[] needles)
+    {
+        var cursor = -1;
+        foreach (var needle in needles)
+        {
+            var index = text.IndexOf(needle, StringComparison.Ordinal);
+            Assert.True(index > cursor, $"{file}: expected '{needle}' after the previous step.");
+            cursor = index;
+        }
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     private static string RepoRoot()

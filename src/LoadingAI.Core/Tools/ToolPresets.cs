@@ -14,6 +14,28 @@ public static class ToolPresets
 
     public static string KindName(PresetFieldKind kind) => kind.ToString();
 
+    /// <summary>
+    /// True when the merged args JSON asks for a read-only preview (<c>dryRun</c> truthy).
+    /// The host skips the L3 write confirm on it and plugins read it with the same helper,
+    /// so both sides always agree on whether a call may write.
+    /// </summary>
+    public static bool IsDryRun(string? json)
+    {
+        if (!TryGetObject(json, out var root)) return false;
+        if (!TryGetProperty(root, "dryRun", out var value)) return false;
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetInt32(out var n) && n == 1,
+            JsonValueKind.String => IsTrueLiteral(value.GetString()),
+            _ => false
+        };
+    }
+
+    private static bool IsTrueLiteral(string? s)
+        => string.Equals(s, "true", StringComparison.OrdinalIgnoreCase) || s == "1";
+
     public static Dictionary<string, object?> Prefill(IReadOnlyList<PresetField> fields, string? argsJson)
     {
         var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);

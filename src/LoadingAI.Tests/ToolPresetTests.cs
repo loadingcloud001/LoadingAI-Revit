@@ -55,5 +55,31 @@ public class ToolPresetTests
     {
         Assert.Equal("PickElements", ToolPresets.KindName(PresetFieldKind.PickElements));
         Assert.Equal("PickBox", ToolPresets.KindName(PresetFieldKind.PickBox));
+        Assert.Equal("Boolean", ToolPresets.KindName(PresetFieldKind.Boolean));
+    }
+
+    [Theory]
+    [InlineData("{\"dryRun\":true}", true)]
+    [InlineData("{\"dryRun\":\"true\"}", true)]
+    [InlineData("{\"dryRun\":\"TRUE\"}", true)]
+    [InlineData("{\"dryRun\":1}", true)]
+    [InlineData("{\"dryRun\":\"1\"}", true)]
+    [InlineData("{\"dryRun\":false}", false)]
+    [InlineData("{\"dryRun\":0}", false)]
+    [InlineData("{\"dryRun\":\"no\"}", false)]
+    [InlineData("{\"dryRun\":null}", false)]
+    [InlineData("{\"other\":true}", false)]
+    [InlineData("{}", false)]
+    [InlineData("not json", false)]
+    [InlineData(null, false)]
+    public void IsDryRun_OnlyTrueForTruthyDryRun(string? json, bool expected)
+        => Assert.Equal(expected, ToolPresets.IsDryRun(json));
+
+    [Fact]
+    public void IsDryRun_MatchesPlainTrueLiteral_ForHostPluginAgreement()
+    {
+        // The plugin reads the same helper, so a truthy value must survive the host's merge step.
+        var merged = ToolPresets.Merge("{\"dryRun\":true}", null);
+        Assert.True(ToolPresets.IsDryRun(merged));
     }
 }

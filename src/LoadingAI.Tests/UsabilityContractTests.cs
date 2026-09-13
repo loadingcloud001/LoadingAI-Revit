@@ -24,6 +24,24 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void HostPage_SkipsL3ConfirmForDryRun_ViaGenericArgCheck()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+
+        // Both the preset branch and the non-preset L3 branch must honour dryRun.
+        Assert.Equal(2, CountOccurrences(src, "entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson)"));
+        Assert.Contains("ToolPresets.IsDryRun", src, StringComparison.Ordinal);
+
+        // A generic merged-JSON check, not a tool-name allowlist.
+        foreach (var name in new[] { "split_beams_by_columns", "split_floors_by_beams" })
+            Assert.DoesNotContain(name, src, StringComparison.Ordinal);
+
+        // The native confirm itself is unchanged and still the single L3 gate.
+        Assert.Contains("ConfirmL3NativeAsync", src, StringComparison.Ordinal);
+        Assert.Contains("Confirm L3:", src, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ToolGuards_SkipsL3_HostOwnsTheGate()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
@@ -198,6 +216,14 @@ public class UsabilityContractTests
         Assert.Contains("get_rooms", selector);
         Assert.Contains("color_by_parameter", selector);
         Assert.Contains("get_sheets_views", selector);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     private static string RepoRoot()
