@@ -153,9 +153,8 @@ public sealed class GatewayFlowTests : IDisposable
     [Fact]
     public void ShippedGatewayUrl_IsAnAnonymousHttpsEndpoint()
     {
-        Assert.StartsWith("https://", DefaultLlm.PublicGatewayBaseUrl, StringComparison.Ordinal);
+        Assert.Equal("https://gateway.loadingtechnology.app/v1", DefaultLlm.PublicGatewayBaseUrl);
         Assert.DoesNotContain("minimax", DefaultLlm.PublicGatewayBaseUrl, StringComparison.OrdinalIgnoreCase);
-        Assert.EndsWith("/v1", DefaultLlm.PublicGatewayBaseUrl, StringComparison.Ordinal);
     }
 
     sealed record StubResponse(int Status, string Body);
@@ -226,7 +225,7 @@ public sealed class GatewayFlowTests : IDisposable
                 if (head.Length > 65536) return null;
             }
 
-            var lines = head.ToString().Split("\r\n");
+            var lines = head.ToString().Split(new[] { "\r\n" }, StringSplitOptions.None);
             var parts = lines[0].Split(' ');
             var method = parts[0];
             var path = parts[1];
