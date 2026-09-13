@@ -53,14 +53,11 @@ function fail(message) {
 }
 
 async function cf(path, init = {}) {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
+  // Cloudflare returns 6003 "Invalid request headers" if a GET carries
+  // Content-Type, so only send it when there is a body.
+  const headers = { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) };
+  if (init.body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${API}${path}`, { ...init, headers });
   const body = await res.json().catch(() => null);
   if (!body?.success) {
     const detail = (body?.errors ?? []).map((e) => `${e.code} ${e.message}`).join('; ');
