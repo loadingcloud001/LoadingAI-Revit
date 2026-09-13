@@ -33,11 +33,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion111()
+    public void PluginJson_IsVersion120()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.1.1", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.2.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -88,6 +88,39 @@ public class StructureCutsContractTests
         Assert.Contains("Extension", helper, StringComparison.Ordinal);
         Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
         Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
+    }
+
+    [Fact]
+    public void ChatPresets_PickBeamsFloorsColumns_HostOwnedAndOptional()
+    {
+        var root = RepoRoot();
+        var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
+
+        Assert.Contains("Kind = PresetFieldKind.PickElements", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("PresetFieldKind.PickBox", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("Id = \"limit\"", src, StringComparison.Ordinal);
+
+        foreach (var expected in new[]
+        {
+            "Id = \"beamIds\", Label = \"Beams\"",
+            "Id = \"floorIds\", Label = \"Floors\"",
+            "Id = \"columnIds\", Label = \"Columns\"",
+            "Category = \"beams\"",
+            "Category = \"floors\"",
+            "Category = \"OST_StructuralColumns\""
+        })
+        {
+            Assert.Contains(expected, src, StringComparison.Ordinal);
+        }
+
+        foreach (var file in Directory.GetFiles(pluginDir, "*.cs"))
+        {
+            var text = File.ReadAllText(file);
+            Assert.DoesNotContain("PickObjects", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Selection.Pick", text, StringComparison.Ordinal);
+        }
     }
 
     private static string RepoRoot()

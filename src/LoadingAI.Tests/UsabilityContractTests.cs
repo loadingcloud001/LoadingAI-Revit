@@ -40,7 +40,6 @@ public class UsabilityContractTests
         {
             Path.Combine("Plugins", "example.hello", "HelloPlugin.cs"),
             Path.Combine("Plugins", "qs-formwork", "QsFormworkPlugin.cs"),
-            Path.Combine("Plugins", "structure-cuts", "StructureCutsPlugin.cs"),
         })
         {
             var src = File.ReadAllText(Path.Combine(RepoRoot(), rel));

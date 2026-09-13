@@ -10,7 +10,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "1.1.1";
+    public string Version => "1.2.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -39,6 +39,11 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
+            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick structural columns, then Finish." }
         },
         Handler = async json =>
         {
@@ -73,6 +78,12 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "floorIds", Label = "Floors", Kind = PresetFieldKind.PickElements, Category = "floors", Prompt = "Pick floors, then Finish." },
+            new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick beams that split the floors, then Finish." },
+            new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick columns for openings, then Finish." }
         },
         Handler = async json =>
         {
