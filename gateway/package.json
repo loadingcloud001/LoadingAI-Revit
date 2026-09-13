@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/server.mjs",
+    "secret": "node deploy/set-secret.mjs",
     "test": "node --test"
   }
 }

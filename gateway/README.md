@@ -75,12 +75,30 @@ Node older than 22.5. Invoke it as `sudo bash …` so a missing execute bit (scp
 break the shebang; it also normalizes the copied tree to `755`/`644`, which scp from Windows leaves at
 `0700` and the service account cannot traverse.
 
-Then set the upstream key and restart:
+Then set the upstream key and restart. This is the only credential the gateway needs, and it is typed
+at a hidden prompt so it never lands in shell history, a log, or a chat transcript:
 
 ```bash
-sudo nano /etc/loadingai-gateway.env   # MINIMAX_API_KEY=...
-sudo systemctl restart loadingai-gateway
-curl -s http://127.0.0.1:8787/health   # -> {"ok":true,"service":"loadingai-gateway"}
+sudo node /opt/loadingai-gateway/deploy/set-secret.mjs
+#   MiniMax API key (hidden, not echoed): ****
+```
+
+`set-secret.mjs` validates the value looks like a key, writes it to `/etc/loadingai-gateway.env`
+(keeping the file `600`), pins `LOADINGAI_CLIENT_TOKEN` if the file predates the add-in gate, restarts
+the unit, then proves the whole path with a throwaway device id: `/health`, a `POST /v1/quota` and one
+real `chat/completions`. It prints lengths and status codes, never key material, and exits non-zero if
+the end-to-end probe fails. Run it again to rotate.
+
+Status without changing anything:
+
+```bash
+sudo node /opt/loadingai-gateway/deploy/set-secret.mjs --check
+#   env file    /etc/loadingai-gateway.env (mode 600)
+#   unit        active
+#   key         set (… chars)
+#   client gate explicit
+#   /health     {"ok":true,"service":"loadingai-gateway"}
+#   chat probe  upstream answered: "ok"
 ```
 
 Doing it by hand instead is the same five steps: `useradd --system loadingai`, copy the directory to
@@ -156,7 +174,7 @@ Set in `/etc/loadingai-gateway.env` (see `deploy/env.example`):
 
 ```powershell
 cd gateway
-npm test                      # 42 tests, no network, no Cloudflare account
+npm test                      # 47 tests, no network, no Cloudflare account
 npm start                     # Node transport on http://127.0.0.1:8787, SQLite in ./quota.db
 npx wrangler dev              # optional: the Worker transport, counters in a local KV shim
 ```
@@ -170,20 +188,39 @@ before starting Revit. `DEVICE` below stands for the value in `%AppData%\Loading
 ```powershell
 $base = 'https://gateway.loadingtechnology.app'
 $device = (Get-Content "$env:AppData\LoadingAI\device.json" | ConvertFrom-Json).id
+$client = 'loadingai-addin-v1'   # X-LoadingAI-Client: the add-in's compiled identity
 
 curl.exe -s "$base/health"
-curl.exe -s -H "x-loadingai-device: $device" "$base/v1/quota"          # remaining, consumes nothing
+# no client header -> proof the gate is live
+curl.exe -s -o NUL -w '%{http_code}' "$base/v1/quota"
+#   401
+curl.exe -s -H "x-loadingai-device: $device" -H "x-loadingai-client: $client" "$base/v1/quota"
 
-$ticket = (curl.exe -s -X POST -H "x-loadingai-device: $device" "$base/v1/quota" |
-           ConvertFrom-Json).ticket
-curl.exe -s -X POST -H "x-loadingai-device: $device" -H "x-loadingai-ticket: $ticket" `
-  -H "content-type: application/json" "$base/v1/chat/completions" `
-  -d '{"messages":[{"role":"user","content":"say hi"}]}'
+$ticket = (curl.exe -s -X POST -H "x-loadingai-device: $device" -H "x-loadingai-client: $client" `
+           "$base/v1/quota" | ConvertFrom-Json).ticket
+curl.exe -s -X POST -H "x-loadingai-device: $device" -H "x-loadingai-client: $client" `
+  -H "x-loadingai-ticket: $ticket" -H "content-type: application/json" `
+  "$base/v1/chat/completions" -d '{"messages":[{"role":"user","content":"say hi"}]}'
 ```
 
 The `POST /v1/quota` above costs one unit, exactly like a chat Send. Repeat it 100 times and the
-101st answers `429` with `code: "daily_limit"` and a `resetUtc` timestamp. A missing, wrong-device or
-expired ticket answers `401`; a device id that is not 8–64 URL-safe characters answers `400`.
+101st answers `429` with `code: "daily_limit"` and a `resetUtc` timestamp. A missing or wrong client
+header answers `401 bad_client`; a missing, wrong-device or expired ticket answers `401`; a device id
+that is not 8–64 URL-safe characters answers `400`.
+
+## Adding or updating a workstation
+
+The add-in must send `X-LoadingAI-Client`, so a build older than the gate answers `401 bad_client`.
+Copy the current build into each Revit version you use:
+
+```powershell
+foreach ($v in 2024, 2025, 2026, 2027) {
+  dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=$v
+}
+```
+
+Each build lands in `%AppData%\Autodesk\Revit\Addins\<version>\LoadingAI\` plus the shared
+`%AppData%\LoadingAI\Plugins\`.
 
 ## Operations
 

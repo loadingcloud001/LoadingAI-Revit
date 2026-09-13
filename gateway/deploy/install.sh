@@ -73,16 +73,38 @@ else
   echo "kept the existing $ENV_FILE"
 fi
 
+# The add-in gate is on by default, so pin its token explicitly. Env files written
+# before the gate existed lack the line and would otherwise fall back silently.
+if ! grep -q '^LOADINGAI_CLIENT_TOKEN=' "$ENV_FILE"; then
+  echo 'LOADINGAI_CLIENT_TOKEN=loadingai-addin-v1' >> "$ENV_FILE"
+  echo "added LOADINGAI_CLIENT_TOKEN to $ENV_FILE (the compiled add-in default)"
+fi
+
 install -m 644 "$APP_DIR/deploy/loadingai-gateway.service" "$UNIT_DIR/loadingai-gateway.service"
 systemctl daemon-reload
-systemctl enable --now loadingai-gateway
+systemctl enable loadingai-gateway
+# `enable --now` only starts a *stopped* unit, so an updating re-run would leave
+# the previous process serving the previous code. Restart explicitly.
+systemctl restart loadingai-gateway
 sleep 1
 systemctl is-active --quiet loadingai-gateway ||
   { echo "the gateway did not start:" >&2; journalctl -u loadingai-gateway -n 30 --no-pager >&2; exit 1; }
 
 if grep -q '^MINIMAX_API_KEY=.\+' "$ENV_FILE"; then
   echo "health: $(curl -fsS http://127.0.0.1:8787/health || echo 'no response')"
-  echo "next: install cloudflared and route gateway.loadingtechnology.app to http://127.0.0.1:8787"
 else
-  echo "MINIMAX_API_KEY is still empty, so /v1/chat/completions will answer 500 until you set it"
+  echo "MINIMAX_API_KEY is still empty, so /v1/chat/completions answers 500 until you set it"
+  echo "  set it at a hidden prompt (never through a shell):"
+  echo "    sudo node $APP_DIR/deploy/set-secret.mjs"
+fi
+
+# The gate is the one thing an install can verify without a secret, so prove it.
+gate_code="$(curl -s -o /dev/null -w '%{http_code}' -H 'x-loadingai-device: 00000000-0000-4000-8000-000000000000' \
+  http://127.0.0.1:8787/v1/quota || true)"
+if [[ "$gate_code" == "401" ]]; then
+  echo "add-in gate: /v1/quota answers 401 without X-LoadingAI-Client (correct)"
+elif [[ "$gate_code" == "200" ]]; then
+  echo "add-in gate: /v1/quota answered 200 without the header - this code is older than the gate" >&2
+else
+  echo "add-in gate: /v1/quota answered HTTP $gate_code, expected 401" >&2
 fi
