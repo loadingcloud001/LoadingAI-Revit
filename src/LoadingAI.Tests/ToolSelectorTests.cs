@@ -1,3 +1,6 @@
+using System.IO;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using LoadingAI.Llm;
 
 namespace LoadingAI.Tests;
@@ -121,5 +124,80 @@ public class ToolSelectorTests
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
         var selected = ToolSelector.Select(tools, "create formwork", 8);
         Assert.Contains(selected, t => t.Function.Name == "create_formwork_panels");
+    }
+
+    private static readonly string[] AlwaysKeep =
+    {
+        "get_model_summary", "find_elements_by_filter", "get_element_details",
+        "get_selection_summary", "get_active_view_info", "get_visible_elements_in_view",
+        "hide_in_view", "isolate_in_view", "reset_temporary_view",
+        "delete_elements", "move_elements", "save_document"
+    };
+
+    [Fact]
+    public void RealSurface_UnrelatedPrompt_KeepsAlwaysKeepAndCap()
+    {
+        var tools = RealSurface();
+        Assert.True(tools.Count > ToolSelector.DefaultMax, $"real surface {tools.Count} should exceed DefaultMax");
+        var selected = ToolSelector.Select(tools, "hello there, just chatting");
+        Assert.True(selected.Count <= ToolSelector.DefaultMax);
+        Assert.Equal(ToolSelector.DefaultMax, selected.Count);
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(selected, t => t.Function.Name == name);
+    }
+
+    [Theory]
+    [InlineData("split all beams by columns", "split_beams_by_columns")]
+    [InlineData("split the slab at the beams", "split_floors_by_beams")]
+    [InlineData("create formwork", "create_formwork_panels")]
+    [InlineData("export a pdf of the sheets", "export_pdf")]
+    [InlineData("purge unused families", "purge_unused")]
+    [InlineData("load this family into the model", "load_family")]
+    [InlineData("create a 3d view", "create_3d_view")]
+    [InlineData("what rooms are there", "get_rooms")]
+    [InlineData("color by Mark", "color_by_parameter")]
+    [InlineData("list sheets and views", "get_sheets_views")]
+    public void RealSurface_KeepsNamedTool(string prompt, string toolName)
+    {
+        var tools = RealSurface();
+        Assert.Contains(tools, t => t.Function.Name == toolName);
+        var selected = ToolSelector.Select(tools, prompt);
+        Assert.True(selected.Count <= ToolSelector.DefaultMax);
+        Assert.Contains(selected, t => t.Function.Name == toolName);
+    }
+
+    private static List<ToolDefinition> RealSurface()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var toolsDir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools");
+        foreach (var file in Directory.GetFiles(toolsDir, "*.cs", SearchOption.AllDirectories))
+        {
+            foreach (Match m in Regex.Matches(File.ReadAllText(file), @"Name\s*=\s*""([a-z0-9_]+)"""))
+                names.Add(m.Groups[1].Value);
+        }
+        foreach (var json in Directory.GetFiles(Path.Combine(RepoRoot(), "Plugins"), "plugin.json", SearchOption.AllDirectories))
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(json));
+            if (!doc.RootElement.TryGetProperty("tools", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var t in arr.EnumerateArray())
+            {
+                if (t.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } name)
+                    names.Add(name);
+            }
+        }
+        return names.Select(n => T(n)).ToList();
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }

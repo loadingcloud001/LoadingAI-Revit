@@ -216,6 +216,7 @@ public class UsabilityContractTests
         Assert.Contains("get_rooms", selector);
         Assert.Contains("color_by_parameter", selector);
         Assert.Contains("get_sheets_views", selector);
+        Assert.Contains("DefaultMax = 24", selector);
     }
 
     private static int CountOccurrences(string haystack, string needle)

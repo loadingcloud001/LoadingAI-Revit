@@ -14,8 +14,24 @@ public sealed class DiscoveredPlugin
     public List<ToolEntry> Tools { get; init; } = new();
 }
 
+public sealed record PluginLoadIssue(
+    string Folder,
+    string PluginId,
+    string Assembly,
+    string Summary,
+    string Detail,
+    string Hint);
+
 public static class PluginLoader
 {
+    private static readonly List<PluginLoadIssue> _issues = new();
+    private static readonly object _issuesLock = new();
+    private const long MaxLogBytes = 512 * 1024;
+
+    public static IReadOnlyList<PluginLoadIssue> Issues
+    {
+        get { lock (_issuesLock) return _issues.ToList(); }
+    }
 #if !NETFRAMEWORK
     private static readonly List<PluginLoadContext> _contexts = new();
     private static readonly object _ctxLock = new();
@@ -37,6 +53,7 @@ public static class PluginLoader
     public static List<DiscoveredPlugin> Discover(RevitBridge bridge, IPluginContextFactory factory)
     {
         UnloadContexts();
+        lock (_issuesLock) _issues.Clear();
         var result = new List<DiscoveredPlugin>();
         try
         {
@@ -63,7 +80,11 @@ public static class PluginLoader
             };
             result.Add(new DiscoveredPlugin { Meta = meta, Tools = tools });
         }
-        catch (Exception ex) { Log($"core failed: {ex}"); }
+        catch (Exception ex)
+        {
+            Log($"core failed: {ex}");
+            RecordIssue("builtin", "core", "LoadingAI", "core plugin failed", ex.ToString(), Classify(ex.ToString()));
+        }
 
         foreach (var dir in new[] { RuntimePluginsDir, DevPluginsDir })
         {
@@ -71,7 +92,11 @@ public static class PluginLoader
             foreach (var pluginFolder in Directory.GetDirectories(dir))
             {
                 try { var dp = LoadOne(pluginFolder, bridge, factory); if (dp != null) result.Add(dp); }
-                catch (Exception ex) { Log($"{pluginFolder} failed: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    Log($"{pluginFolder} failed: {ex.Message}");
+                    RecordIssue(pluginFolder, Path.GetFileName(pluginFolder), "", "plugin folder failed", ex.ToString(), Classify(ex.ToString()));
+                }
             }
             foreach (var manifest in Directory.GetFiles(dir, "plugin.json"))
             {
@@ -81,7 +106,11 @@ public static class PluginLoader
                     var dp = LoadOne(folder, bridge, factory);
                     if (dp != null && !result.Any(r => r.Meta.Id == dp.Meta.Id)) result.Add(dp);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Log($"{manifest} failed: {ex.Message}");
+                    RecordIssue(Path.GetDirectoryName(manifest) ?? dir, Path.GetFileName(Path.GetDirectoryName(manifest) ?? dir), Path.GetFileName(manifest), "loose manifest failed", ex.ToString(), Classify(ex.ToString()));
+                }
             }
         }
 
@@ -219,6 +248,7 @@ public static class PluginLoader
         catch (Exception ex)
         {
             Log($"ALC load failed {dll}: {ex.Message}; fallback LoadFrom");
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "ALC load failed", ex.ToString(), Classify(ex.ToString()));
             asm = Assembly.LoadFrom(dll);
         }
 #endif
@@ -228,7 +258,9 @@ public static class PluginLoader
         catch (ReflectionTypeLoadException ex)
         {
             types = ex.Types.Where(t => t != null).Cast<Type>().ToArray();
-            Log($"partial type load {dll}: {ex.Message}");
+            var detail = FormatLoaderExceptions(ex);
+            Log($"partial type load {dll}: {ex.Message}; {detail}");
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "partial type load", detail, Classify(detail));
         }
 
         var pluginTypes = types.Where(t => typeof(IRevitToolPlugin).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface).ToList();
@@ -250,10 +282,53 @@ public static class PluginLoader
                 if (string.IsNullOrWhiteSpace(meta.Id) || meta.Id == Path.GetFileName(folder)) { meta.Id = inst.Id; meta.Name = inst.Name; meta.Version = inst.Version; }
                 TrackLifecycle(ctx, inst);
             }
-            catch (Exception ex) { Log($"plugin {folder} type {pt.Name} failed: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Log($"plugin {folder} type {pt.Name} failed: {ex.Message}");
+                RecordIssue(folder, meta.Id, Path.GetFileName(dll), $"plugin type {pt.Name} failed", ex.ToString(), Classify(ex.ToString()));
+            }
         }
-        if (tools.Count == 0) return null;
+        if (tools.Count == 0)
+        {
+            var summary = pluginTypes.Count == 0
+                ? "no IRevitToolPlugin types found"
+                : "plugin produced no tools";
+            Log($"{folder} {summary}");
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), summary, summary, Classify(summary));
+            return null;
+        }
         return new DiscoveredPlugin { Meta = meta, Tools = tools };
+    }
+
+    public static string Classify(string detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return "";
+        if (detail.IndexOf("Could not load type 'LoadingAI.", StringComparison.OrdinalIgnoreCase) >= 0
+            || detail.IndexOf("LoadingAI.Geometry", StringComparison.OrdinalIgnoreCase) >= 0
+            || detail.IndexOf("LoadingAI.Core", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "built against a different LoadingAI.Core — close Revit, rebuild and reinstall";
+        }
+        return "";
+    }
+
+    public static string FormatLoaderExceptions(ReflectionTypeLoadException ex)
+    {
+        var parts = new List<string> { ex.Message };
+        if (ex.LoaderExceptions != null)
+        {
+            foreach (var le in ex.LoaderExceptions)
+            {
+                if (le != null) parts.Add(le.Message);
+            }
+        }
+        return string.Join("; ", parts);
+    }
+
+    private static void RecordIssue(string folder, string pluginId, string assembly, string summary, string detail, string hint)
+    {
+        var issue = new PluginLoadIssue(folder, pluginId ?? "", assembly ?? "", summary, detail ?? "", hint ?? "");
+        lock (_issuesLock) _issues.Add(issue);
     }
 
     private static void Log(string msg)
@@ -261,6 +336,8 @@ public static class PluginLoader
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
+            if (File.Exists(LogPath) && new FileInfo(LogPath).Length > MaxLogBytes)
+                File.WriteAllText(LogPath, "");
             File.AppendAllText(LogPath, $"{DateTime.Now:O} {msg}{Environment.NewLine}");
         }
         catch { }

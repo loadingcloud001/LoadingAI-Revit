@@ -1,4 +1,4 @@
-import { PluginInfo, postToHost } from '../bridge';
+import { PluginInfo, PluginLoadIssue, postToHost } from '../bridge';
 
 const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
 const btn = 'px-2 py-1 border bg-white text-[11px]';
@@ -9,8 +9,8 @@ function tierStats(plugins: PluginInfo[], tier: string) {
   return { total: tools.length, on, allOn: tools.length > 0 && on === tools.length };
 }
 
-export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
-  if (!plugins || plugins.length === 0) {
+export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[]; loadIssues?: PluginLoadIssue[] }) {
+  if ((!plugins || plugins.length === 0) && loadIssues.length === 0) {
     return (
       <div style={{ padding: 8, fontSize: 11, color: '#6a6a6a' }}>
         No plugins. Core tools should appear after restart.
@@ -43,6 +43,16 @@ export function PluginShelf({ plugins }: { plugins: PluginInfo[] }) {
       <div className="px-2 py-1 text-[10px]" style={{ color: '#6a6a6a', borderBottom: '1px solid #ececec' }}>
         Ticks apply to chat immediately. {l3On.length > 0 ? `L3 on (${l3On.length}): ${l3On.slice(0, 8).join(', ')}${l3On.length > 8 ? '…' : ''}.` : 'L3 (delete/move/create/save) default off.'}
       </div>
+      {loadIssues.length > 0 && (
+        <div className="px-2 py-1.5 text-[11px]" style={{ color: '#8a1f11', background: '#fff8f6', borderBottom: '1px solid #d0d0d0' }}>
+          {loadIssues.map((issue, i) => (
+            <div key={`${issue.pluginId || issue.folder}-${i}`} className="mb-1 last:mb-0">
+              <div className="font-semibold">{issue.pluginId || issue.folder} failed to load</div>
+              <div>{issue.summary}{issue.hint ? ` — ${issue.hint}` : ''}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {plugins.map(p => {
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);
         const someOn = p.tools.some(t => t.enabled);

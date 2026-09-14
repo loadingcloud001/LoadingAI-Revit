@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, QuotaPayload, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
+import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, QuotaPayload, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, PluginLoadIssue, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
@@ -127,6 +127,7 @@ export default function App() {
   const [selectedProviderId, setSelectedProviderId] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+  const [loadIssues, setLoadIssues] = useState<PluginLoadIssue[]>([]);
   const [editing, setEditing] = useState<ProviderConfig | null>(null);
   const [editForm, setEditForm] = useState({ name: '', baseUrl: '', model: '', apiKey: '', apiKind: 'openai' as string, group: 'custom' as string, icon: '＋' });
   const [editSearch, setEditSearch] = useState('');
@@ -227,6 +228,7 @@ export default function App() {
         } else if (msg.type === 'plugins') {
           const list = Array.isArray(msg.plugins) ? msg.plugins as PluginInfo[] : [];
           setPlugins(list);
+          setLoadIssues(Array.isArray(msg.loadIssues) ? msg.loadIssues as PluginLoadIssue[] : []);
         } else if (msg.type === 'quota') {
           const q = msg.quota as QuotaPayload | undefined;
           if (q) setQuota(q);
@@ -723,7 +725,7 @@ export default function App() {
               )}
             </div>
           )}
-          <PluginShelf plugins={plugins} />
+          <PluginShelf plugins={plugins} loadIssues={loadIssues} />
         </div>
       )}
 

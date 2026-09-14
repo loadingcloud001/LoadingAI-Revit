@@ -58,6 +58,15 @@ export type PluginInfo = {
   tools: PluginToolInfo[];
 };
 
+export type PluginLoadIssue = {
+  folder: string;
+  pluginId: string;
+  assembly: string;
+  summary: string;
+  detail: string;
+  hint: string;
+};
+
 export type Attachment = {
   id: string;
   name: string;
