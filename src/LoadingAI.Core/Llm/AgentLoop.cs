@@ -29,8 +29,10 @@ public sealed class AgentLoop
     {
         _client = client;
         _registry = registry;
-        _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+        _history.Add(new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
     }
+
+    public string? EnvironmentWarnings { get; set; }
 
     public void ReplaceRegistry(ToolRegistry registry) => _registry = registry;
 
@@ -44,7 +46,7 @@ public sealed class AgentLoop
         lock (_historyLock)
         {
             _history.Clear();
-            _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+            _history.Add(new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
         }
         lock (_todoLock) _todos.Clear();
     }
@@ -58,7 +60,7 @@ public sealed class AgentLoop
             _history.Clear();
             _history.AddRange(messages);
             if (_history.Count == 0 || _history[0].Role != "system")
-                _history.Insert(0, new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+                _history.Insert(0, new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
         }
     }
 
@@ -130,7 +132,7 @@ public sealed class AgentLoop
         }
         var selected = ToolSelector.Select(allTools, userTextForSelect);
         var tools = selected.Count == 0 ? null : selected;
-        var sys = BuildSystemPrompt(selected);
+        var sys = BuildSystemPrompt(selected, EnvironmentWarnings);
         if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
             sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
         else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
@@ -310,7 +312,7 @@ public sealed class AgentLoop
         return abort;
     }
 
-    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools)
+    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools, string? environmentWarnings = null)
     {
         var lines = tools.Select(t =>
         {
@@ -320,7 +322,17 @@ public sealed class AgentLoop
             else if (desc.Length > 160) desc = desc.Substring(0, 157) + "...";
             return $"- {t.Function.Name}: {desc}";
         });
-        return BaseSystemPrompt + "\n# Tools\n" + string.Join("\n", lines);
+        var prompt = BaseSystemPrompt + AppendWarnings(environmentWarnings) + "\n# Tools\n" + string.Join("\n", lines);
+        return prompt;
+    }
+
+    private string ComposeBasePrompt() => BaseSystemPrompt + AppendWarnings(EnvironmentWarnings);
+
+    private static string AppendWarnings(string? environmentWarnings)
+    {
+        if (string.IsNullOrWhiteSpace(environmentWarnings)) return "";
+        return "\nThese plugins failed to load: " + environmentWarnings.Trim() +
+               " — tell the user; do not claim the capability does not exist.";
     }
 
     private static bool IsJsonObjectOrArray(string? raw)

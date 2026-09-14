@@ -100,7 +100,7 @@ public partial class HostPage : Page
         LoadingText.Visibility = Visibility.Collapsed;
         PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
         PostToWeb(new { type = "status", text = GetStatusText() });
-        try { PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() }); } catch { }
+        try { PostPlugins(); } catch { }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -149,6 +149,33 @@ public partial class HostPage : Page
             _agent = new AgentLoop(_client, _registry);
         else
             _agent.ReplaceRegistry(_registry);
+        ApplyPluginLoadWarnings();
+    }
+
+    private void ApplyPluginLoadWarnings()
+    {
+        if (_agent == null) return;
+        var issues = PluginLoader.Issues;
+        if (issues.Count == 0)
+        {
+            _agent.EnvironmentWarnings = null;
+            return;
+        }
+        _agent.EnvironmentWarnings = string.Join("; ", issues.Select(i =>
+        {
+            var id = string.IsNullOrWhiteSpace(i.PluginId) ? i.Folder : i.PluginId;
+            var hint = string.IsNullOrWhiteSpace(i.Hint) ? "" : $" ({i.Hint})";
+            return $"{id}: {i.Summary}{hint}";
+        }));
+    }
+
+    private void PostPlugins(string? extraStatus = null)
+    {
+        PostToWeb(new { type = "plugins", plugins = GetPluginsPayload(), loadIssues = PluginLoader.Issues });
+        if (!string.IsNullOrWhiteSpace(extraStatus))
+            PostToWeb(new { type = "status", text = extraStatus });
+        else if (PluginLoader.Issues.Count > 0)
+            PostToWeb(new { type = "status", text = $"{PluginLoader.Issues.Count} plugin(s) failed to load. See Settings → Tools." });
     }
 
     private object GetPluginsPayload()
@@ -281,7 +308,7 @@ public partial class HostPage : Page
             {
                 case "requestSettings":
                     PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
-                    PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
+                    PostPlugins();
                     _ = Task.Run(async () =>
                     {
                         try
@@ -304,8 +331,7 @@ public partial class HostPage : Page
                             ProviderSettings.Save(_settings);
                             RebuildRegistry();
                             PostToWeb(new { type = "settings", settings = ProviderSettings.RedactForWeb(_settings) });
-                            PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
-                            PostToWeb(new { type = "status", text = GetStatusText() });
+                            PostPlugins(GetStatusText());
                         }
                         break;
                     }
@@ -372,7 +398,7 @@ public partial class HostPage : Page
                     }
 
                 case "listPlugins":
-                    PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
+                    PostPlugins();
                     break;
 
                 case "setPluginEnabled":
@@ -384,8 +410,7 @@ public partial class HostPage : Page
                             _settings.Plugins[toolName] = enabled;
                             ProviderSettings.Save(_settings);
                             RebuildRegistry();
-                            PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
-                            PostToWeb(new { type = "status", text = enabled ? $"Enabled {toolName}" : $"Disabled {toolName}" });
+                            PostPlugins(enabled ? $"Enabled {toolName}" : $"Disabled {toolName}");
                         }
                         break;
                     }
@@ -402,8 +427,7 @@ public partial class HostPage : Page
                                 foreach (var t in plugin.Meta.Tools) _settings.Plugins[t.Name] = enabled;
                                 ProviderSettings.Save(_settings);
                                 RebuildRegistry();
-                                PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
-                                PostToWeb(new { type = "status", text = enabled ? $"Enabled plugin {pluginId}" : $"Disabled plugin {pluginId}" });
+                                PostPlugins(enabled ? $"Enabled plugin {pluginId}" : $"Disabled plugin {pluginId}");
                             }
                         }
                         break;
@@ -427,12 +451,11 @@ public partial class HostPage : Page
                             }
                             ProviderSettings.Save(_settings);
                             RebuildRegistry();
-                            PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                             var l3 = _registry.Entries.Where(e => e.Tier == ToolTier.L3).Select(e => e.Definition.Function.Name).OrderBy(s => s).ToList();
                             var msg = enabled ? $"Enabled {n} {tier} tools." : $"Disabled {n} {tier} tools.";
                             if (l3.Count > 0) msg += " L3: " + string.Join(", ", l3) + ".";
                             else if (string.Equals(tier, "L3", StringComparison.OrdinalIgnoreCase)) msg += " No L3 tools on.";
-                            PostToWeb(new { type = "status", text = msg });
+                            PostPlugins(msg);
                         }
                         break;
                     }
@@ -441,12 +464,11 @@ public partial class HostPage : Page
                     {
                         ProviderSettings.Save(_settings);
                         RebuildRegistry();
-                        PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
                         var l3 = _registry.Entries.Where(e => e.Tier == ToolTier.L3).Select(e => e.Definition.Function.Name).OrderBy(s => s).ToList();
                         var msg = $"Saved. {_registry.GetToolDefinitions().Count} tools on.";
                         if (l3.Count > 0) msg += " L3: " + string.Join(", ", l3) + ".";
                         else msg += " No L3 tools on — use L3 all on.";
-                        PostToWeb(new { type = "status", text = msg });
+                        PostPlugins(msg);
                         break;
                     }
 
@@ -486,8 +508,10 @@ public partial class HostPage : Page
                         {
                                                     _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
                             RebuildRegistry();
-                            PostToWeb(new { type = "plugins", plugins = GetPluginsPayload() });
-                            PostToWeb(new { type = "status", text = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled." });
+                            var reloadMsg = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled.";
+                            if (PluginLoader.Issues.Count > 0)
+                                reloadMsg += $" {PluginLoader.Issues.Count} plugin(s) failed to load.";
+                            PostPlugins(reloadMsg);
                         }
                         break;
                     }
