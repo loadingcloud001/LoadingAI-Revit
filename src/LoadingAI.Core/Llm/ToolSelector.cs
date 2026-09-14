@@ -68,6 +68,7 @@ public static class ToolSelector
         "schedule","tag","dimension","crop","template","comment","delete","move","hide","isolate",
         "link","rvt","revit","cad","dwg","pdf","family","type","instance","selection","element",
         "category","visible","active","temporary","override","reset","save","warning",
-        "formwork","split","beam","column","slab","opening","rebar","panel","structure"
+        "formwork","split","beam","column","slab","opening","rebar","panel","structure",
+        "storey","story"
     };
 }

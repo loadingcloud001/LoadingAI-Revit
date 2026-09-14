@@ -71,6 +71,61 @@ internal static class SplitElements
     public static bool IsColumn(Element el)
         => el.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns;
 
+    public static bool IsWall(Element el)
+        => el.Category?.Id.Value == (long)BuiltInCategory.OST_Walls;
+
+    public static bool IsLevel(Element el) => el is Level;
+
+    public static bool IsGrid(Element el) => el is Grid;
+
+    public static Curve? LocationCurveOf(Element element)
+        => element.Location is LocationCurve location ? location.Curve : null;
+
+    public static bool IsHost(Element el)
+        => IsWall(el) || IsColumn(el) || IsBeam(el) || IsFloorLike(el);
+
+    /// <summary>
+    /// Optional category filter for the Naviate-style tools. Empty means walls, columns, beams and floors.
+    /// </summary>
+    public static Func<Element, bool> HostsIn(IReadOnlyList<string> categories)
+    {
+        if (categories.Count == 0)
+            return IsHost;
+
+        var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in categories)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            wanted.Add(raw.Trim());
+        }
+
+        if (wanted.Count == 0)
+            return IsHost;
+
+        return el =>
+            (Match(wanted, "wall", "walls") && IsWall(el))
+            || (Match(wanted, "column", "columns") && IsColumn(el))
+            || (Match(wanted, "beam", "beams", "framing") && IsBeam(el))
+            || (Match(wanted, "floor", "floors", "slab", "slabs") && IsFloorLike(el));
+    }
+
+    public static string EmptyHostMessage(SplitOptions options)
+        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
+            ? "Please select elements first."
+            : "No hosts found.";
+
+    private static bool Match(HashSet<string> wanted, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (wanted.Contains(name))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>How many elements hang off this one: tags, dimensions, hosted families.</summary>
     public static int Dependent(Element element)
     {

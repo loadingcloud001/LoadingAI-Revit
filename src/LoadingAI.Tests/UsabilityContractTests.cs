@@ -33,7 +33,7 @@ public class UsabilityContractTests
         Assert.Contains("ToolPresets.IsDryRun", src, StringComparison.Ordinal);
 
         // A generic merged-JSON check, not a tool-name allowlist.
-        foreach (var name in new[] { "split_beams_by_columns", "split_floors_by_beams" })
+        foreach (var name in new[] { "split_beams_by_columns", "split_floors_by_beams", "split_by_levels", "split_by_grids" })
             Assert.DoesNotContain(name, src, StringComparison.Ordinal);
 
         // The native confirm itself is unchanged and still the single L3 gate.

@@ -1,7 +1,6 @@
 using System.Globalization;
 
 using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 
 using LoadingAI.Geometry;
@@ -35,22 +34,14 @@ internal static class BeamSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var selection = SplitElements.GetSelection(uidoc);
-        var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
-        if (beams.Count == 0)
-            beams = selection.Where(SplitElements.IsBeam).ToList();
-        if (beams.Count == 0)
-            return "Please select elements first.";
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsBeam, options, beamIds);
+        var beams = batch.Items;
+        if (beams.Count == 0 && batch.Total == 0)
+            return EmptyHostMessage(options);
 
-        var columns = SplitElements.Resolve(doc, columnIds, SplitElements.IsColumn);
-        if (columns.Count == 0)
-            columns = selection.Where(SplitElements.IsColumn).ToList();
+        var columns = SplitScope.Cutters(doc, uidoc, columnIds, SplitElements.IsColumn);
         if (columns.Count == 0)
             return "No columns found.";
-
-        var stopped = beams.Count > options.Limit;
-        if (stopped)
-            beams = beams.Take(options.Limit).ToList();
 
         var footprints = new Dictionary<string, List<List<Point2>>>(StringComparer.Ordinal);
         var plans = new List<Plan>();
@@ -79,11 +70,12 @@ internal static class BeamSplit
         {
             var pieces = plans.Sum(plan => plan.Cuts.Count + 1);
             return "Dry-run. " + $"Would split {plans.Count} beams into {pieces} pieces. No changes made."
-                + SkipNote(skippedNoCurve, skippedNoCrossing, 0, stopped, options);
+                + SkipNote(skippedNoCurve, skippedNoCrossing, 0)
+                + SplitReport.Progress(batch);
         }
 
         if (plans.Count == 0)
-            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0, stopped, options);
+            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0) + SplitReport.Progress(batch);
 
         var created = new List<ElementId>();
         var split = 0;
@@ -133,7 +125,8 @@ internal static class BeamSplit
         }
 
         var message = $"Split {split} beams into {piecesMade} pieces."
-            + SkipNote(skippedNoCurve, skippedNoCrossing, skippedFailed, stopped, options)
+            + SkipNote(skippedNoCurve, skippedNoCrossing, skippedFailed)
+            + SplitReport.Progress(batch)
             + ParamNote(options, native, recreated, paramSkipped);
         if (recreated > 0)
         {
@@ -235,341 +228,21 @@ internal static class BeamSplit
         Document doc,
         Plan plan,
         SplitOptions options)
-    {
-        if (TryNativeSplit(doc, plan, options, out var ids))
-            return (ids, 0, false, true, 0);
-
-        var (made, paramSkipped, dependent, ok) = Recreate(doc, plan, options);
-        return ok
-            ? (made, paramSkipped, false, false, dependent)
-            : (new List<ElementId>(), paramSkipped, true, false, 0);
-    }
-
-    /// <summary>
-    /// Splits a member with Revit's own split, which keeps the element itself and everything the model
-    /// already hangs off it. Revit takes one cut per call, so the cuts go in highest first and each
-    /// remaining cut is converted onto the curve of whichever piece still owns the low end. Every cut is
-    /// read back after it is made, so a split that does not land where it was asked to is rolled back
-    /// rather than trusted.
-    /// </summary>
-    private static bool TryNativeSplit(Document doc, Plan plan, SplitOptions options, out List<ElementId> ids)
-    {
-        ids = new List<ElementId>();
-        if (plan.Beam is not FamilyInstance instance || !instance.CanSplit)
-            return false;
-
-        var steps = SplitSequence.Build(plan.Cuts, MinGapFraction);
-        if (steps.Count == 0)
-            return false;
-
-        var mark = options.UniqueMark ? ParamCopy.Mark(plan.Beam) : null;
-        var high = new List<ElementId>();
-        var low = plan.Beam.Id;
-
-        using (var sub = new SubTransaction(doc))
-        {
-            sub.Start();
-            try
-            {
-                foreach (var step in steps)
-                {
-                    if (doc.GetElement(low) is not FamilyInstance current
-                        || !current.CanSplit
-                        || current.Location is not LocationCurve location
-                        || location.Curve == null)
-                    {
-                        sub.RollBack();
-                        return false;
-                    }
-
-                    var live = location.Curve;
-                    var span = GeometryRevit.Span(live, out var start);
-                    if (Math.Abs(span) <= 1e-12)
-                    {
-                        sub.RollBack();
-                        return false;
-                    }
-
-                    var target = GeometryRevit.At(plan.Curve, step.Cut);
-                    var local = (live.Project(target).Parameter - start) / span;
-                    if (local <= 0.0 || local >= 1.0)
-                    {
-                        sub.RollBack();
-                        return false;
-                    }
-
-                    var made = current.Split(local);
-                    if (made == null || made == ElementId.InvalidElementId)
-                    {
-                        sub.RollBack();
-                        return false;
-                    }
-
-                    // Revit leaves the low end on one of the two pieces and the API does not say which,
-                    // so the one that still starts where this piece started is the one the cuts below
-                    // this one have to be measured against. Anything else means the member did not come
-                    // apart the way it was asked to.
-                    if (KeepsStart(current, live, target))
-                    {
-                        high.Add(made);
-                    }
-                    else if (doc.GetElement(made) is FamilyInstance other && KeepsStart(other, live, target))
-                    {
-                        high.Add(low);
-                        low = made;
-                    }
-                    else
-                    {
-                        sub.RollBack();
-                        return false;
-                    }
-                }
-            }
-            catch
-            {
-                try
-                {
-                    sub.RollBack();
-                }
-                catch
-                {
-                    // Nothing left to put back.
-                }
-
-                ids = new List<ElementId>();
-                return false;
-            }
-
-            sub.Commit();
-        }
-
-        // The piece holding the low end leads and the pieces gathered along the way run back up the
-        // member, because every cut was taken from the top down.
-        ids.Add(low);
-        for (var i = high.Count - 1; i >= 0; i--)
-            ids.Add(high[i]);
-
-        if (ids.Count < 2)
-        {
-            ids = new List<ElementId>();
-            return false;
-        }
-
-        for (var i = 1; mark != null && i < ids.Count; i++)
-        {
-            if (doc.GetElement(ids[i]) is Element piece)
-                ParamCopy.SetMark(piece, SplitMarks.For(mark, i));
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Re-creates a member as one piece per cut interval. The first piece reuses the original element so
-    /// hosts and connections that reference it stay valid; later pieces are new instances of the same
-    /// type on the same level. If a piece cannot be built the member is rolled back rather than left
-    /// silently shortened, and the elements the original carried are counted before it is cut about.
-    /// </summary>
-    private static (List<ElementId> Ids, int ParamSkipped, int Dependent, bool Ok) Recreate(
-        Document doc,
-        Plan plan,
-        SplitOptions options)
-    {
-        var empty = new List<ElementId>();
-
-        if (plan.Beam is not FamilyInstance instance)
-            return (empty, 0, 0, false);
-
-        var symbol = doc.GetElement(plan.Beam.GetTypeId()) as FamilySymbol;
-        if (symbol == null)
-            return (empty, 0, 0, false);
-
-        var levelId = plan.Beam.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId();
-        if (levelId == null || levelId == ElementId.InvalidElementId)
-            levelId = plan.Beam.LevelId;
-        if (doc.GetElement(levelId) is not Level level)
-            return (empty, 0, 0, false);
-
-        var bounds = SplitSequence.Bounds(plan.Cuts, MinGapFraction);
-        if (bounds.Count < 2)
-            return (empty, 0, 0, false);
-
-        var mark = options.UniqueMark ? ParamCopy.Mark(plan.Beam) : null;
-        var snapshot = options.CopyParams ? ParamCopy.Take(plan.Beam) : null;
-        var created = new List<ElementId>();
-        var paramSkipped = 0;
-
-        using (var sub = new SubTransaction(doc))
-        {
-            sub.Start();
-            try
-            {
-                if (!symbol.IsActive)
-                    symbol.Activate();
-
-                for (var i = 0; i < bounds.Count - 1; i++)
-                {
-                    var piece = GeometryRevit.SubCurve(plan.Curve, bounds[i], bounds[i + 1]);
-                    if (piece == null)
-                    {
-                        sub.RollBack();
-                        return (empty, paramSkipped, 0, false);
-                    }
-
-                    if (i == 0)
-                    {
-                        if (!RewriteLocation(plan.Beam, piece))
-                        {
-                            sub.RollBack();
-                            return (empty, paramSkipped, 0, false);
-                        }
-
-                        created.Add(plan.Beam.Id);
-                        continue;
-                    }
-
-                    var made = CreatePiece(doc, piece, symbol, level, instance.StructuralType);
-                    if (made == null)
-                    {
-                        sub.RollBack();
-                        return (empty, paramSkipped, 0, false);
-                    }
-
-                    var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
-                    if (snapshot != null)
-                        paramSkipped += ParamCopy.Apply(snapshot, made, markFor);
-                    else
-                        ParamCopy.SetMark(made, markFor);
-
-                    created.Add(made.Id);
-                }
-
-                // One piece alone means the member was rewritten without gaining a cut, so undo it.
-                if (created.Count < 2)
-                {
-                    sub.RollBack();
-                    return (empty, paramSkipped, 0, false);
-                }
-
-                var dependent = SplitElements.Dependent(plan.Beam);
-                sub.Commit();
-                return (created, paramSkipped, dependent, true);
-            }
-            catch
-            {
-                // A throw part way through is a member the caller reports as failed, so the pieces made
-                // so far go with it and the member is left as it was.
-                try
-                {
-                    sub.RollBack();
-                }
-                catch
-                {
-                    // Nothing left to put back.
-                }
-
-                return (empty, paramSkipped, 0, false);
-            }
-        }
-    }
-
-    /// <summary>
-    /// True while a piece still starts where the piece it came from started and ends at the cut, which is
-    /// what the piece that owns the low end does. Only that piece can carry the cuts below it.
-    /// </summary>
-    private static bool KeepsStart(FamilyInstance piece, Curve before, XYZ target)
-    {
-        if (piece.Location is not LocationCurve location)
-            return false;
-
-        var after = location.Curve;
-        if (after == null)
-            return false;
-
-        return SamePoint(after.GetEndPoint(0), before.GetEndPoint(0))
-            && SamePoint(after.GetEndPoint(1), target);
-    }
-
-    private static bool SamePoint(XYZ a, XYZ b)
-        => a != null && b != null && a.DistanceTo(b) <= GeometryRevit.Tol;
-
-    private static bool RewriteLocation(Element beam, Curve piece)
-    {
-        try
-        {
-            if (beam.Location is LocationCurve location)
-            {
-                location.Curve = piece;
-                return true;
-            }
-        }
-        catch
-        {
-            // A family that refuses a curve still accepts the straight chord below.
-        }
-
-        try
-        {
-            if (beam.Location is LocationCurve fallback)
-            {
-                fallback.Curve = Line.CreateBound(piece.GetEndPoint(0), piece.GetEndPoint(1));
-                return true;
-            }
-        }
-        catch
-        {
-            // Nothing else to try; the caller rolls this member back.
-        }
-
-        return false;
-    }
-
-    private static Element? CreatePiece(Document doc, Curve piece, FamilySymbol symbol, Level level, StructuralType structuralType)
-    {
-        try
-        {
-            var fresh = doc.Create.NewFamilyInstance(piece, symbol, level, structuralType);
-            if (fresh != null)
-                return fresh;
-        }
-        catch
-        {
-            // A curve driven family may reject a curved piece; the chord below still cuts the member.
-        }
-
-        try
-        {
-            return doc.Create.NewFamilyInstance(Line.CreateBound(piece.GetEndPoint(0), piece.GetEndPoint(1)), symbol, level, structuralType);
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => CurveMemberSplit.SplitAtCuts(doc, new CurveMemberSplit.Plan(plan.Beam, plan.Curve, plan.Cuts), options);
 
     private static Curve? GetCurve(Element beam)
-        => beam.Location is LocationCurve location ? location.Curve : null;
+        => SplitElements.LocationCurveOf(beam);
 
-    /// <summary>
-    /// How the pieces got their parameters. A native split reuses the members themselves, so nothing had
-    /// to be copied across; the re-creation fallback copies the original's parameters onto the pieces it
-    /// makes, which is the only path where a parameter can be left behind.
-    /// </summary>
     private static string ParamNote(SplitOptions options, int native, int recreated, int paramSkipped)
-    {
-        if (!options.CopyParams)
-            return " Copy params: off.";
+        => CurveMemberSplit.ParamNote(options, native, recreated, paramSkipped);
 
-        if (recreated == 0)
-            return native > 0 ? " Native split preserved parameters." : "";
+    private static string SkipNote(int noCurve, int noCrossing, int failed)
+        => Skips.Note(noCurve, noCrossing, failed);
 
-        return paramSkipped > 0
-            ? $" Instance parameters copied to new pieces, {paramSkipped} skipped."
-            : " Instance parameters copied to new pieces.";
-    }
-
-    private static string SkipNote(int noCurve, int noCrossing, int failed, bool stopped, SplitOptions options)
-        => Skips.Note(noCurve, noCrossing, failed, stopped, options.Limit);
+    private static string EmptyHostMessage(SplitOptions options)
+        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
+            ? "Please select elements first."
+            : "No beams found.";
 
     /// <summary>
     /// The reasons members were left alone, each one named rather than folded into a single count, so a
@@ -577,17 +250,13 @@ internal static class BeamSplit
     /// </summary>
     private static class Skips
     {
-        public static string Note(int noCurve, int noCrossing, int failed, bool stopped, int limit)
+        public static string Note(int noCurve, int noCrossing, int failed)
         {
             var parts = new List<string>();
             SplitElements.AddSkip(parts, noCurve, "no curve");
             SplitElements.AddSkip(parts, noCrossing, "no column crossing");
             SplitElements.AddSkip(parts, failed, "split failed");
-
-            var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
-            if (stopped)
-                note += $" Stopped at {limit}.";
-            return note;
+            return parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
         }
     }
 

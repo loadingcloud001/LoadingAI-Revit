@@ -13,7 +13,7 @@ All tools below are native C# re-implementations of popular pyRevit / Dynamo (Cl
 - **export-tools** (plugin): export_pdf, export_dwg, export_ifc, purge_unused — `Plugins/export-tools/`
 - **view-tools** (plugin): create_schedule, get_schedule_data, create_floor_plan, create_3d_view, create_section_view, path_of_travel — `Plugins/view-tools/`
 - **modeling-tools** (plugin): load_family, change_element_type, create_topography — `Plugins/modeling-tools/`
-- **structure-cuts** (plugin): split_beams_by_columns, split_floors_by_beams — `Plugins/structure-cuts/`
+- **structure-cuts** (plugin): split_beams_by_columns, split_floors_by_beams, split_by_levels, split_by_grids — `Plugins/structure-cuts/`
 - **qs-formwork** (plugin): formwork_setup, create_formwork_panels, cleanup_formwork, copy_formwork_parent_params — `Plugins/qs-formwork/`
 
 Total new 37 + core 28 = ~65 tools. Each description embeds alias e.g. "pyRevit: Create Sheets" for LLM matching. L3 default off.

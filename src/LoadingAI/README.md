@@ -50,6 +50,6 @@ Plugins/example.hello/       sample plugin
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
 Plugins/modeling-tools/      load_family, change_element_type, create_topography
-Plugins/structure-cuts/      split_beams_by_columns, split_floors_by_beams
+Plugins/structure-cuts/      split_beams_by_columns, split_floors_by_beams, split_by_levels, split_by_grids
 Plugins/qs-formwork/         formwork_setup, create_formwork_panels, cleanup_formwork, copy_formwork_parent_params
 ```

@@ -7,7 +7,7 @@ namespace LoadingAI.Tests;
 public class StructureCutsContractTests
 {
     [Fact]
-    public void PluginJson_DeclaresTwoL3SplitToolsDefaultOff()
+    public void PluginJson_DeclaresFourL3SplitToolsDefaultOff()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
@@ -16,11 +16,13 @@ public class StructureCutsContractTests
         Assert.True(root.GetProperty("verified").GetBoolean());
 
         var tools = root.GetProperty("tools").EnumerateArray().ToList();
-        Assert.Equal(2, tools.Count);
+        Assert.Equal(4, tools.Count);
 
         var names = tools.Select(t => t.GetProperty("name").GetString()).ToHashSet();
         Assert.Contains("split_beams_by_columns", names);
         Assert.Contains("split_floors_by_beams", names);
+        Assert.Contains("split_by_levels", names);
+        Assert.Contains("split_by_grids", names);
 
         foreach (var t in tools)
         {
@@ -33,11 +35,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion150()
+    public void PluginJson_IsVersion200()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.5.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2.0.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -77,6 +79,11 @@ public class StructureCutsContractTests
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitOptions.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GeometryRevit.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitScope.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "CurveMemberSplit.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "HostCurve.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "LevelSplit.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GridSplit.cs")));
         Assert.False(File.Exists(Path.Combine(root, "src", "LoadingAI", "Tools", "StructureCutsPlugin.cs")));
         var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*Split*.cs", SearchOption.AllDirectories);
         Assert.DoesNotContain(hostTools, f => Path.GetFileName(f).Contains("BeamSplit") || Path.GetFileName(f).Contains("FloorSplit"));
@@ -88,7 +95,7 @@ public class StructureCutsContractTests
         var root = RepoRoot();
         var helper = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs"));
         Assert.Contains("Extension", helper, StringComparison.Ordinal);
-        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
+        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "CurveMemberSplit.cs")));
         Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
     }
 
@@ -103,9 +110,12 @@ public class StructureCutsContractTests
         Assert.DoesNotContain("PresetFieldKind.PickBox", src, StringComparison.Ordinal);
         Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
 
-        // The element cap is host-owned too: a Number field both tools share, clamped by the plugin.
+        Assert.Contains("SharedKnobs()", src, StringComparison.Ordinal);
+        Assert.Contains("Id = \"scope\"", src, StringComparison.Ordinal);
+        Assert.Contains("Id = \"continueFrom\"", src, StringComparison.Ordinal);
+        Assert.Contains("Kind = PresetFieldKind.Select", src, StringComparison.Ordinal);
         var limitPreset = "new PresetField { Id = \"limit\", Label = \"Max elements\", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit }";
-        Assert.Equal(2, CountOccurrences(src, limitPreset));
+        Assert.Contains(limitPreset, src, StringComparison.Ordinal);
 
         foreach (var expected in new[]
         {
@@ -133,8 +143,8 @@ public class StructureCutsContractTests
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
         var preset = "new PresetField { Id = \"dryRun\", Label = \"Dry-run (count only)\", Kind = PresetFieldKind.Boolean, Default = false }";
-        Assert.Equal(2, CountOccurrences(src, preset));
-        Assert.Contains("dryRun = new { type = \"boolean\"", src, StringComparison.Ordinal);
+        Assert.Contains(preset, src, StringComparison.Ordinal);
+        Assert.Contains("dryRun = DryRunProperty()", src, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -151,16 +161,24 @@ public class StructureCutsContractTests
 
         var beam = File.ReadAllText(Path.Combine(pluginDir, "BeamSplit.cs"));
         var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+        var levels = File.ReadAllText(Path.Combine(pluginDir, "LevelSplit.cs"));
+        var grids = File.ReadAllText(Path.Combine(pluginDir, "GridSplit.cs"));
 
         Assert.Contains("Dry-run. ", beam, StringComparison.Ordinal);
         Assert.Contains("Dry-run. ", floor, StringComparison.Ordinal);
+        Assert.Contains("Dry-run. ", levels, StringComparison.Ordinal);
+        Assert.Contains("Dry-run. ", grids, StringComparison.Ordinal);
 
         // A dry run leaves before a transaction is even opened, so nothing that writes can be reached:
         // the only piece of the split that touches the document runs inside that transaction.
         AssertOrdered("BeamSplit.cs", beam,
-            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc, plan, options)");
+            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
         AssertOrdered("FloorSplit.cs", floor,
             "if (options.DryRun)", "new Transaction(", "Write(doc, plan, options)");
+        AssertOrdered("LevelSplit.cs", levels,
+            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
+        AssertOrdered("GridSplit.cs", grids,
+            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
     }
 
     [Fact]
@@ -170,10 +188,10 @@ public class StructureCutsContractTests
         var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
         var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
 
-        Assert.Equal(2, CountOccurrences(src, "Id = \"uniqueMark\""));
-        Assert.Equal(2, CountOccurrences(src, "Id = \"copyParams\""));
-        Assert.Contains("uniqueMark = new { type = \"boolean\"", src, StringComparison.Ordinal);
-        Assert.Contains("copyParams = new { type = \"boolean\"", src, StringComparison.Ordinal);
+        Assert.Contains("Id = \"uniqueMark\"", src, StringComparison.Ordinal);
+        Assert.Contains("Id = \"copyParams\"", src, StringComparison.Ordinal);
+        Assert.Contains("uniqueMark = UniqueMarkProperty()", src, StringComparison.Ordinal);
+        Assert.Contains("copyParams = CopyParamsProperty()", src, StringComparison.Ordinal);
 
         // One shared Options factory, so the two tools cannot drift apart on the defaults.
         Assert.Contains("UniqueMark = args.Bool(\"uniqueMark\", false)", src, StringComparison.Ordinal);
@@ -205,14 +223,14 @@ public class StructureCutsContractTests
     [Fact]
     public void BeamSplit_UsesRevitNativeSplitBeforeRecreatingPieces()
     {
-        var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs"));
+        var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "CurveMemberSplit.cs"));
 
         // Revit's own split keeps the member, its host and its parameters, so it runs before the
         // fallback, which re-creates pieces and has to copy parameters across by hand.
         Assert.Contains("instance.CanSplit", beam, StringComparison.Ordinal);
         Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
         Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
-        AssertOrdered("BeamSplit.cs", beam,
+        AssertOrdered("CurveMemberSplit.cs", beam,
             "TryNativeSplit(doc, plan, options, out var ids)",
             "Recreate(doc, plan, options)");
 
