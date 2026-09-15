@@ -44,11 +44,11 @@ Releases are published when a `v*` tag is pushed (for example `v0.1.0`). You can
 
 ```powershell
 cd web; npm install; npm run build
-dotnet test LoadingAI.sln -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
 dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=2027
 ```
 
-The last command (no `SkipCopyAddin`) copies the add-in into `%AppData%\Autodesk\Revit\Addins\2027\`.
+The last command (no `SkipCopyAddin`) copies the add-in into `%AppData%\Autodesk\Revit\Addins\2027\` and re-asserts per-user Always Load + Authenticode on that copy so Revit does not ask you to Accept after a rebuild. That is local-dev only (`scripts/trust-addin.ps1`); CI never runs it.
 
 Pack a zip locally:
 
@@ -74,4 +74,4 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2027   # also 2024, 2025, 2026
 | `gateway/` | The free-tier gateway: request handler, SQLite counters, Node transport and systemd/cloudflared templates |
 | `CONTRIBUTING.md` | How to add a plugin |
 
-CI (`.github/workflows/ci.yml`) builds 2024–2027 and tests 2027.
+CI (`.github/workflows/ci.yml`) builds 2024–2027 and tests 2027 **xUnit** (`src/LoadingAI.Tests`). In-Revit NUnit (`src/LoadingAI.RevitTests`) is local-only — see `CONTRIBUTING.md` (test pyramid) and that project's README.
