@@ -18,11 +18,11 @@ In-process add-in for Autodesk Revit **2024–2027** (anchor 2027):
 
 ```ps
 cd web; npm install; npm run build
-dotnet test LoadingAI.sln -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
 dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=2027
 ```
 
-Pass `-p:RevitVersion=2024` (or 2025 / 2026) to target another year. Post-build copies DLL + `Web/dist` to `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\` and the `.addin` next to it. Pack without touching AppData:
+Pass `-p:RevitVersion=2024` (or 2025 / 2026) to target another year. Post-build copies DLL + `Web/dist` to `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\` and the `.addin` next to it. The same CopyAddin run re-asserts per-user Always Load and signs the AppData DLL (`scripts/trust-addin.ps1`) so Revit does not re-prompt after a rebuild. `-p:SkipTrustAddin=true` skips that. Pack without touching AppData:
 
 ```ps
 pwsh scripts/pack-addin.ps1 -RevitVersion 2024
@@ -45,7 +45,8 @@ src/LoadingAI/
   Tools/Compat/*             pyRevit/Dynamo-shaped tools
   Plugins/Core/*             loader (ALC; LoadFrom on net48) + contract
 src/LoadingAI.Core/          agent, DTO, no RevitAPI
-src/LoadingAI.Tests/         xunit
+src/LoadingAI.Tests/         xunit (Fake IRevitBridge + contracts; hosted CI)
+src/LoadingAI.RevitTests/    NUnit in-Revit (local Revit 2027 / ricaun; not hosted CI)
 Plugins/example.hello/       sample plugin
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
