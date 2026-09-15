@@ -44,10 +44,66 @@ internal static class CurveMemberSplit
             : (new List<ElementId>(), paramSkipped, true, false, 0);
     }
 
+    /// <summary>
+    /// Unique cuts in member order, clustered pairs collapsed so a sliver is never asked of Revit.
+    /// </summary>
+    public static List<double> DistinctCuts(IEnumerable<double> cuts)
+    {
+        var wanted = new List<double>();
+        foreach (var cut in cuts)
+        {
+            if (double.IsNaN(cut) || cut <= 0.0 || cut >= 1.0)
+                continue;
+            wanted.Add(cut);
+        }
+
+        wanted.Sort();
+        var filtered = new List<double>();
+        foreach (var cut in wanted)
+        {
+            if (filtered.Count == 0 || cut - filtered[filtered.Count - 1] > MinGapFraction)
+                filtered.Add(cut);
+        }
+
+        return filtered;
+    }
+
+    /// <summary>
+    /// Native <see cref="FamilyInstance.Split"/> is a process abort on Revit 2024–2027 when the
+    /// member is grouped, pinned, joined, or not a line/arc. Recreate those instead. SubTransaction
+    /// cannot catch a native abort.
+    /// </summary>
+    public static bool CanNativeSplit(FamilyInstance instance)
+        => CanNativeSplit(instance, requireUnjoined: true);
+
+    private static bool CanNativeSplit(FamilyInstance instance, bool requireUnjoined)
+    {
+        if (instance == null || !instance.CanSplit || instance.Pinned)
+            return false;
+
+        try
+        {
+            if (instance.GroupId != null && instance.GroupId != ElementId.InvalidElementId)
+                return false;
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (instance.Location is not LocationCurve location || location.Curve == null)
+            return false;
+
+        if (location.Curve is not Line && location.Curve is not Arc)
+            return false;
+
+        return !requireUnjoined || !Joined(location);
+    }
+
     public static bool TryNativeSplit(Document doc, Plan plan, SplitOptions options, out List<ElementId> ids)
     {
         ids = new List<ElementId>();
-        if (plan.Host is not FamilyInstance instance || !instance.CanSplit)
+        if (plan.Host is not FamilyInstance instance || !CanNativeSplit(instance))
             return false;
 
         var steps = SplitSequence.Build(plan.Cuts, MinGapFraction);
@@ -66,7 +122,7 @@ internal static class CurveMemberSplit
                 foreach (var step in steps)
                 {
                     if (doc.GetElement(low) is not FamilyInstance current
-                        || !current.CanSplit
+                        || !CanNativeSplit(current, requireUnjoined: false)
                         || current.Location is not LocationCurve location
                         || location.Curve == null)
                     {
@@ -83,13 +139,23 @@ internal static class CurveMemberSplit
                     }
 
                     var target = GeometryRevit.At(plan.Curve, step.Cut);
-                    var local = (live.Project(target).Parameter - start) / span;
+                    var projected = live.Project(target);
+                    if (projected == null)
+                    {
+                        sub.RollBack();
+                        return false;
+                    }
+
+                    var local = (projected.Parameter - start) / span;
                     if (local <= 0.0 || local >= 1.0)
                     {
                         sub.RollBack();
                         return false;
                     }
 
+                    // Snapshot endpoints before Split: the LocationCurve object is often invalidated
+                    // by the native call, and holding it is a Revit 2024–2027 fatal (report 1034070969).
+                    var originalStart = live.GetEndPoint(0);
                     var made = current.Split(local);
                     if (made == null || made == ElementId.InvalidElementId)
                     {
@@ -97,11 +163,11 @@ internal static class CurveMemberSplit
                         return false;
                     }
 
-                    if (KeepsStart(current, live, target))
+                    if (KeepsStart(current, originalStart, target))
                     {
                         high.Add(made);
                     }
-                    else if (doc.GetElement(made) is FamilyInstance other && KeepsStart(other, live, target))
+                    else if (doc.GetElement(made) is FamilyInstance other && KeepsStart(other, originalStart, target))
                     {
                         high.Add(low);
                         low = made;
@@ -360,7 +426,21 @@ internal static class CurveMemberSplit
             : " Instance parameters copied to new pieces.";
     }
 
-    private static bool KeepsStart(FamilyInstance piece, Curve before, XYZ target)
+    private static bool Joined(LocationCurve location)
+    {
+        try
+        {
+            var atStart = location.get_ElementsAtJoin(0);
+            var atEnd = location.get_ElementsAtJoin(1);
+            return (atStart != null && atStart.Size > 0) || (atEnd != null && atEnd.Size > 0);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool KeepsStart(FamilyInstance piece, XYZ originalStart, XYZ target)
     {
         if (piece.Location is not LocationCurve location)
             return false;
@@ -369,7 +449,7 @@ internal static class CurveMemberSplit
         if (after == null)
             return false;
 
-        return SamePoint(after.GetEndPoint(0), before.GetEndPoint(0))
+        return SamePoint(after.GetEndPoint(0), originalStart)
             && SamePoint(after.GetEndPoint(1), target);
     }
 

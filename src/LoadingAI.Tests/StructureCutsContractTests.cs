@@ -35,11 +35,11 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginJson_IsVersion200()
+    public void PluginJson_IsVersion201()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("2.0.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2.0.1", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -172,13 +172,22 @@ public class StructureCutsContractTests
         // A dry run leaves before a transaction is even opened, so nothing that writes can be reached:
         // the only piece of the split that touches the document runs inside that transaction.
         AssertOrdered("BeamSplit.cs", beam,
-            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
+            "if (options.DryRun)", "SplitElements.WriteTx(", "SplitAtCuts(doc,");
         AssertOrdered("FloorSplit.cs", floor,
-            "if (options.DryRun)", "new Transaction(", "Write(doc, plan, options)");
+            "if (options.DryRun)", "SplitElements.WriteTx(", "Write(doc, plan, options)");
         AssertOrdered("LevelSplit.cs", levels,
-            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
+            "if (options.DryRun)", "SplitElements.WriteTx(", "SplitAtCuts(doc,");
         AssertOrdered("GridSplit.cs", grids,
-            "if (options.DryRun)", "new Transaction(", "SplitAtCuts(doc,");
+            "if (options.DryRun)", "SplitElements.WriteTx(", "SplitAtCuts(doc,");
+
+        // The only Transaction constructor in this plugin is WriteTx. Tools must not open their own.
+        Assert.Contains("new Transaction(", File.ReadAllText(Path.Combine(pluginDir, "SplitElements.cs")), StringComparison.Ordinal);
+        foreach (var file in Directory.GetFiles(pluginDir, "*.cs"))
+        {
+            if (string.Equals(Path.GetFileName(file), "SplitElements.cs", StringComparison.Ordinal))
+                continue;
+            Assert.DoesNotContain("new Transaction(", File.ReadAllText(file), StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -226,10 +235,21 @@ public class StructureCutsContractTests
         var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "CurveMemberSplit.cs"));
 
         // Revit's own split keeps the member, its host and its parameters, so it runs before the
-        // fallback, which re-creates pieces and has to copy parameters across by hand.
+        // fallback, which re-creates pieces and has to copy parameters across by hand. Native Split
+        // aborts Revit 2024–2027 on grouped/pinned/joined/non-line members, so CanNativeSplit
+        // gates the call; SubTransaction still wraps Split for catchable failures.
+        Assert.Contains("CanNativeSplit(instance)", beam, StringComparison.Ordinal);
         Assert.Contains("instance.CanSplit", beam, StringComparison.Ordinal);
+        Assert.Contains("instance.Pinned", beam, StringComparison.Ordinal);
+        Assert.Contains("instance.GroupId", beam, StringComparison.Ordinal);
+        Assert.Contains("is not Line && location.Curve is not Arc", beam, StringComparison.Ordinal);
+        Assert.Contains("Joined(location)", beam, StringComparison.Ordinal);
+        Assert.Contains("get_ElementsAtJoin", beam, StringComparison.Ordinal);
+        Assert.Contains("requireUnjoined: false", beam, StringComparison.Ordinal);
         Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
         Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
+        Assert.Contains("originalStart = live.GetEndPoint(0)", beam, StringComparison.Ordinal);
+        Assert.Contains("WriteTx", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "SplitElements.cs")), StringComparison.Ordinal);
         AssertOrdered("CurveMemberSplit.cs", beam,
             "TryNativeSplit(doc, plan, options, out var ids)",
             "Recreate(doc, plan, options)");
@@ -244,6 +264,13 @@ public class StructureCutsContractTests
         // from inside the outer transaction.
         Assert.Contains("new SubTransaction(doc)", beam, StringComparison.Ordinal);
         Assert.DoesNotContain("Regenerate()", beam, StringComparison.Ordinal);
+
+        // Cut clustering lives in one place so Beam/Level/Grid cannot drift.
+        Assert.Contains("public static List<double> DistinctCuts(", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static List<double> DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "LevelSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "GridSplit.cs")), StringComparison.Ordinal);
     }
 
     [Fact]

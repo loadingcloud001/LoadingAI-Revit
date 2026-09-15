@@ -12,20 +12,16 @@ namespace LoadingAI.Plugins.StructureCuts;
 /// centreline crosses the column's real plan outline leaves a member whole when a column only clips its
 /// end, and a curved member is cut along its own curve instead of across a single chord.
 /// <para>
-/// Members Revit will split itself - line and arc beams - are split in place, so the original element,
-/// its host, its joins and its parameters all survive. A member Revit will not split, or one whose split
-/// does not land where it was asked to, is re-created piece by piece as before. Each member runs in its
-/// own sub-transaction, so a member that fails either way is put back exactly as it was instead of being
-/// left silently shortened.
+/// Unjoined line and arc beams that are not grouped or pinned are split in place, so the original
+/// element, its host and its parameters survive. Grouped, pinned, joined or non-line/arc members
+/// recreate the location curve — native Split on those is a Revit process abort. Each member runs in
+/// its own sub-transaction, so a member that fails either way is put back exactly as it was instead of
+/// being left silently shortened.
 /// </para>
 /// </summary>
 internal static class BeamSplit
 {
-    /// <summary>A cut this close to an end is not worth a separate piece.</summary>
-    private const double MinFraction = 0.02;
-
-    /// <summary>Two cuts closer together than this make a sliver, so the earlier one wins.</summary>
-    private const double MinGapFraction = 0.03;
+    private const double MinFraction = CurveMemberSplit.MinFraction;
 
     public static string Run(UIApplication uiApp, IReadOnlyList<string> beamIds, IReadOnlyList<string> columnIds, SplitOptions options)
     {
@@ -44,7 +40,7 @@ internal static class BeamSplit
             return "No columns found.";
 
         var footprints = new Dictionary<string, List<List<Point2>>>(StringComparer.Ordinal);
-        var plans = new List<Plan>();
+        var plans = new List<CurveMemberSplit.Plan>();
         var skippedNoCurve = 0;
         var skippedNoCrossing = 0;
         foreach (var beam in beams)
@@ -63,7 +59,7 @@ internal static class BeamSplit
                 continue;
             }
 
-            plans.Add(new Plan(beam, curve, cuts));
+            plans.Add(new CurveMemberSplit.Plan(beam, curve, cuts));
         }
 
         if (options.DryRun)
@@ -87,12 +83,12 @@ internal static class BeamSplit
         var recreated = 0;
         var dependents = 0;
 
-        using (var tx = new Transaction(doc, "LoadingAI for Revit: split beams by columns"))
+        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split beams by columns"))
         {
             tx.Start();
             foreach (var plan in plans)
             {
-                var (ids, skipped, rollback, wasNative, lost) = SplitAtCuts(doc, plan, options);
+                var (ids, skipped, rollback, wasNative, lost) = CurveMemberSplit.SplitAtCuts(doc, plan, options);
                 paramSkipped += skipped;
                 if (rollback)
                 {
@@ -189,13 +185,7 @@ internal static class BeamSplit
             }
         }
 
-        cuts.Sort();
-        var filtered = new List<double>();
-        foreach (var cut in cuts)
-            if (filtered.Count == 0 || cut - filtered[filtered.Count - 1] > MinGapFraction)
-                filtered.Add(cut);
-
-        return filtered;
+        return CurveMemberSplit.DistinctCuts(cuts);
     }
 
     /// <summary>
@@ -216,19 +206,6 @@ internal static class BeamSplit
         footprints[key] = rings;
         return rings;
     }
-
-    /// <summary>
-    /// Splits one member into the pieces its cuts ask for. The native split runs first because it keeps
-    /// the member itself - its host, its joins and its parameters all survive - and re-creation is the
-    /// fallback for a member Revit will not split or one whose split did not land where it was asked to.
-    /// Each path uses its own sub-transaction, so a member that fails is rolled back whole and the outer
-    /// transaction only ever commits members that came out right.
-    /// </summary>
-    private static (List<ElementId> Ids, int ParamSkipped, bool Rollback, bool Native, int Dependent) SplitAtCuts(
-        Document doc,
-        Plan plan,
-        SplitOptions options)
-        => CurveMemberSplit.SplitAtCuts(doc, new CurveMemberSplit.Plan(plan.Beam, plan.Curve, plan.Cuts), options);
 
     private static Curve? GetCurve(Element beam)
         => SplitElements.LocationCurveOf(beam);
@@ -260,19 +237,4 @@ internal static class BeamSplit
         }
     }
 
-    private sealed class Plan
-    {
-        public Plan(Element beam, Curve curve, List<double> cuts)
-        {
-            Beam = beam;
-            Curve = curve;
-            Cuts = cuts;
-        }
-
-        public Element Beam { get; }
-
-        public Curve Curve { get; }
-
-        public List<double> Cuts { get; }
-    }
 }

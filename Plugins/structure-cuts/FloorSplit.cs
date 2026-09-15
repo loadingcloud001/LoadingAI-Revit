@@ -111,7 +111,7 @@ internal static class FloorSplit
         var dependents = 0;
         var paramSkipped = 0;
 
-        using (var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams"))
+        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split floors by beams"))
         {
             tx.Start();
             foreach (var plan in plans)

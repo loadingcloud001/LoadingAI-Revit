@@ -84,7 +84,7 @@ internal static class LevelSplit
         var dependents = 0;
         var openings = 0;
 
-        using (var tx = new Transaction(doc, "LoadingAI for Revit: split by levels"))
+        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split by levels"))
         {
             tx.Start();
             foreach (var plan in curvePlans)
@@ -175,7 +175,7 @@ internal static class LevelSplit
         foreach (var elevation in elevations)
             cuts.AddRange(CurveCut.AtElevation(samples, elevation, CurveMemberSplit.MinFraction, CurveMemberSplit.MinGapFraction));
 
-        cuts = DistinctCuts(cuts);
+        cuts = CurveMemberSplit.DistinctCuts(cuts);
         if (cuts.Count == 0)
         {
             skips.NoHit++;
@@ -321,19 +321,6 @@ internal static class LevelSplit
         var projected = plane.Project(point.Value);
         if (points.Count == 0 || points[points.Count - 1].DistanceTo(projected) > Polygon2D.VertexTolerance)
             points.Add(projected);
-    }
-
-    private static List<double> DistinctCuts(List<double> cuts)
-    {
-        cuts.Sort();
-        var filtered = new List<double>();
-        foreach (var cut in cuts)
-        {
-            if (filtered.Count == 0 || cut - filtered[filtered.Count - 1] > CurveMemberSplit.MinGapFraction)
-                filtered.Add(cut);
-        }
-
-        return filtered;
     }
 
     private sealed class Skips

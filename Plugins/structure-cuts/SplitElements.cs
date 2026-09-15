@@ -16,6 +16,40 @@ internal static class SplitElements
     public static string Fmt(ElementId id)
         => id.Value.ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Warnings must not abort a multi-member write. A native abort still kills the process if
+    /// Split is called on an unsafe member — <see cref="CurveMemberSplit.CanNativeSplit"/> is the
+    /// real gate.
+    /// </summary>
+    public static Transaction WriteTx(Document doc, string name)
+    {
+        var tx = new Transaction(doc, name);
+        var failures = tx.GetFailureHandlingOptions();
+        failures.SetClearAfterRollback(true);
+        failures.SetForcedModalHandling(true);
+        failures.SetFailuresPreprocessor(new SkipWarnings());
+        tx.SetFailureHandlingOptions(failures);
+        return tx;
+    }
+
+    private sealed class SkipWarnings : IFailuresPreprocessor
+    {
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+        {
+            var toDelete = new List<FailureMessageAccessor>();
+            foreach (var failure in accessor.GetFailureMessages())
+            {
+                if (failure.GetSeverity() == FailureSeverity.Warning)
+                    toDelete.Add(failure);
+            }
+
+            foreach (var failure in toDelete)
+                accessor.DeleteWarning(failure);
+
+            return FailureProcessingResult.Continue;
+        }
+    }
+
     public static void Select(UIDocument uidoc, IReadOnlyList<ElementId> created)
     {
         if (created.Count == 0)

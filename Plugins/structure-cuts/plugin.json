@@ -1,7 +1,7 @@
 {
   "id": "structure-cuts",
   "name": "Structure Split Tools",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.StructureCuts.dll",
