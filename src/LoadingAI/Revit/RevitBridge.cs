@@ -9,6 +9,7 @@ public sealed class RevitBridge : IDisposable
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
+    private volatile int _uiThreadId;
 
     /// <summary>
     /// Last-known document-open flag, refreshed on the Revit UI thread.
@@ -19,6 +20,21 @@ public sealed class RevitBridge : IDisposable
     /// <summary>Call on the Revit UI thread when a live UIApplication is in hand.</summary>
     public void NoteUiApplication(UIApplication app)
         => _hasActiveDocument = app.ActiveUIDocument?.Document != null;
+
+    /// <summary>
+    /// Bind this bridge to a UIApplication already on the Revit API thread.
+    /// Later <see cref="RunAsync{T}(Func{UIApplication, T}, CancellationToken)"/>
+    /// calls on that same thread run immediately (no ExternalEvent), which is
+    /// required for in-Revit test hosts that already occupy the UI thread.
+    /// Production ExternalEvent.Execute also records the UI thread so nested
+    /// RunAsync from the same thread cannot deadlock.
+    /// </summary>
+    public void AttachCurrentThread(UIApplication app)
+    {
+        RevitContext.Set(app);
+        _uiThreadId = Environment.CurrentManagedThreadId;
+        NoteUiApplication(app);
+    }
 
     public RevitBridge()
     {
@@ -31,6 +47,14 @@ public sealed class RevitBridge : IDisposable
 
     public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout, CancellationToken ct = default)
     {
+        if (_uiThreadId != 0
+            && Environment.CurrentManagedThreadId == _uiThreadId
+            && RevitContext.UiApplication is { } current)
+        {
+            try { return func(current); }
+            catch (Exception ex) { return await Task.FromException<T>(ex); }
+        }
+
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         IDisposable? reg = null;
         if (ct.CanBeCanceled)
@@ -100,25 +124,56 @@ public sealed class RevitBridge : IDisposable
 
         public void Execute(UIApplication app)
         {
-            RevitContext.Set(app);
-            _owner.NoteUiApplication(app);
+            // IExternalEventHandler.Execute must not throw. Per-action failures
+            // are completed by the RunAsync wrapper (TrySetException). An empty
+            // catch here used to drop the rest of the batch so waiters sat until
+            // DefaultTimeout (120s). Drain leftover actions instead.
             _owner._executing = true;
+            var local = new Queue<Action<UIApplication>>();
             try
             {
-                Queue<Action<UIApplication>> local;
-                lock (_lock)
+                RevitContext.Set(app);
+                _owner._uiThreadId = Environment.CurrentManagedThreadId;
+                _owner.NoteUiApplication(app);
+                DrainTo(local);
+                InvokeAll(app, local);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.Write("bridge.execute_failed", new
                 {
-                    local = new Queue<Action<UIApplication>>(_queue);
-                    _queue.Clear();
-                }
-                while (local.Count > 0)
-                {
-                    var a = local.Dequeue();
-                    try { a(app); }
-                    catch { }
-                }
+                    error = ex.ToString(),
+                    remaining = local.Count
+                });
+                DrainTo(local);
+                InvokeAll(app, local);
             }
             finally { _owner._executing = false; }
+        }
+
+        private void DrainTo(Queue<Action<UIApplication>> dest)
+        {
+            lock (_lock)
+            {
+                while (_queue.Count > 0)
+                    dest.Enqueue(_queue.Dequeue());
+            }
+        }
+
+        private static void InvokeAll(UIApplication app, Queue<Action<UIApplication>> local)
+        {
+            while (local.Count > 0)
+            {
+                var a = local.Dequeue();
+                try
+                {
+                    a(app);
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.Write("bridge.action_failed", new { error = ex.ToString() });
+                }
+            }
         }
 
         public string GetName() => "LoadingAI Bridge";
