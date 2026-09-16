@@ -44,21 +44,24 @@ Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/export-tools/` — `export_pdf`, `export_dwg`, `export_ifc`, `purge_unused`
 - `Plugins/view-tools/` — `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
 - `Plugins/modeling-tools/` — `load_family`, `change_element_type`, `create_topography`
-- `Plugins/structure-cuts/` — `split_beams_by_columns`, `split_floors_by_beams` (1.5.0; optional chat presets pick beams/floors/columns, empty pick keeps the selection fallback). See **structure-cuts** below.
+- `Plugins/structure-cuts/` — `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected inside the plugin via `scope=selection|visible|all` so chat never has to paste hundreds of ids. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
 - `Plugins/qs-formwork/` — `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params`
 
 ## structure-cuts
 
 | Preset | Kind | Default | Effect |
 |---|---|---|---|
-| beams / floors / columns | PickElements | selection | empty pick keeps the selection fallback |
+| beams / floors / columns / elements / levels / grids | PickElements | selection | empty pick uses `scope` (selection, visible, or all) |
+| `scope` | Select | selection | collect hosts from selection, the active view, or the whole model |
+| `continueFrom` | Number | 0 | skip this many matching hosts so a capped run can continue (`nextOffset`) |
+| `categories` | Select | all four | walls, columns, beams, floors (Naviate-style tools only) |
 | `limit` | Number | 50 | caps how many input elements one run touches (clamped 1–200) |
 | `dryRun` | Boolean | off | counts splits/openings without touching the model; the host skips the L3 write Confirm for it |
 | `uniqueMark` | Boolean | off | keeps the original Mark on the first piece and appends `-1`, `-2`, … to the rest (blank stays blank) |
 | `copyParams` | Boolean | on | copies the original's copyable instance parameters onto the pieces the re-creation fallback makes |
 
-- Both tools run in an outer transaction and put every member back if it fails: each member gets its own sub-transaction, so one member that cannot be split leaves the others alone instead of leaving a half-split member behind. A write run selects the new pieces; a dry run never changes the selection and reports the same counts, skips and annotations.
-- `split_beams_by_columns` splits a member with Revit's own `FamilyInstance.Split` wherever Revit allows it (line and arc beams), so the original element, its host, its joins and its parameters all survive — `copyParams` only has work to do on the re-creation fallback. Cuts are taken highest first off the live location curve and each one is read back, so a split that does not land where it was asked to is rolled back and that member is re-created piece by piece instead. The report says how many members each path handled and how many dependent elements the re-created ones carry.
+- Every split tool runs in an outer transaction and puts each member back if it fails: each member gets its own sub-transaction, so one host that cannot be split leaves the others alone. A write run selects the new pieces; a dry run never opens a transaction. Empty host ids use `scope` instead of forcing chat to paste hundreds of ids; a capped run reports `nextOffset` for `continueFrom`.
+- `split_beams_by_columns` splits a member with Revit's own `FamilyInstance.Split` only when `CanNativeSplit` (unjoined line/arc, not grouped, not pinned). Grouped, pinned, joined, or non-line/arc members recreate the location curve instead — native Split on those is a Revit 2024–2027 process abort that SubTransaction cannot catch. Write transactions swallow warnings so one member does not abort the batch. `copyParams` only has work to do on the re-creation fallback. Cuts are taken highest first off the live location curve; endpoints are snapshotted before Split so the invalidated LocationCurve is never reused. A split that does not land where it was asked to is rolled back and that member is re-created piece by piece instead. The report says how many members each path handled and how many dependent elements the re-created ones carry.
 - Beam splitting uses the real column footprint (shadow on a horizontal plane, then face, base loop, bounding box) instead of the bounding box alone — hollow columns cut on their outer ring only, and round columns are tessellated. Curved beams are split along their own curve rather than across a single chord.
 - `split_floors_by_beams` only replaces floors it can rebuild: a shape edited slab, a slab with no upward planar face and a slab it cannot rebuild to match its slope are left untouched and counted under their own name — never re-created with wrong geometry. Existing floor openings are preserved, and a column footprint that falls outside the floor outline is skipped. Beam cut lines are clipped to the floor outline and nudged 1 mm past it so the cut always passes clean through.
 - A single-plane sloped slab keeps its slope: each piece is built in a horizontal plane at that piece's lowest point and the tilt is carried by a slope arrow, because Revit only accepts profile loops parallel to the XY plane. After a piece is built its own face is read back and compared with the original's, and a piece that does not match is thrown away with the original left as it was.

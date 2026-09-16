@@ -3,11 +3,12 @@ using System.Linq;
 
 namespace LoadingAI.Plugins.StructureCuts;
 
-/// <summary>Shared knobs for both split tools, resolved once from the tool arguments.</summary>
+/// <summary>Shared knobs for every split tool, resolved once from the tool arguments.</summary>
 internal sealed class SplitOptions
 {
     public const int DefaultLimit = 50;
     public const int MaxLimit = 200;
+    public const string DefaultScope = "selection";
 
     /// <summary>Max elements to process; the host form defaults it and this clamps the LLM's number.</summary>
     public int Limit { get; init; } = DefaultLimit;
@@ -22,6 +23,15 @@ internal sealed class SplitOptions
 
     /// <summary>Off leaves the new pieces with their type defaults instead of copying the original's.</summary>
     public bool CopyParams { get; init; } = true;
+
+    /// <summary>
+    /// Where hosts come from when ids are omitted: <c>selection</c> (default), <c>visible</c> in the
+    /// active view, or <c>all</c> in the model. Chat never has to paste hundreds of ids.
+    /// </summary>
+    public string Scope { get; init; } = DefaultScope;
+
+    /// <summary>How many already-collected hosts to skip, so a capped run can continue from nextOffset.</summary>
+    public int ContinueFrom { get; init; }
 }
 
 internal static class SplitMarks
@@ -50,5 +60,30 @@ internal static class SplitReport
             return string.Join(", ", list);
         return string.Join(", ", list.Take(IdCap))
             + " (+" + (list.Count - IdCap).ToString(CultureInfo.InvariantCulture) + " more)";
+    }
+
+    /// <summary>
+    /// How far a capped run got, and where the next call should start. Omitted when the whole set
+    /// fitted in one go from offset 0, so a small selection does not grow a pagination footnote.
+    /// </summary>
+    public static string Progress(SplitBatch batch)
+    {
+        if (batch.Total == 0)
+            return "";
+
+        if (batch.NextOffset < batch.Total)
+        {
+            return " Processed " + batch.NextOffset.ToString(CultureInfo.InvariantCulture)
+                + " of " + batch.Total.ToString(CultureInfo.InvariantCulture)
+                + ". nextOffset = " + batch.NextOffset.ToString(CultureInfo.InvariantCulture) + ".";
+        }
+
+        if (batch.Offset > 0)
+        {
+            return " Processed " + batch.NextOffset.ToString(CultureInfo.InvariantCulture)
+                + " of " + batch.Total.ToString(CultureInfo.InvariantCulture) + ".";
+        }
+
+        return "";
     }
 }

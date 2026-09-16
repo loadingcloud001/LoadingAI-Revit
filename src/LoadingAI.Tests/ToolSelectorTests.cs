@@ -146,6 +146,8 @@ public class ToolSelectorTests
     [Theory]
     [InlineData("split all beams by columns", "split_beams_by_columns")]
     [InlineData("split the slab at the beams", "split_floors_by_beams")]
+    [InlineData("split walls by levels", "split_by_levels")]
+    [InlineData("split floors by grids", "split_by_grids")]
     [InlineData("create formwork", "create_formwork_panels")]
     [InlineData("export a pdf of the sheets", "export_pdf")]
     [InlineData("purge unused families", "purge_unused")]

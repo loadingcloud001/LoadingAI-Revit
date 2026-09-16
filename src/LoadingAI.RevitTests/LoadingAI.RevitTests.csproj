@@ -35,5 +35,7 @@
     <ProjectReference Include="..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
       <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
+    <!-- Direct ref so CreateTools compiles without PluginLoader.Discover. -->
+    <ProjectReference Include="..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj" />
   </ItemGroup>
 </Project>

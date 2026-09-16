@@ -34,13 +34,12 @@ internal static class FloorSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var selection = SplitElements.GetSelection(uidoc);
-        var floors = SplitElements.Resolve(doc, floorIds, SplitElements.IsFloorLike);
-        if (floors.Count == 0)
-            floors = selection.Where(SplitElements.IsFloorLike).ToList();
-        if (floors.Count == 0)
-            return "Please select elements first.";
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsFloorLike, options, floorIds);
+        var floors = batch.Items;
+        if (floors.Count == 0 && batch.Total == 0)
+            return EmptyHostMessage(options);
 
+        var selection = SplitElements.GetSelection(uidoc);
         var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
         if (beams.Count == 0)
             beams = selection.Where(SplitElements.IsBeam).ToList();
@@ -54,10 +53,6 @@ internal static class FloorSplit
             columns = selection.Where(SplitElements.IsColumn).ToList();
         if (columns.Count == 0)
             columns = HitElements(doc, BuiltInCategory.OST_StructuralColumns, floors, SplitElements.IsColumn);
-
-        var stopped = floors.Count > options.Limit;
-        if (stopped)
-            floors = floors.Take(options.Limit).ToList();
 
         var skips = new Skips();
         var plans = new List<Plan>();
@@ -93,7 +88,7 @@ internal static class FloorSplit
             }
         }
 
-        var notes = skips.Note(stopped, options.Limit);
+        var notes = skips.Note() + SplitReport.Progress(batch);
 
         if (options.DryRun)
         {
@@ -116,7 +111,7 @@ internal static class FloorSplit
         var dependents = 0;
         var paramSkipped = 0;
 
-        using (var tx = new Transaction(doc, "LoadingAI for Revit: split floors by beams"))
+        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split floors by beams"))
         {
             tx.Start();
             foreach (var plan in plans)
@@ -155,7 +150,8 @@ internal static class FloorSplit
         }
 
         var message = $"Split {splitFloors} floors into {piecesMade} pieces. Openings: {openingsMade}."
-            + skips.Note(stopped, options.Limit);
+            + skips.Note()
+            + SplitReport.Progress(batch);
         message += options.CopyParams
             ? " Instance parameters copied to new pieces."
             : " Copy params: off.";
@@ -177,6 +173,44 @@ internal static class FloorSplit
     /// region (inner boundaries included), a column footprint turned into an opening wherever it lands
     /// inside, and one cut per beam edge.
     /// </summary>
+    internal static (Plan? Plan, string? Error) PrepareAlong(
+        Document doc,
+        Floor floor,
+        IReadOnlyList<IReadOnlyList<Point2>> edges)
+    {
+        if (GeometryRevit.IsShapeEdited(floor))
+            return (null, "shape-edited");
+
+        if (!GeometryRevit.TrySlabRegion(floor, out var plane, out var tilt, out var slab) || slab == null)
+            return (null, "no-planar-face");
+
+        var levelId = floor.get_Parameter(BuiltInParameter.LEVEL_PARAM)?.AsElementId();
+        if (levelId == null || levelId == ElementId.InvalidElementId || doc.GetElement(levelId) is not Level)
+            return (null, "no-level");
+
+        var regions = new List<Region2D> { slab };
+        foreach (var edge in edges)
+            regions = SplitAlong(regions, edge);
+
+        regions = KeepUsable(regions);
+        if (regions.Count == 0)
+            return (null, "no-regions");
+        if (regions.Count == 1)
+            return (null, "unchanged");
+
+        return (new Plan
+        {
+            Floor = floor,
+            Plane = plane,
+            Tilt = tilt,
+            Regions = regions,
+            TypeId = floor.GetTypeId(),
+            LevelId = levelId,
+            Structural = floor.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1,
+            HeightOffset = floor.get_Parameter(BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM)?.AsDouble() ?? 0
+        }, null);
+    }
+
     private static (Plan? Plan, string? Error) Prepare(Document doc, Floor floor, IReadOnlyList<Element> beams, IReadOnlyList<Element> columns)
     {
         // A slab whose shape has been edited by hand carries creases no slope arrow can express, so it is
@@ -217,12 +251,7 @@ internal static class FloorSplit
                 continue;
 
             foreach (var edge in GeometryRevit.BeamEdges(beam, plane, out _))
-            {
-                var next = new List<Region2D>();
-                foreach (var piece in regions)
-                    next.AddRange(Cut(piece, edge));
-                regions = next;
-            }
+                regions = SplitAlong(regions, edge);
         }
 
         regions = regions.Where(piece => piece.Area > MinAreaSqFt).ToList();
@@ -250,7 +279,18 @@ internal static class FloorSplit
     /// past it, because a cut that stops exactly on the boundary does not read as a crossing; an edge
     /// that only clips a corner, or that runs flush along the boundary, leaves the region whole.
     /// </summary>
-    private static List<Region2D> Cut(Region2D region, IReadOnlyList<Point2> edge)
+    internal static List<Region2D> SplitAlong(IReadOnlyList<Region2D> regions, IReadOnlyList<Point2> edge)
+    {
+        var next = new List<Region2D>();
+        foreach (var piece in regions)
+            next.AddRange(Cut(piece, edge));
+        return next;
+    }
+
+    internal static List<Region2D> KeepUsable(IReadOnlyList<Region2D> regions)
+        => regions.Where(piece => piece.Area > MinAreaSqFt).ToList();
+
+    internal static List<Region2D> Cut(Region2D region, IReadOnlyList<Point2> edge)
     {
         foreach (var run in Polygon2D.ClipPolylineToPolygon(region.Outer, edge))
         {
@@ -272,7 +312,7 @@ internal static class FloorSplit
     /// the wrong way, takes the whole floor back to how it was, so a partial split never survives as a
     /// silently shrunk slab.
     /// </summary>
-    private static (List<ElementId> Ids, int Openings, int ParamSkipped, int Dependent, string? Error) Write(Document doc, Plan plan, SplitOptions options)
+    internal static (List<ElementId> Ids, int Openings, int ParamSkipped, int Dependent, string? Error) Write(Document doc, Plan plan, SplitOptions options)
     {
         var created = new List<Floor>();
         var openings = 0;
@@ -462,7 +502,7 @@ internal static class FloorSplit
 
         public int DeleteFailed { get; set; }
 
-        public string Note(bool stopped, int limit)
+        public string Note()
         {
             var parts = new List<string>();
             SplitElements.AddSkip(parts, NotASlab, "not a slab");
@@ -474,16 +514,17 @@ internal static class FloorSplit
             SplitElements.AddSkip(parts, Unchanged, "unchanged");
             SplitElements.AddSkip(parts, Partial, "piece not built");
             SplitElements.AddSkip(parts, DeleteFailed, "original not deleted");
-
-            var note = parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
-            if (stopped)
-                note += $" Stopped at {limit}.";
-            return note;
+            return parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
         }
     }
 
+    private static string EmptyHostMessage(SplitOptions options)
+        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
+            ? "Please select elements first."
+            : "No floors found.";
+
     /// <summary>A floor and the pieces it was planned to become, before anything is written.</summary>
-    private sealed class Plan
+    internal sealed class Plan
     {
         public Floor Floor { get; init; } = null!;
 
