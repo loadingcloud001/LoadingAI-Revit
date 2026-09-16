@@ -29,9 +29,9 @@ All code is MIT. No billing, no closed-source plugins.
      }
    }
    ```
-4. Add `plugin.json` next to your DLL when shipping externally:
+4. Add `plugin.json` next to your DLL when shipping externally. Optional `tags` (`query` / `view` / `write` / `export` / `structure` / `compat`) feed ToolSelector; omit them and the host infers from the tool name. Do not put tags on `ToolDefinition` (that JSON goes to the LLM).
    ```json
-   {"id":"hello","name":"Hello","version":"0.1.0","license":"MIT","author":"You","entryAssembly":"LoadingAI.Plugins.Hello.dll","tools":[{"name":"hello","tier":"L1","description":"...","enabledByDefault":true}],"verified":false}
+   {"id":"hello","name":"Hello","version":"0.1.0","license":"MIT","author":"You","entryAssembly":"LoadingAI.Plugins.Hello.dll","tools":[{"name":"hello","tier":"L1","description":"...","enabledByDefault":true,"tags":["query"]}],"verified":false}
    ```
 5. PR to `main` with `Plugins/README.md` entry. Maintainer reviews for Revit API correctness (no wrong-thread API, Transaction required, no hard crash). Merged plugins become `verified:true`.
 
@@ -45,7 +45,12 @@ Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `s
 - All `RevitBridge.RunAsync` calls must stay on ExternalEvent; no direct `Document` access off UI thread.
 - Temporary view ops (`Isolate/Hide/Override`) must be inside `Transaction` (Revit 2027 requirement).
 - Keep `Tool` description concise and English.
-- Bridge-first: L1 query and L2 view/param tools use `context.Bridge`. Do not call `FullAccess` unless the op is on the exception list (geometry / export / family).
+- Shipped core surface is `Plugins/core-tools/` (FullAccess, id `core-tools`). Do not add query/view/param/geometry factories back under `src/LoadingAI/Tools`.
+- ToolSelector AlwaysKeep is `get_model_summary`, `get_selection_summary`, `get_element_details`. Everything else wins on keyword/token/tag score. Cap remains 24.
+- Bridge-first: L1 query and L2 view/param tools use `context.Bridge` (`IRevitQuery` / `IRevitViewCommand` / `IRevitParamCommand` / `IRevitElementCommand`). `IRevitCreateCommand` is reserved until create ops have DTOs. Do not implement `IRevitFullAccess` unless the op is on the exception list (geometry / export / family). Plugins that omit `IRevitFullAccess` must not mention `Autodesk.Revit`.
+- Fail-loud: `RevitBridge.Execute` must not throw into Revit and must not drop the rest of the batch. It logs (`bridge.execute_failed` / `bridge.action_failed`) and keeps draining. The awaiter still gets the real exception because the `RunAsync` action wrapper calls `tcs.TrySetException`. Do not add an empty `catch { }` anywhere on this path.
+- Turn `TransactionGroup`: the host starts one on the first L2 / L3 write in a user turn (never L1, never dry-run). Nested tool `Transaction`s fold into one undo via `Assimilate`. Empty groups and failures (`Cancelled.`, tool exception, LLM error, max-rounds abort) `RollBack`. Finish the group with `CancellationToken.None` so Stop cannot skip rollback.
+- HostPage is the WPF shell. L3 gate and turn `TransactionGroup` live in `ApprovalGate` and `ChatSession`.
 
 ## Test pyramid
 

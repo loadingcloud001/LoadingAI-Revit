@@ -31,5 +31,9 @@
            first, so a stale copy hides new RevitBridge APIs (MissingMethodException). -->
       <AdditionalProperties>SkipHostPluginBuild=true</AdditionalProperties>
     </ProjectReference>
+    <!-- QueryTools/ViewTools/ParamTools live in the shipped core-tools plugin. -->
+    <ProjectReference Include="..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>

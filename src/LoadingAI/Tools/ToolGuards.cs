@@ -21,6 +21,7 @@ public static class ToolGuards
             Tier = entry.Tier,
             RequiresWriteConfirm = true,
             Presets = entry.Presets,
+            Tags = entry.Tags,
             Handler = async json =>
             {
                 var preview = json.Length > 400 ? json.Substring(0, 400) + "..." : json;

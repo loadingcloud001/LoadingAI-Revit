@@ -2,6 +2,8 @@
 
 All tools below are native C# re-implementations of popular pyRevit / Dynamo (Clockwork, archi-lab, GeniusLoci) / DiRoots / BIMOne functionality. No pyRevit/Dynamo runtime bundled.
 
+Sources now live in `Plugins/core-tools/` (shipped FullAccess plugin). This folder is documentation only.
+
 6 packages (single DLL, grouped in PluginShelf):
 
 - **query-health** (9): get_worksets, get_phases, get_design_options, get_sheets_views, get_family_types, get_materials, get_room_area, get_clash_by_bb, get_model_health_score

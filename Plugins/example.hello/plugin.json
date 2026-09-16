@@ -10,7 +10,10 @@
       "name": "hello",
       "tier": "L1",
       "description": "Example L1 tool that says hello and shows the active document title. Use to test plugin loading.",
-      "enabledByDefault": true
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
     }
   ],
   "verified": false

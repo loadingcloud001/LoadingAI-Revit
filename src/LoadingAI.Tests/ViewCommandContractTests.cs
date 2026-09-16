@@ -27,12 +27,14 @@ public class ViewCommandContractTests
     }
 
     [Fact]
-    public void IRevitCommand_DeclaresPhase2ViewMethods()
+    public void IRevitViewCommand_DeclaresPhase2ViewMethods()
     {
-        var names = typeof(IRevitCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        var names = typeof(IRevitViewCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("IsolateInViewAsync", names);
         Assert.Contains("HideInViewAsync", names);
         Assert.Contains("ResetViewVisibilityAsync", names);
         Assert.DoesNotContain("RunBatchAsync", names);
+        Assert.DoesNotContain("SetParameterAsync", names);
+        Assert.DoesNotContain("DeleteElementsAsync", names);
     }
 }

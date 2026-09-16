@@ -10,25 +10,41 @@
       "name": "formwork_setup",
       "tier": "L3",
       "description": "Bind formwork shared parameters on Generic Models and create the panel schema. Run once per project before generating panels.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "create_formwork_panels",
       "tier": "L3",
       "description": "Create DirectShape formwork panels from selected linked (or host) structural elements. Params: elementIds optional (else current selection), thicknessMm default 18, faceTypes optional, collision default true, deleteExisting default false, includeUnselectedLinks default false.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "cleanup_formwork",
       "tier": "L3",
       "description": "Report or delete formwork panels. Params: action (stats, delete_all, delete_by_type, cleanup_orphans), faceType for delete_by_type.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "copy_formwork_parent_params",
       "tier": "L3",
       "description": "Copy named parameters from each panel's parent host onto FW_* instance parameters. Params: elementIds optional (else selected panels or all), paramNames required to copy (omit to list catalog).",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     }
   ],
   "verified": true
