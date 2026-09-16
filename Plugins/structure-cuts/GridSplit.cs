@@ -70,6 +70,12 @@ internal static class GridSplit
                 continue;
             }
 
+            if (!HostCurve.CanWrite(host))
+            {
+                skips.NoCurve++;
+                continue;
+            }
+
             PlanCurve(host, planes, skips, curvePlans);
         }
 

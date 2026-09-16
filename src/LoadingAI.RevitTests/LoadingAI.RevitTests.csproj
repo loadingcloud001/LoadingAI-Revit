@@ -31,5 +31,7 @@
            first, so a stale copy hides new RevitBridge APIs (MissingMethodException). -->
       <AdditionalProperties>SkipHostPluginBuild=true</AdditionalProperties>
     </ProjectReference>
+    <!-- Direct ref so CreateTools compiles without PluginLoader.Discover. -->
+    <ProjectReference Include="..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj" />
   </ItemGroup>
 </Project>

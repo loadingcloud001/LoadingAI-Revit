@@ -55,7 +55,7 @@ Hosted GitHub Actions **cannot start Revit.exe**. Split coverage:
 |---|---|---|---|
 | L0 | `src/LoadingAI.Tests` (xUnit) | DTO roundtrips, catalog/source contracts | GitHub-hosted `windows-latest` |
 | L1 | `src/LoadingAI.Tests` + `Fakes/FakeRevitBridge` | Tool handlers vs `IRevitBridge` (no-doc, empty selection, success text) | Same hosted CI |
-| L2–L3 | `src/LoadingAI.RevitTests` (NUnit) | Live document, Adapter + `AttachCurrentThread`, Discover core tools, one rollback | **Local** Revit 2027 / future self-hosted runner |
+| L2–L3 | `src/LoadingAI.RevitTests` (NUnit) | Live document, Adapter + `AttachCurrentThread`, Discover **core** tools, one rollback. FullAccess plugins: `CreateTools` + dry-run skip reasons, then one write + `TransactionGroup.RollBack` | **Local** Revit 2027 / future self-hosted runner |
 
 CI (`.github/workflows/ci.yml`) already runs `dotnet test src/LoadingAI.Tests/...` only. `LoadingAI.RevitTests` has `IsTestProject=false` unless `-p:ForceRevitTests=true`, so `dotnet test LoadingAI.sln` will not launch Revit.
 

@@ -28,6 +28,14 @@ internal static class HostCurve
         return GeometryRevit.Tessellate(curve).Select(GeometryRevit.ToVec3).ToList();
     }
 
+    /// <summary>
+    /// Native Split and location-curve recreate both need a real <see cref="LocationCurve"/>.
+    /// A synthesised vertical for a <see cref="LocationPoint"/> column is only for geometry
+    /// sampling — it cannot be written, so plan must skip those hosts.
+    /// </summary>
+    public static bool CanWrite(Element host)
+        => SplitElements.LocationCurveOf(host) != null;
+
     public static string? WallSkip(Element host)
     {
         if (host is not Wall wall)

@@ -84,6 +84,9 @@ public class StructureCutsContractTests
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "HostCurve.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "LevelSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GridSplit.cs")));
+        Assert.True(File.Exists(Path.Combine(root, "src", "LoadingAI.RevitTests", "StructureCutsInRevitTests.cs")));
+        var revitTests = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.RevitTests", "LoadingAI.RevitTests.csproj"));
+        Assert.Contains("Plugins\\structure-cuts\\StructureCutsPlugin.csproj", revitTests);
         Assert.False(File.Exists(Path.Combine(root, "src", "LoadingAI", "Tools", "StructureCutsPlugin.cs")));
         var hostTools = Directory.GetFiles(Path.Combine(root, "src", "LoadingAI", "Tools"), "*Split*.cs", SearchOption.AllDirectories);
         Assert.DoesNotContain(hostTools, f => Path.GetFileName(f).Contains("BeamSplit") || Path.GetFileName(f).Contains("FloorSplit"));
@@ -245,6 +248,8 @@ public class StructureCutsContractTests
         Assert.Contains("is not Line && location.Curve is not Arc", beam, StringComparison.Ordinal);
         Assert.Contains("Joined(location)", beam, StringComparison.Ordinal);
         Assert.Contains("get_ElementsAtJoin", beam, StringComparison.Ordinal);
+        // Join-status throw must count as joined so native Split is never called on an unknown member.
+        Assert.Contains("Unknown join status is treated as joined", beam, StringComparison.Ordinal);
         Assert.Contains("requireUnjoined: false", beam, StringComparison.Ordinal);
         Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
         Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
@@ -271,6 +276,24 @@ public class StructureCutsContractTests
         Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs")), StringComparison.Ordinal);
         Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "LevelSplit.cs")), StringComparison.Ordinal);
         Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "GridSplit.cs")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PointHostedColumns_AreSkippedAtPlanTime_NotWritten()
+    {
+        var root = RepoRoot();
+        var hostCurve = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "HostCurve.cs"));
+        Assert.Contains("public static bool CanWrite(Element host)", hostCurve, StringComparison.Ordinal);
+        Assert.Contains("LocationCurveOf(host) != null", hostCurve, StringComparison.Ordinal);
+
+        // A synthesised vertical is only for sampling LocationPoint columns; write still needs a
+        // LocationCurve, so level/grid plan must skip those hosts instead of over-promising.
+        var levels = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "LevelSplit.cs"));
+        var grids = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "GridSplit.cs"));
+        Assert.Contains("HostCurve.CanWrite(host)", levels, StringComparison.Ordinal);
+        Assert.Contains("HostCurve.CanWrite(host)", grids, StringComparison.Ordinal);
+        AssertOrdered("LevelSplit.cs", levels, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
+        AssertOrdered("GridSplit.cs", grids, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
     }
 
     [Fact]

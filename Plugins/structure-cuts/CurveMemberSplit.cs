@@ -436,7 +436,9 @@ internal static class CurveMemberSplit
         }
         catch
         {
-            return false;
+            // Unknown join status is treated as joined: native Split on a joined member is a
+            // process abort that SubTransaction cannot catch.
+            return true;
         }
     }
 

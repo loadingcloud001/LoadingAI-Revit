@@ -59,6 +59,12 @@ internal static class LevelSplit
                 continue;
             }
 
+            if (!HostCurve.CanWrite(host))
+            {
+                skips.NoCurve++;
+                continue;
+            }
+
             PlanCurve(host, elevations, skips, curvePlans);
         }
 
