@@ -43,7 +43,7 @@ public class PluginProjectContractTests
             var csFiles = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
             if (csFiles.Length == 0) continue;
             var combined = string.Join("\n", csFiles.Select(File.ReadAllText));
-            if (combined.Contains("IRevitFullAccess", StringComparison.Ordinal))
+            if (combined.IndexOf("IRevitFullAccess", StringComparison.Ordinal) >= 0)
                 continue;
 
             Assert.DoesNotContain("Autodesk.Revit", combined);
