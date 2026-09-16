@@ -9,7 +9,7 @@ public class UsabilityContractTests
     [Fact]
     public void GetDocumentInfo_DoesNotOfferSave_SaveIsOwnL3Tool()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "QueryTools.cs"));
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "QueryTools.cs"));
         Assert.DoesNotContain("save = new { type = \"boolean\"", src);
         Assert.Contains("Name = \"save_document\"", src);
         Assert.Contains("Tier = ToolTier.L3", src);
@@ -18,7 +18,7 @@ public class UsabilityContractTests
     [Fact]
     public void HostPage_L3NativeConfirm_AppliesToEveryL3Tool()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var src = UiSrc();
         Assert.DoesNotContain("name is \"delete_elements\" or \"move_elements\"", src);
         Assert.Contains("Confirm L3:", src);
     }
@@ -26,7 +26,7 @@ public class UsabilityContractTests
     [Fact]
     public void HostPage_SkipsL3ConfirmForDryRun_ViaGenericArgCheck()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var src = UiSrc();
 
         // Both the preset branch and the non-preset L3 branch must honour dryRun.
         Assert.Equal(2, CountOccurrences(src, "entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson)"));
@@ -76,7 +76,7 @@ public class UsabilityContractTests
     [Fact]
     public void HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var src = UiSrc();
         Assert.Contains("type = \"tool_preset\"", src);
         Assert.Contains("case \"submitPreset\"", src);
         Assert.Contains("case \"presetPick\"", src);
@@ -112,8 +112,8 @@ public class UsabilityContractTests
     [Fact]
     public void CompatWriteTools_DoNotShowTheirOwnTaskDialog()
     {
-        var rotate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "GeometryCreateTools.cs"));
-        var excel = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "ParamExcelTools.cs"));
+        var rotate = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Compat", "GeometryCreateTools.cs"));
+        var excel = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Compat", "ParamExcelTools.cs"));
         Assert.DoesNotContain("new TaskDialog", rotate);
         Assert.DoesNotContain("new TaskDialog", excel);
     }
@@ -121,7 +121,7 @@ public class UsabilityContractTests
     [Fact]
     public void GeometryTools_DoNotShowTheirOwnTaskDialog()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "GeometryTools.cs"));
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "GeometryTools.cs"));
         Assert.DoesNotContain("new TaskDialog", src);
         Assert.DoesNotContain(") ft?", src);
         Assert.Contains("uses current selection", src);
@@ -177,7 +177,7 @@ public class UsabilityContractTests
         var root = RepoRoot();
         var ctx = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Plugins", "IPluginContext.cs"));
         Assert.Contains("IProgressReporter Progress", ctx);
-        var host = File.ReadAllText(Path.Combine(root, "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var host = UiSrc();
         Assert.Contains("type = \"progress\"", host);
         Assert.Contains("ProgressReporter.Push", host);
         var loop = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.Core", "Llm", "AgentLoop.cs"));
@@ -202,11 +202,11 @@ public class UsabilityContractTests
     [Fact]
     public void SittingGaps_IsolateUsesSelection_RoomsOnBridge_ColorByAnyParam()
     {
-        var view = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "ViewTools.cs"));
+        var view = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "ViewTools.cs"));
         Assert.Contains("uses current selection", view);
         Assert.Contains("Name = \"color_by_parameter\"", view);
         Assert.DoesNotContain("new TaskDialog", view);
-        var query = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "QueryTools.cs"));
+        var query = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "QueryTools.cs"));
         Assert.Contains("Name = \"get_rooms\"", query);
         var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
         Assert.Contains("GetRoomsAsync", bridge);
@@ -217,6 +217,12 @@ public class UsabilityContractTests
         Assert.Contains("color_by_parameter", selector);
         Assert.Contains("get_sheets_views", selector);
         Assert.Contains("DefaultMax = 24", selector);
+    }
+
+    private static string UiSrc()
+    {
+        var dir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui");
+        return string.Join("\n", Directory.GetFiles(dir, "*.cs").Select(File.ReadAllText));
     }
 
     private static int CountOccurrences(string haystack, string needle)

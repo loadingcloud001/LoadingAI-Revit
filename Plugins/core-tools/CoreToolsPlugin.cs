@@ -1,0 +1,14 @@
+using LoadingAI.Plugins;
+using LoadingAI.Tools;
+
+namespace LoadingAI.Plugins.CoreTools;
+
+public sealed class CoreToolsPlugin : IRevitToolPlugin, IRevitFullAccess
+{
+    public string Id => "core-tools";
+    public string Name => "Core Tools";
+    public string Version => "1.0.0";
+
+    public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
+        => AllTools.CreateAll(context);
+}

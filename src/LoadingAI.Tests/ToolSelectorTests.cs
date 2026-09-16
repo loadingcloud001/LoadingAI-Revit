@@ -128,10 +128,7 @@ public class ToolSelectorTests
 
     private static readonly string[] AlwaysKeep =
     {
-        "get_model_summary", "find_elements_by_filter", "get_element_details",
-        "get_selection_summary", "get_active_view_info", "get_visible_elements_in_view",
-        "hide_in_view", "isolate_in_view", "reset_temporary_view",
-        "delete_elements", "move_elements", "save_document"
+        "get_model_summary", "get_selection_summary", "get_element_details"
     };
 
     [Fact]

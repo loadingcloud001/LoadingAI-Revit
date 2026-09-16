@@ -48,7 +48,7 @@ public class PluginLoadIssueTests
     [Fact]
     public void HostAndWeb_SurfaceLoadIssues()
     {
-        var host = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var host = UiSrc();
         Assert.Contains("loadIssues = PluginLoader.Issues", host);
         Assert.Contains("EnvironmentWarnings", host);
         Assert.Contains("ApplyPluginLoadWarnings", host);
@@ -65,6 +65,12 @@ public class PluginLoadIssueTests
         Assert.Contains("loadIssues", shelf);
         Assert.Contains("failed to load", shelf);
         Assert.Contains("PluginLoadIssue", shelf);
+    }
+
+    private static string UiSrc()
+    {
+        var dir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui");
+        return string.Join("\n", Directory.GetFiles(dir, "*.cs").Select(File.ReadAllText));
     }
 
     [Fact]

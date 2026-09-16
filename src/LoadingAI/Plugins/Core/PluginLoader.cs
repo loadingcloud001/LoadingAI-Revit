@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
+using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
@@ -55,36 +56,6 @@ public static class PluginLoader
         UnloadContexts();
         lock (_issuesLock) _issues.Clear();
         var result = new List<DiscoveredPlugin>();
-        try
-        {
-            var core = new CorePlugin();
-            var coreCtx = factory.Create("builtin", requestFullAccess: true);
-            var tools = ToolGuards.ApplyAll(core.CreateTools(coreCtx), bridge).ToList();
-            TrackLifecycle(coreCtx, core);
-            var meta = new PluginMeta
-            {
-                Id = core.Id,
-                Name = core.Name,
-                Version = core.Version,
-                License = "MIT",
-                Author = "Core",
-                Verified = true,
-                FolderPath = "builtin",
-                Tools = tools.Select(t => new PluginToolMeta
-                {
-                    Name = t.Definition.Function.Name,
-                    Tier = t.Tier.ToString(),
-                    Description = t.Definition.Function.Description ?? "",
-                    EnabledByDefault = t.Tier != ToolTier.L3
-                }).ToList()
-            };
-            result.Add(new DiscoveredPlugin { Meta = meta, Tools = tools });
-        }
-        catch (Exception ex)
-        {
-            Log($"core failed: {ex}");
-            RecordIssue("builtin", "core", "LoadingAI", "core plugin failed", ex.ToString(), Classify(ex.ToString()));
-        }
 
         foreach (var dir in new[] { RuntimePluginsDir, DevPluginsDir })
         {
@@ -123,7 +94,7 @@ public static class PluginLoader
                 var name = t.Definition.Function.Name;
                 if (!seen.Add(name))
                 {
-                    Log($"skip duplicate tool '{name}' from {p.Meta.Id} (core wins)");
+                    Log($"skip duplicate tool '{name}' from {p.Meta.Id} (first wins)");
                     continue;
                 }
                 kept.Add(t);
@@ -272,7 +243,7 @@ public static class PluginLoader
                 var inst = (IRevitToolPlugin)Activator.CreateInstance(pt)!;
                 var requestFull = typeof(IRevitFullAccess).IsAssignableFrom(pt);
                 var ctx = factory.Create(folder, requestFull);
-                var ts = ToolGuards.ApplyAll(inst.CreateTools(ctx), bridge).ToList();
+                var ts = OverlayTags(ToolGuards.ApplyAll(inst.CreateTools(ctx), bridge), meta.Tools).ToList();
                 tools.AddRange(ts);
                 if (meta.Tools.Count == 0)
                 {
@@ -298,6 +269,39 @@ public static class PluginLoader
             return null;
         }
         return new DiscoveredPlugin { Meta = meta, Tools = tools };
+    }
+
+    internal static IEnumerable<ToolEntry> OverlayTags(IEnumerable<ToolEntry> entries, IReadOnlyList<PluginToolMeta> metaTools)
+    {
+        var declared = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in metaTools)
+        {
+            if (string.IsNullOrWhiteSpace(m.Name) || m.Tags == null || m.Tags.Count == 0) continue;
+            declared[m.Name] = m.Tags;
+        }
+        foreach (var e in entries)
+        {
+            var name = e.Definition.Function.Name ?? "";
+            IReadOnlyList<string> tags = e.Tags;
+            if (declared.TryGetValue(name, out var fromMeta) && fromMeta.Count > 0)
+                tags = fromMeta;
+            else if (tags.Count == 0)
+                tags = ToolSelector.InferTags(name);
+            if (ReferenceEquals(tags, e.Tags))
+            {
+                yield return e;
+                continue;
+            }
+            yield return new ToolEntry
+            {
+                Definition = e.Definition,
+                Handler = e.Handler,
+                RequiresWriteConfirm = e.RequiresWriteConfirm,
+                Tier = e.Tier,
+                Presets = e.Presets,
+                Tags = tags
+            };
+        }
     }
 
     public static string Classify(string detail)

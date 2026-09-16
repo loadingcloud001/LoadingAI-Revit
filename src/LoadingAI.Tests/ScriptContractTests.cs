@@ -20,6 +20,7 @@ public class ScriptContractTests
         Assert.Contains("WebView2Loader.dll", ps1);
         Assert.Contains("Install.ps1", ps1);
         Assert.Contains("RevitAiPoc.addin", ps1);
+        Assert.Contains("core-tools", ps1);
         Assert.Contains("export-tools", ps1);
         Assert.Contains("view-tools", ps1);
         Assert.Contains("modeling-tools", ps1);
@@ -138,6 +139,7 @@ public class ScriptContractTests
         Assert.Contains("Name=\"CopyWeb\" AfterTargets=\"CopyAddin\" Condition=\"'$(SkipCopyAddin)' != 'true'", host);
         foreach (var rel in new[]
         {
+            "Plugins/core-tools/CoreToolsPlugin.csproj",
             "Plugins/export-tools/ExportToolsPlugin.csproj",
             "Plugins/view-tools/ViewToolsPlugin.csproj",
             "Plugins/modeling-tools/ModelingToolsPlugin.csproj",

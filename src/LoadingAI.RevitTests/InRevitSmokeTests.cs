@@ -111,7 +111,9 @@ public class InRevitSmokeTests
         var raw = _bridge ?? throw new InvalidOperationException("RevitBridge was not created.");
         var plugins = PluginLoader.Discover(raw, new PluginContextFactory(raw));
 
-        var core = plugins.Single(p => p.Meta.Id == "core");
+        var core = plugins.FirstOrDefault(p => p.Meta.Id == "core-tools");
+        if (core == null)
+            Assert.Ignore("core-tools is not in AppData; rebuild the host without SkipHostPluginBuild.");
         var names = core.Tools.Select(t => t.Definition.Function.Name).ToList();
         Assert.That(names, Does.Contain("get_model_summary"));
         Assert.That(names, Does.Contain("isolate_in_view"));

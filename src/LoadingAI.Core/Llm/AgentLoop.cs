@@ -121,16 +121,13 @@ public sealed class AgentLoop
         var userTextForSelect = LlmJson.GetContentString(userMsg.Content);
         try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
-        var allTools = _registry.GetToolDefinitions();
+        IEnumerable<ToolEntry> catalog = _registry.Entries;
         if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            var l1Names = new HashSet<string>(_registry.Entries
-                .Where(e => e.Tier == ToolTier.L1)
-                .Select(e => e.Definition.Function.Name), StringComparer.OrdinalIgnoreCase);
-            allTools = allTools.Where(t => l1Names.Contains(t.Function.Name)).ToList();
+            catalog = catalog.Where(e => e.Tier == ToolTier.L1);
         }
-        var selected = ToolSelector.Select(allTools, userTextForSelect);
+        var selected = ToolSelector.Select(catalog, userTextForSelect);
         var tools = selected.Count == 0 ? null : selected;
         var sys = BuildSystemPrompt(selected, EnvironmentWarnings);
         if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))

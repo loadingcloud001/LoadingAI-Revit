@@ -59,4 +59,9 @@ public sealed class ToolEntry
     /// Opt-in pre-execute form. Empty (the default) keeps today’s path for existing plugins.
     /// </summary>
     public IReadOnlyList<PresetField> Presets { get; init; } = Array.Empty<PresetField>();
+    /// <summary>
+    /// Catalog tags used by <c>ToolSelector</c> (query, view, write, export, structure, compat).
+    /// Empty means the selector infers tags from the tool name.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
 }

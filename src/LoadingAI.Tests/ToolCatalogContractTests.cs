@@ -19,9 +19,9 @@ public class ToolCatalogContractTests
     [Fact]
     public void CoreKeepsCanonicalWriteTools()
     {
-        var param = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "ParamTools.cs"));
-        var geo = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "GeometryTools.cs"));
-        var health = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "QueryHealthTools.cs"));
+        var param = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "ParamTools.cs"));
+        var geo = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "GeometryTools.cs"));
+        var health = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Compat", "QueryHealthTools.cs"));
         Assert.Contains("Name = \"set_parameter_by_id\"", param);
         Assert.Contains("Name = \"create_family_instance\"", geo);
         Assert.Contains("Name=\"get_phases\"", health);
@@ -32,9 +32,9 @@ public class ToolCatalogContractTests
     {
         foreach (var rel in new[]
         {
-            "src/LoadingAI/Tools/Core/QueryTools.cs",
-            "src/LoadingAI/Tools/Core/GeometryTools.cs",
-            "src/LoadingAI/Tools/Compat/GeometryCreateTools.cs",
+            "Plugins/core-tools/Core/QueryTools.cs",
+            "Plugins/core-tools/Core/GeometryTools.cs",
+            "Plugins/core-tools/Compat/GeometryCreateTools.cs",
             "Plugins/view-tools/ViewToolsPlugin.cs",
             "Plugins/modeling-tools/ModelingToolsPlugin.cs",
             "Plugins/structure-cuts/StructureCutsPlugin.cs",

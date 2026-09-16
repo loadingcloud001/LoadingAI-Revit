@@ -10,25 +10,41 @@
       "name": "split_beams_by_columns",
       "tier": "L3",
       "description": "Split structural beams at columns (pyRevit: Cutbeambycolumn). Splits the element in place with Revit's own split where it can, so the member, its host and its parameters stay; a member Revit will not split is re-created as location-curve segments instead. Not a solid cut. Straight and curved beams, cut at the real column footprint, not a bounding box. Copies instance parameters (Mark, Comments, offsets) onto pieces it has to re-create. Params: beamIds[], columnIds[] optional (else selection; columns fall back to all in model), scope selection|visible|all, continueFrom, dryRun boolean (count only, no model changes), uniqueMark boolean (suffix new Marks -1, -2, ...), copyParams boolean (default true), limit (default 50, max 200). Lengths in mm.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "split_floors_by_beams",
       "tier": "L3",
       "description": "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Rebuilds planar floor regions through the flooring API and carries a single-plane slope with a slope arrow; not a solid cut. Handles floors with openings, curved beams and real column footprints; a slab it cannot rebuild exactly is left alone and counted by reason. Copies instance parameters (Mark, Comments, offsets) onto new pieces. Params: floorIds[], beamIds[], columnIds[] optional (else selection; beams/columns fall back to bbox hits), scope selection|visible|all, continueFrom, dryRun boolean (count only, no model changes), uniqueMark boolean (suffix new Marks -1, -2, ...), copyParams boolean (default true), limit (default 50, max 200). Lengths in mm.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "split_by_levels",
       "tier": "L3",
       "description": "Split walls, columns, beams and floors at storey elevations (Naviate-style split by levels). Curve members use FamilyInstance.Split where Revit allows it, else location-curve recreate; walls recreate the location curve; stacked and curtain walls are skipped by name. Horizontal floors skip with no-level-hit; a leaning slab is cut along the storey plane. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), levelIds[] optional (else selection, then all levels), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean (count only, no model changes), uniqueMark boolean, copyParams boolean (default true), limit (default 50, max 200).",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     },
     {
       "name": "split_by_grids",
       "tier": "L3",
       "description": "Split walls, columns, beams and floors at grid lines (Naviate-style split by grids). Curve members cut on the vertical plane through each grid; floors reuse the planar region pipeline with grid lines as cutters. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), gridIds[] optional (else selection, then all grids), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean (count only, no model changes), uniqueMark boolean, copyParams boolean (default true), limit (default 50, max 200).",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     }
   ],
   "verified": true

@@ -1,0 +1,606 @@
+{
+  "id": "core-tools",
+  "name": "Core Tools",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "LoadingAI for Revit",
+  "entryAssembly": "LoadingAI.Plugins.CoreTools.dll",
+  "tools": [
+    {
+      "name": "get_model_summary",
+      "tier": "L1",
+      "description": "Get summary of the active Revit model: title, path, view count, wall/door/window instance counts.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_wall_metrics",
+      "tier": "L1",
+      "description": "Get wall quantities: count, total length (mm), total area (m²), total volume (m³).",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_selection_summary",
+      "tier": "L1",
+      "description": "Summarize current selection: count by category and type.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_active_view_info",
+      "tier": "L1",
+      "description": "Get active view info: name, type, scale, level, visible element counts.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "view"
+      ]
+    },
+    {
+      "name": "get_visible_elements_in_view",
+      "tier": "L1",
+      "description": "List visible elements in active view, optionally filtered by category.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "view"
+      ]
+    },
+    {
+      "name": "find_elements_by_filter",
+      "tier": "L1",
+      "description": "Find elements by category and optional parameter filter.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_element_details",
+      "tier": "L1",
+      "description": "Get detailed info for one element by ID.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_warnings",
+      "tier": "L1",
+      "description": "Get document warnings (count + first N messages).",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_rooms",
+      "tier": "L1",
+      "description": "List rooms: number, name, level, area (m²).",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_levels_and_grids",
+      "tier": "L1",
+      "description": "List levels and grids: name, elevation (mm), Id.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_quantities",
+      "tier": "L1",
+      "description": "Get length (mm) / area (m²) / volume (m³) for given elementIds or current selection.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_document_info",
+      "tier": "L1",
+      "description": "Get document info: title, path, worksharing, central. Read-only.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "save_document",
+      "tier": "L3",
+      "description": "Save the active Revit document. L3. Host confirms before write.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "isolate_in_view",
+      "tier": "L2",
+      "description": "Temporarily isolate elements or a whole category in the active view.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "hide_in_view",
+      "tier": "L2",
+      "description": "Temporarily hide elements or a category in the active view.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "reset_temporary_view",
+      "tier": "L2",
+      "description": "Reset (disable) temporary hide/isolate in the active view.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "override_color_in_view",
+      "tier": "L2",
+      "description": "Set temporary color override for elements or a whole category.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "color_by_construction_schedule",
+      "tier": "L2",
+      "description": "Bulk color elements in active view by construction schedule.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "color_by_parameter",
+      "tier": "L2",
+      "description": "Color elements in the active view by any instance parameter value.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "set_parameter_by_id",
+      "tier": "L2",
+      "description": "Set a parameter on a single element by Id.",
+      "enabledByDefault": true,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "set_comments_on_selection",
+      "tier": "L2",
+      "description": "Set the Comments parameter on the currently selected elements.",
+      "enabledByDefault": true,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "batch_set_parameter",
+      "tier": "L3",
+      "description": "Batch set a parameter on all elements matching a category+filter.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "rename_elements",
+      "tier": "L3",
+      "description": "Rename views/sheets or other named elements by Id.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "apply_construction_dates",
+      "tier": "L3",
+      "description": "Bulk apply Construction Date bottom-up by level elevation.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "move_elements",
+      "tier": "L3",
+      "description": "Move elements by vector (mm).",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "delete_elements",
+      "tier": "L3",
+      "description": "Delete selected elements, or pass elementIds.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "create_wall",
+      "tier": "L3",
+      "description": "Create a wall by start/end points (mm) on a level.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "create_family_instance",
+      "tier": "L3",
+      "description": "Place a family instance by symbol name at a point (mm) on a level.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "duplicate_element",
+      "tier": "L3",
+      "description": "Duplicate a view/sheet/element by Id.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "get_worksets",
+      "tier": "L1",
+      "description": "List worksets. Compatible with worksharing models.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "compat"
+      ]
+    },
+    {
+      "name": "get_phases",
+      "tier": "L1",
+      "description": "List phases.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_design_options",
+      "tier": "L1",
+      "description": "List design options and option sets.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "compat"
+      ]
+    },
+    {
+      "name": "get_sheets_views",
+      "tier": "L1",
+      "description": "List sheets and views counts by type.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "view"
+      ]
+    },
+    {
+      "name": "get_family_types",
+      "tier": "L1",
+      "description": "List family symbols by category.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_materials",
+      "tier": "L1",
+      "description": "List materials in model.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_room_area",
+      "tier": "L1",
+      "description": "Sum room area by level.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "get_clash_by_bb",
+      "tier": "L1",
+      "description": "Find clashing element pairs by bounding box overlap.",
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "compat"
+      ]
+    },
+    {
+      "name": "get_model_health_score",
+      "tier": "L1",
+      "description": "Overall health score: warnings, views, worksets, rooms.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "export_params_to_excel",
+      "tier": "L1",
+      "description": "Export element parameters to CSV (Excel compatible).",
+      "enabledByDefault": true,
+      "tags": [
+        "export",
+        "compat"
+      ]
+    },
+    {
+      "name": "import_excel_to_params",
+      "tier": "L3",
+      "description": "Import CSV (Excel) to set parameters by Id.",
+      "enabledByDefault": false,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "copy_params",
+      "tier": "L2",
+      "description": "Copy parameter value from source param to target param for a category.",
+      "enabledByDefault": true,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "replace_text",
+      "tier": "L2",
+      "description": "Regex replace in parameter.",
+      "enabledByDefault": true,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "numbering_auto",
+      "tier": "L2",
+      "description": "Auto number Mark by selection order or category.",
+      "enabledByDefault": true,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "create_sheet",
+      "tier": "L3",
+      "description": "Create sheet. Params: sheetNumber, sheetName, titleBlockName optional.",
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "place_view_on_sheet",
+      "tier": "L3",
+      "description": "Place view on sheet. Params: viewId, sheetId, x,y optional.",
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "duplicate_view_ex",
+      "tier": "L2",
+      "description": "Duplicate view with options. Params: viewId, withDetailing bool.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "set_view_template",
+      "tier": "L2",
+      "description": "Set view template. Params: viewId, templateId (or empty to clear).",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "set_crop_box",
+      "tier": "L2",
+      "description": "Set view crop box active/enable. Params: viewId, enabled bool.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "create_dimension",
+      "tier": "L3",
+      "description": "Create linear dimension between two parallel walls.",
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "tag_all",
+      "tier": "L3",
+      "description": "Tag all elements of category in active view.",
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "create_floor_by_outline",
+      "tier": "L3",
+      "description": "Create floor by rectangle outline. Params: levelName, x1,y1,x2,y2 in mm.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "create_roof",
+      "tier": "L3",
+      "description": "Create flat roof by outline. Params: levelName, x1,y1,x2,y2 in mm.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "create_grid_level",
+      "tier": "L3",
+      "description": "Create grid and level. Params: kind grid|level, name, coordinates or elevation.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "create_family_instance_array",
+      "tier": "L3",
+      "description": "Array family instances along line.",
+      "enabledByDefault": false,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "rotate_elements",
+      "tier": "L3",
+      "description": "Rotate elements around Z.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "mirror_elements",
+      "tier": "L3",
+      "description": "Mirror elements across line.",
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "split_wall",
+      "tier": "L3",
+      "description": "Split wall at point.",
+      "enabledByDefault": false,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "join_geometry",
+      "tier": "L2",
+      "description": "Join two elements geometry.",
+      "enabledByDefault": true,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "reload_links",
+      "tier": "L2",
+      "description": "Reload all RVT links.",
+      "enabledByDefault": true,
+      "tags": [
+        "write"
+      ]
+    },
+    {
+      "name": "workset_assign",
+      "tier": "L2",
+      "description": "Assign elements to workset.",
+      "enabledByDefault": true,
+      "tags": [
+        "write",
+        "compat"
+      ]
+    },
+    {
+      "name": "sync_info",
+      "tier": "L1",
+      "description": "Get worksharing central and sync status.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "audit_warnings_fix",
+      "tier": "L1",
+      "description": "List warnings with suggested fix.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "quantity_takeoff_by_category",
+      "tier": "L1",
+      "description": "Quantity takeoff by category: count, total area, volume, length aggregated to CSV.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    }
+  ],
+  "verified": true
+}
