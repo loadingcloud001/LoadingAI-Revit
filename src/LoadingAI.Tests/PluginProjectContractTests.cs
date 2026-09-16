@@ -6,6 +6,7 @@ namespace LoadingAI.Tests;
 public class PluginProjectContractTests
 {
     [Theory]
+    [InlineData("Plugins/core-tools/CoreToolsPlugin.csproj")]
     [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj")]
     [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj")]
     [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj")]
@@ -30,6 +31,29 @@ public class PluginProjectContractTests
         Assert.Contains("LoadingAI.Core.csproj", csproj);
         Assert.DoesNotContain("IRevitFullAccess", src);
         Assert.Contains("context.Bridge", src);
+    }
+
+    [Fact]
+    public void NonFullAccessPlugins_DoNotMentionAutodeskRevit()
+    {
+        var pluginsDir = Path.Combine(RepoRoot(), "Plugins");
+        Assert.True(Directory.Exists(pluginsDir), "Plugins/ missing");
+        foreach (var dir in Directory.GetDirectories(pluginsDir))
+        {
+            var csFiles = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
+            if (csFiles.Length == 0) continue;
+            var combined = string.Join("\n", csFiles.Select(File.ReadAllText));
+            if (combined.Contains("IRevitFullAccess", StringComparison.Ordinal))
+                continue;
+
+            Assert.DoesNotContain("Autodesk.Revit", combined);
+            foreach (var csprojPath in Directory.GetFiles(dir, "*.csproj", SearchOption.AllDirectories))
+            {
+                var csproj = File.ReadAllText(csprojPath);
+                Assert.DoesNotContain("RevitAPI", csproj);
+                Assert.DoesNotContain("Nice3point.Revit", csproj);
+            }
+        }
     }
 
     private static string RepoRoot()

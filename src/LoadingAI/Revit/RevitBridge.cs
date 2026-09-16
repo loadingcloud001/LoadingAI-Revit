@@ -1,3 +1,4 @@
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
 namespace LoadingAI.Revit;
@@ -9,12 +10,21 @@ public sealed class RevitBridge : IDisposable
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
+    private readonly object _turnLock = new();
+    private TransactionGroup? _turnGroup;
+    private Document? _turnDocument;
 
     /// <summary>
     /// Last-known document-open flag, refreshed on the Revit UI thread.
     /// Safe to read from any thread — never pumps ExternalEvent.
     /// </summary>
     public bool HasActiveDocument => _hasActiveDocument;
+
+    /// <summary>True when this turn has an open TransactionGroup on the UI thread.</summary>
+    public bool HasActiveTurnGroup
+    {
+        get { lock (_turnLock) return _turnGroup != null; }
+    }
 
     /// <summary>Call on the Revit UI thread when a live UIApplication is in hand.</summary>
     public void NoteUiApplication(UIApplication app)
@@ -80,9 +90,117 @@ public sealed class RevitBridge : IDisposable
     public Task RunAsync(Action<UIApplication> action, CancellationToken ct = default)
         => RunAsync(app => { action(app); return true; }, ct);
 
+    /// <summary>
+    /// Starts a turn-level TransactionGroup on the Revit UI thread if one is
+    /// not already open for the active document. Nested Transactions from
+    /// tools fold into one undo item when assimilated.
+    /// </summary>
+    public Task EnsureTurnGroupAsync(CancellationToken ct = default)
+        => RunAsync(app =>
+        {
+            EnsureTurnGroupOnUiThread(app);
+            return true;
+        }, ct);
+
+    /// <summary>
+    /// Folds committed nested transactions into one undo item. No-op when
+    /// no group was started or no writes landed.
+    /// </summary>
+    public Task AssimilateTurnGroupAsync(CancellationToken ct = default)
+        => RunAsync(app =>
+        {
+            FinishTurnGroupOnUiThread(assimilate: true);
+            return true;
+        }, ct);
+
+    /// <summary>
+    /// Rolls the turn group back (Cancel / L3 deny after writes / tool
+    /// exception). No-op when no group was started.
+    /// </summary>
+    public Task RollbackTurnGroupAsync(CancellationToken ct = default)
+        => RunAsync(app =>
+        {
+            FinishTurnGroupOnUiThread(assimilate: false);
+            return true;
+        }, ct);
+
+    private void EnsureTurnGroupOnUiThread(UIApplication app)
+    {
+        var doc = app.ActiveUIDocument?.Document;
+        if (doc == null)
+            throw new InvalidOperationException("Please open a model first.");
+
+        lock (_turnLock)
+        {
+            if (_turnGroup != null && _turnGroup.HasStarted() && !_turnGroup.HasEnded())
+            {
+                if (!ReferenceEquals(_turnDocument, doc))
+                    throw new InvalidOperationException("Turn TransactionGroup is bound to a different document.");
+                return;
+            }
+
+            var group = new TransactionGroup(doc, "LoadingAI turn");
+            group.Start();
+            _turnGroup = group;
+            _turnDocument = doc;
+        }
+    }
+
+    private void FinishTurnGroupOnUiThread(bool assimilate)
+    {
+        TransactionGroup? group;
+        lock (_turnLock)
+        {
+            group = _turnGroup;
+            _turnGroup = null;
+            _turnDocument = null;
+        }
+
+        if (group == null) return;
+        try
+        {
+            if (!group.HasStarted() || group.HasEnded())
+                return;
+
+            if (assimilate)
+                group.Assimilate();
+            else
+                group.RollBack();
+        }
+        catch (Exception ex)
+        {
+            DebugLog.Write("bridge.turn_group_finish_failed", new { assimilate, error = ex.Message });
+            HostLog.Write($"Turn TransactionGroup finish failed (assimilate={assimilate}): {ex}");
+            try { if (group.HasStarted() && !group.HasEnded()) group.RollBack(); } catch { }
+            throw;
+        }
+        finally
+        {
+            try { group.Dispose(); } catch { }
+        }
+    }
+
     public void Dispose()
     {
-        _externalEvent.Dispose();
+        try
+        {
+            TransactionGroup? group;
+            lock (_turnLock)
+            {
+                group = _turnGroup;
+                _turnGroup = null;
+                _turnDocument = null;
+            }
+            if (group != null && group.HasStarted() && !group.HasEnded())
+            {
+                try { group.RollBack(); } catch { }
+            }
+            try { group?.Dispose(); } catch { }
+        }
+        finally
+        {
+            _externalEvent.Dispose();
+        }
     }
 
     private sealed class BridgeHandler : IExternalEventHandler
@@ -114,8 +232,16 @@ public sealed class RevitBridge : IDisposable
                 while (local.Count > 0)
                 {
                     var a = local.Dequeue();
-                    try { a(app); }
-                    catch { }
+                    try
+                    {
+                        a(app);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog.Write("bridge.execute_unhandled", new { error = ex.Message, type = ex.GetType().FullName });
+                        HostLog.Write($"RevitBridge.Execute unhandled: {ex}");
+                        throw;
+                    }
                 }
             }
             finally { _owner._executing = false; }

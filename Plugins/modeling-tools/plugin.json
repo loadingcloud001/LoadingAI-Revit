@@ -10,19 +10,28 @@
       "name": "load_family",
       "tier": "L3",
       "description": "Load a .rfa family file into the model. Params: path.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
     },
     {
       "name": "change_element_type",
       "tier": "L3",
       "description": "Change an element's type. Params: elementId, typeName (or typeId).",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
     },
     {
       "name": "create_topography",
       "tier": "L3",
       "description": "Create a toposolid from points. Params: points array of [x,y,z] in mm (3+ points).",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
     }
   ],
   "verified": true

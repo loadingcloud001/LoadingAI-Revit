@@ -1,12 +1,12 @@
 namespace LoadingAI
 {
     /// <summary>
-    /// Small net48 (Revit 2024) compatibility helpers. net48 lacks Math.Clamp,
-    /// StringSplitOptions.TrimEntries, string.Contains(StringComparison), and
-    /// Enumerable.Contains(predicate). Kept unconditional so all builds compile
+    /// Small net48 / netstandard2.0 compatibility helpers. net48 lacks Math.Clamp
+    /// and StringSplitOptions.TrimEntries. Kept unconditional so all builds compile
     /// identically; on modern TFMs members simply delegate to the BCL.
+    /// Public so FullAccess plugins (core-tools) can clamp limits without referencing the host.
     /// </summary>
-    internal static class Polyfills
+    public static class Polyfills
     {
         public static int Clamp(int value, int min, int max)
             => value < min ? min : (value > max ? max : value);
@@ -24,4 +24,3 @@ namespace LoadingAI
                     .ToArray();
     }
 }
-

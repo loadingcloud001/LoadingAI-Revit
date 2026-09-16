@@ -10,37 +10,60 @@
       "name": "create_schedule",
       "tier": "L3",
       "description": "Create a category schedule. Params: category, name optional, fields array optional.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
     },
     {
       "name": "get_schedule_data",
       "tier": "L1",
       "description": "Read schedule cells (and optional CSV). Params: scheduleId or name, rowLimit.",
-      "enabledByDefault": true
+      "enabledByDefault": true,
+      "tags": [
+        "query",
+        "view"
+      ]
     },
     {
       "name": "create_floor_plan",
       "tier": "L3",
       "description": "Create a floor plan on a level. Params: levelId or levelName, name optional.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "write"
+      ]
     },
     {
       "name": "create_3d_view",
       "tier": "L3",
       "description": "Create an isometric 3D view. Params: name optional.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
     },
     {
       "name": "create_section_view",
       "tier": "L3",
       "description": "Create a section from a wall/curve element or two plan points. Params: elementId or x1,y1,x2,y2.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
     },
     {
       "name": "path_of_travel",
       "tier": "L3",
       "description": "Create path of travel on a floor plan. Params: startX,startY,endX,endY or starts/ends arrays. viewId optional.",
-      "enabledByDefault": false
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
     }
   ],
   "verified": true

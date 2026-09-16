@@ -38,11 +38,8 @@ public interface IRevitQuery
     Task<IReadOnlyList<RoomDto>> GetRoomsAsync(string? levelName = null, int limit = 200, CancellationToken ct = default);
 }
 
-/// <summary>
-/// Mutating / multi-step operations. Each command is funneled through the
-/// App's approval gate (confirm-then-run) in production.
-/// </summary>
-public interface IRevitCommand
+/// <summary>Temporary view visibility mutations (isolate / hide / reset).</summary>
+public interface IRevitViewCommand
 {
     Task<CommandResultDto> IsolateInViewAsync(
         IReadOnlyList<string>? elementIds = null,
@@ -56,7 +53,11 @@ public interface IRevitCommand
         CancellationToken ct = default);
 
     Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
+}
 
+/// <summary>Instance parameter writes.</summary>
+public interface IRevitParamCommand
+{
     Task<CommandResultDto> SetParameterAsync(
         string elementId, string paramName, string value,
         CancellationToken ct = default);
@@ -64,13 +65,37 @@ public interface IRevitCommand
     Task<CommandResultDto> SetParametersAsync(
         IReadOnlyList<string> elementIds, string paramName, string value,
         CancellationToken ct = default);
+}
 
+/// <summary>
+/// Destructive element mutations (delete / move). Geometry create, family
+/// load, and export stay on <c>IRawRevitAccess</c> until they have DTOs.
+/// </summary>
+public interface IRevitElementCommand
+{
     Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default);
 
     Task<CommandResultDto> MoveElementsAsync(
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default);
+}
+
+/// <summary>
+/// Geometry / family create operations. Empty until those ops have DTOs
+/// on the bridge; until then they stay on <c>IRawRevitAccess</c>.
+/// </summary>
+public interface IRevitCreateCommand
+{
+}
+
+/// <summary>
+/// Composite mutating contract. Each command is funneled through the
+/// App's approval gate (confirm-then-run) in production. Prefer the
+/// narrower capability interfaces in tool shells.
+/// </summary>
+public interface IRevitCommand : IRevitViewCommand, IRevitParamCommand, IRevitElementCommand, IRevitCreateCommand
+{
 }
 
 /// <summary>Unified bridge contract used by tools and the LLM layer.</summary>

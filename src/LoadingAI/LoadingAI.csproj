@@ -37,6 +37,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\core-tools\LoadingAI.Plugins.CoreTools.dll</Dll>
+    </ShippedPlugin>
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\export-tools\ExportToolsPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\export-tools\LoadingAI.Plugins.ExportTools.dll</Dll>
     </ShippedPlugin>

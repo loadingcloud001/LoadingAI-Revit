@@ -7,10 +7,12 @@ namespace LoadingAI.Tests;
 public class L3CommandContractTests
 {
     [Fact]
-    public void IRevitCommand_DeclaresPhase5L3Methods()
+    public void IRevitElementCommand_DeclaresPhase5L3Methods()
     {
-        var names = typeof(IRevitCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        var names = typeof(IRevitElementCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("DeleteElementsAsync", names);
         Assert.Contains("MoveElementsAsync", names);
+        Assert.DoesNotContain("IsolateInViewAsync", names);
+        Assert.DoesNotContain("SetParameterAsync", names);
     }
 }

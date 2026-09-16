@@ -39,14 +39,17 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2024
 web/                         Vite + React
 src/LoadingAI/
   App.cs                     IExternalApplication
-  Ui/HostPage.xaml(.cs)      WebView2 host + bridge
-  Tools/AllTools.cs          helpers + CreateAll
-  Tools/Core/*               core query/view/param
-  Tools/Compat/*             pyRevit/Dynamo-shaped tools
+  Ui/HostPage.xaml(.cs)      WPF shell (WebView2 + message switch)
+  Ui/WebHostBridge.cs        WebView2 post/receive
+  Ui/ChatSession.cs          agent run, tools, turn TransactionGroup
+  Ui/ApprovalGate.cs         L3 confirm + chat presets
+  Tools/AllTools.cs          host parse wrappers (ParseCategory/ParseEid)
+  Tools/ToolGuards.cs        host-owned guards applied on load
   Plugins/Core/*             loader (ALC; LoadFrom on net48) + contract
 src/LoadingAI.Core/          agent, DTO, no RevitAPI
 src/LoadingAI.Tests/         xunit
 Plugins/example.hello/       sample plugin
+Plugins/core-tools/          shipped FullAccess: query/view/param/geometry + compat (63)
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
 Plugins/modeling-tools/      load_family, change_element_type, create_topography
