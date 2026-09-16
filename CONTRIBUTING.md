@@ -48,9 +48,34 @@ Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `s
 - Shipped core surface is `Plugins/core-tools/` (FullAccess, id `core-tools`). Do not add query/view/param/geometry factories back under `src/LoadingAI/Tools`.
 - ToolSelector AlwaysKeep is `get_model_summary`, `get_selection_summary`, `get_element_details`. Everything else wins on keyword/token/tag score. Cap remains 24.
 - Bridge-first: L1 query and L2 view/param tools use `context.Bridge` (`IRevitQuery` / `IRevitViewCommand` / `IRevitParamCommand` / `IRevitElementCommand`). `IRevitCreateCommand` is reserved until create ops have DTOs. Do not implement `IRevitFullAccess` unless the op is on the exception list (geometry / export / family). Plugins that omit `IRevitFullAccess` must not mention `Autodesk.Revit`.
-- Fail-loud: `RevitBridge.Execute` logs then rethrows. Do not add an empty `catch { }` on the drain loop.
+- Fail-loud: `RevitBridge.Execute` must not throw into Revit and must not drop the rest of the batch. It logs (`bridge.execute_failed` / `bridge.action_failed`) and keeps draining. The awaiter still gets the real exception because the `RunAsync` action wrapper calls `tcs.TrySetException`. Do not add an empty `catch { }` anywhere on this path.
 - Turn `TransactionGroup`: the host starts one on the first L2 / L3 write in a user turn (never L1, never dry-run). Nested tool `Transaction`s fold into one undo via `Assimilate`. Empty groups and failures (`Cancelled.`, tool exception, LLM error, max-rounds abort) `RollBack`. Finish the group with `CancellationToken.None` so Stop cannot skip rollback.
 - HostPage is the WPF shell. L3 gate and turn `TransactionGroup` live in `ApprovalGate` and `ChatSession`.
+
+## Test pyramid
+
+Hosted GitHub Actions **cannot start Revit.exe**. Split coverage:
+
+| Layer | Where | What it proves | Runner |
+|---|---|---|---|
+| L0 | `src/LoadingAI.Tests` (xUnit) | DTO roundtrips, catalog/source contracts | GitHub-hosted `windows-latest` |
+| L1 | `src/LoadingAI.Tests` + `Fakes/FakeRevitBridge` | Tool handlers vs `IRevitBridge` (no-doc, empty selection, success text) | Same hosted CI |
+| L2–L3 | `src/LoadingAI.RevitTests` (NUnit) | Live document, Adapter + `AttachCurrentThread`, Discover core tools, one rollback | **Local** Revit 2027 / future self-hosted runner |
+
+CI (`.github/workflows/ci.yml`) already runs `dotnet test src/LoadingAI.Tests/...` only. `LoadingAI.RevitTests` has `IsTestProject=false` unless `-p:ForceRevitTests=true`, so `dotnet test LoadingAI.sln` will not launch Revit.
+
+Do **not** call `PluginLoader.Discover` from Fake tests — `ToolGuards.ApplyConfirm` shows a TaskDialog. Call `QueryTools` / `ViewTools` / `ParamTools` `Create*` (or `AllTools.CreateAll`) with `FakePluginContext`.
+
+In-Revit tests must call `RevitBridge.AttachCurrentThread(uiApp)` before awaiting Adapter/`RunAsync`. ricaun occupies the UI thread; the ExternalEvent path deadlocks there.
+
+`src/LoadingAI.RevitTests/revit.runsettings` pins `NUnit.Version=2027` + `Open`/`Close`. ricaun finds `Revit.exe` from Autodesk registry — a non-default Program Files volume is fine. Do **not** commit a machine-specific `Revit.exe` path; `NUnit.Application` is ricaun's console, not Revit. Override with `RICAUN_REVITTEST_TESTADAPTER_NUNIT_*` env vars. Do not commit `.rvt` files.
+
+Local CopyAddin (no `SkipCopyAddin`) also runs `scripts/trust-addin.ps1` so Revit does not ask you to Accept / Always Load after every rebuild. It writes HKCU `SOFTWARE\Autodesk\Revit\Autodesk Revit <year>\CodeSigning\<AddInId>=1` for **this** add-in only and Authenticode-signs the AppData `LoadingAI.dll` with a CurrentUser cert imported into Trusted Publishers. That is not a global security disable. Opt out with `-p:SkipTrustAddin=true`. CI already skips it via `SkipCopyAddin`.
+
+```powershell
+dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+dotnet test src/LoadingAI.RevitTests/LoadingAI.RevitTests.csproj -c Release -p:ForceRevitTests=true -p:RevitVersion=2027 -p:SkipHostPluginBuild=true --settings src/LoadingAI.RevitTests/revit.runsettings
+```
 
 ## Review Checklist
 
@@ -59,3 +84,4 @@ Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `s
 - [ ] Tier correct (L1 read / L2 light write / L3 destructive)
 - [ ] Handles `Please open a model first.` and `Please select elements first.`
 - [ ] Transaction with RollBack on failure
+- [ ] Fake-bridge or in-Revit coverage for new Bridge tools (hosted xUnit first)

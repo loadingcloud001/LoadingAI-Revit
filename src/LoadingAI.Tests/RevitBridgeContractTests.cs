@@ -6,16 +6,30 @@ namespace LoadingAI.Tests;
 public class RevitBridgeContractTests
 {
     [Fact]
-    public void Execute_LogsThenRethrows_NoEmptyCatch()
+    public void Execute_LogsAndPropagates_WithoutThrowingIntoRevit()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
-        Assert.Contains("bridge.execute_unhandled", src);
-        Assert.Contains("RevitBridge.Execute unhandled:", src);
+        Assert.Contains("bridge.execute_failed", src);
+        Assert.Contains("bridge.action_failed", src);
+        Assert.Contains("RevitBridge.Execute failed:", src);
+        Assert.Contains("RevitBridge action failed:", src);
 
+        // IExternalEventHandler.Execute must not throw into Revit, and must not
+        // drop the rest of the batch (waiters would sit until DefaultTimeout).
         var execute = Slice(src, "public void Execute(UIApplication app)", "public string GetName()");
-        Assert.Contains("throw;", execute);
+        Assert.DoesNotContain("throw;", execute);
         Assert.DoesNotContain("catch { }", execute);
         Assert.DoesNotContain("catch{}", execute);
+        Assert.Contains("DrainTo(local);", execute);
+        Assert.Contains("InvokeAll(app, local);", execute);
+
+        // Fail-loud lives in the RunAsync wrapper: the awaiter gets the real
+        // exception instead of a silent no-op. That is what makes a failed write
+        // visible, so it is the invariant worth locking down.
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "var started = DateTime.UtcNow;");
+        Assert.Contains("tcs.TrySetException(ex);", runAsync);
+        Assert.DoesNotContain("catch { }", runAsync);
+        Assert.DoesNotContain("catch{}", runAsync);
     }
 
     [Fact]

@@ -85,6 +85,17 @@
     <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\$(RevitVersion)\" Importance="high" />
   </Target>
 
+  <!-- Per-user Always Load + Authenticode on the AppData DLL so Revit does not
+       re-prompt after CopyAddin. Off in CI (SkipCopyAddin). Opt out locally
+       with -p:SkipTrustAddin=true. Script never writes HKLM or a machine path. -->
+  <Target Name="TrustAddin" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true' And '$(SkipTrustAddin)' != 'true'">
+    <PropertyGroup>
+      <_TrustScript>$(MSBuildThisFileDirectory)..\..\scripts\trust-addin.ps1</_TrustScript>
+    </PropertyGroup>
+    <!-- pwsh (7+): Windows PowerShell 5.1 often has no Cert: drive. CI never hits this. -->
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(_TrustScript)&quot; -RevitVersion $(RevitVersion) -DllPath &quot;$(RevitAddinDir)$(AssemblyName).dll&quot;" IgnoreExitCode="true" />
+  </Target>
+
   <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true' And Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">
     <RemoveDir Directories="$(RevitAddinDir)Web\dist" Condition="Exists('$(RevitAddinDir)Web\dist')" />
     <ItemGroup>

@@ -10,6 +10,7 @@ public sealed class RevitBridge : IDisposable
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
+    private volatile int _uiThreadId;
     private readonly object _turnLock = new();
     private TransactionGroup? _turnGroup;
     private Document? _turnDocument;
@@ -30,6 +31,21 @@ public sealed class RevitBridge : IDisposable
     public void NoteUiApplication(UIApplication app)
         => _hasActiveDocument = app.ActiveUIDocument?.Document != null;
 
+    /// <summary>
+    /// Bind this bridge to a UIApplication already on the Revit API thread.
+    /// Later <see cref="RunAsync{T}(Func{UIApplication, T}, CancellationToken)"/>
+    /// calls on that same thread run immediately (no ExternalEvent), which is
+    /// required for in-Revit test hosts that already occupy the UI thread.
+    /// Production ExternalEvent.Execute also records the UI thread so nested
+    /// RunAsync from the same thread cannot deadlock.
+    /// </summary>
+    public void AttachCurrentThread(UIApplication app)
+    {
+        RevitContext.Set(app);
+        _uiThreadId = Environment.CurrentManagedThreadId;
+        NoteUiApplication(app);
+    }
+
     public RevitBridge()
     {
         _handler = new BridgeHandler(this);
@@ -41,6 +57,14 @@ public sealed class RevitBridge : IDisposable
 
     public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout, CancellationToken ct = default)
     {
+        if (_uiThreadId != 0
+            && Environment.CurrentManagedThreadId == _uiThreadId
+            && RevitContext.UiApplication is { } current)
+        {
+            try { return func(current); }
+            catch (Exception ex) { return await Task.FromException<T>(ex); }
+        }
+
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         IDisposable? reg = null;
         if (ct.CanBeCanceled)
@@ -171,12 +195,14 @@ public sealed class RevitBridge : IDisposable
         {
             DebugLog.Write("bridge.turn_group_finish_failed", new { assimilate, error = ex.Message });
             HostLog.Write($"Turn TransactionGroup finish failed (assimilate={assimilate}): {ex}");
-            try { if (group.HasStarted() && !group.HasEnded()) group.RollBack(); } catch { }
+            try { if (group.HasStarted() && !group.HasEnded()) group.RollBack(); }
+            catch (Exception rollbackEx) { HostLog.Write($"Turn TransactionGroup rollback after failed finish threw: {rollbackEx}"); }
             throw;
         }
         finally
         {
-            try { group.Dispose(); } catch { }
+            try { group.Dispose(); }
+            catch (Exception disposeEx) { HostLog.Write($"Turn TransactionGroup dispose failed: {disposeEx}"); }
         }
     }
 
@@ -193,9 +219,11 @@ public sealed class RevitBridge : IDisposable
             }
             if (group != null && group.HasStarted() && !group.HasEnded())
             {
-                try { group.RollBack(); } catch { }
+                try { group.RollBack(); }
+                catch (Exception rollbackEx) { HostLog.Write($"Turn TransactionGroup rollback on dispose threw: {rollbackEx}"); }
             }
-            try { group?.Dispose(); } catch { }
+            try { group?.Dispose(); }
+            catch (Exception disposeEx) { HostLog.Write($"Turn TransactionGroup dispose on dispose threw: {disposeEx}"); }
         }
         finally
         {
@@ -218,33 +246,58 @@ public sealed class RevitBridge : IDisposable
 
         public void Execute(UIApplication app)
         {
-            RevitContext.Set(app);
-            _owner.NoteUiApplication(app);
+            // IExternalEventHandler.Execute must not throw. Per-action failures
+            // are completed by the RunAsync wrapper (TrySetException). An empty
+            // catch here used to drop the rest of the batch so waiters sat until
+            // DefaultTimeout (120s). Drain leftover actions instead.
             _owner._executing = true;
+            var local = new Queue<Action<UIApplication>>();
             try
             {
-                Queue<Action<UIApplication>> local;
-                lock (_lock)
+                RevitContext.Set(app);
+                _owner._uiThreadId = Environment.CurrentManagedThreadId;
+                _owner.NoteUiApplication(app);
+                DrainTo(local);
+                InvokeAll(app, local);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.Write("bridge.execute_failed", new
                 {
-                    local = new Queue<Action<UIApplication>>(_queue);
-                    _queue.Clear();
-                }
-                while (local.Count > 0)
-                {
-                    var a = local.Dequeue();
-                    try
-                    {
-                        a(app);
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLog.Write("bridge.execute_unhandled", new { error = ex.Message, type = ex.GetType().FullName });
-                        HostLog.Write($"RevitBridge.Execute unhandled: {ex}");
-                        throw;
-                    }
-                }
+                    error = ex.ToString(),
+                    remaining = local.Count
+                });
+                HostLog.Write($"RevitBridge.Execute failed: {ex}");
+                DrainTo(local);
+                InvokeAll(app, local);
             }
             finally { _owner._executing = false; }
+        }
+
+        private void DrainTo(Queue<Action<UIApplication>> dest)
+        {
+            lock (_lock)
+            {
+                while (_queue.Count > 0)
+                    dest.Enqueue(_queue.Dequeue());
+            }
+        }
+
+        private static void InvokeAll(UIApplication app, Queue<Action<UIApplication>> local)
+        {
+            while (local.Count > 0)
+            {
+                var a = local.Dequeue();
+                try
+                {
+                    a(app);
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.Write("bridge.action_failed", new { error = ex.ToString() });
+                    HostLog.Write($"RevitBridge action failed: {ex}");
+                }
+            }
         }
 
         public string GetName() => "LoadingAI Bridge";

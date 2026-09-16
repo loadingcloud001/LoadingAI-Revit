@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    In-Revit NUnit tests. GitHub-hosted windows-latest cannot start Revit.exe.
+    Default IsTestProject=false so `dotnet test LoadingAI.sln` (and CI) never
+    launches ricaun. Local run against installed Revit 2027:
+
+      dotnet test src/LoadingAI.RevitTests/LoadingAI.RevitTests.csproj -c Release -p:ForceRevitTests=true -p:RevitVersion=2027 -p:SkipHostPluginBuild=true -settings src/LoadingAI.RevitTests/revit.runsettings
+
+    ricaun.RevitTest.TestAdapter 1.11.1 launches Revit 2027 via Autodesk
+    registry (NUnit.Version in revit.runsettings). If a host cannot start
+    Revit, compile still succeeds — run the same DLL with Revit.TestRunner
+    inside Revit instead (see README.md in this folder).
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+    <IsTestProject Condition="'$(ForceRevitTests)' != 'true'">false</IsTestProject>
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)\revit.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="NUnit" Version="3.13.3" />
+    <PackageReference Include="ricaun.RevitTest.TestAdapter" Version="1.11.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LoadingAI\LoadingAI.csproj">
+      <!-- Keep SkipHostPluginBuild so local ricaun does not rebuild Plugins/*.
+           Do not SkipCopyAddin: Revit loads %AppData%\...\Addins\2027\LoadingAI.dll
+           first, so a stale copy hides new RevitBridge APIs (MissingMethodException). -->
+      <AdditionalProperties>SkipHostPluginBuild=true</AdditionalProperties>
+    </ProjectReference>
+    <!-- QueryTools/ViewTools/ParamTools live in the shipped core-tools plugin. -->
+    <ProjectReference Include="..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

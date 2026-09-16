@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using LoadingAI.Revit;
 
@@ -58,5 +59,31 @@ public class AdapterContractTests
         Assert.Contains("\"IsVisible\":false", json);
         var back = JsonSerializer.Deserialize<ViewInfoDto>(json)!;
         Assert.False(back.IsVisible);
+    }
+
+    [Fact]
+    public void RevitBridge_Execute_DoesNotDropWaitersOnActionFailure()
+    {
+        // Empty catch around queued actions left RunAsync sitting until DefaultTimeout.
+        // Execute must drain leftovers so each Enqueue wrapper can TrySetException.
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        Assert.DoesNotContain("try { a(app); }", src);
+        Assert.DoesNotContain("catch { }", src);
+        Assert.Contains("tcs.TrySetException", src);
+        Assert.Contains("bridge.action_failed", src);
+        Assert.Contains("DrainTo", src);
+        Assert.Contains("DefaultTimeout", src);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }

@@ -43,5 +43,9 @@ jobs:
           dotnet-version: |
             10.0.x
 
+      # Hosted windows-latest cannot start Revit.exe. LoadingAI.RevitTests
+      # (NUnit / ricaun) is compiled in the build job but skipped here —
+      # IsTestProject=false unless ForceRevitTests=true. Run in-Revit locally
+      # against Revit 2027: see src/LoadingAI.RevitTests/README.md.
       - name: Test
         run: dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:RevitVersion=2027 -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true -m:1
