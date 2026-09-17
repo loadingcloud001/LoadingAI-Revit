@@ -21,10 +21,10 @@ public class ToolCatalogContractTests
     {
         var param = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "ParamTools.cs"));
         var geo = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "GeometryTools.cs"));
-        var health = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Compat", "QueryHealthTools.cs"));
+        var query = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "QueryTools.cs"));
         Assert.Contains("Name = \"set_parameter_by_id\"", param);
         Assert.Contains("Name = \"create_family_instance\"", geo);
-        Assert.Contains("Name=\"get_phases\"", health);
+        Assert.Contains("Name = \"get_phases\"", query);
     }
 
     [Fact]
@@ -34,7 +34,6 @@ public class ToolCatalogContractTests
         {
             "Plugins/core-tools/Core/QueryTools.cs",
             "Plugins/core-tools/Core/GeometryTools.cs",
-            "Plugins/core-tools/Compat/GeometryCreateTools.cs",
             "Plugins/view-tools/ViewToolsPlugin.cs",
             "Plugins/modeling-tools/ModelingToolsPlugin.cs",
             "Plugins/structure-cuts/StructureCutsPlugin.cs",

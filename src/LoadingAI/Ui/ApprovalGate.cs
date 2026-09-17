@@ -1,5 +1,5 @@
-using System.Text.Json;
 using Autodesk.Revit.UI;
+using LoadingAI.Protocol;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -74,36 +74,23 @@ internal sealed class ApprovalGate
             _pendingPresetTools[callId] = entry;
         }
 
-        var fields = entry.Presets.Select(f => new
-        {
-            id = f.Id,
-            label = string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
-            kind = ToolPresets.KindName(f.Kind),
-            required = f.Required,
-            options = f.Options,
-            category = f.Category,
-            prompt = f.Prompt
-        }).ToList();
+        var fields = entry.Presets.Select(f => new FromHostMessage.PresetFieldPayload(
+            f.Id,
+            string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
+            ToolPresets.KindName(f.Kind),
+            f.Required,
+            f.Options,
+            f.Category,
+            f.Prompt)).ToList();
         var values = ToolPresets.Prefill(entry.Presets, argsJson);
 
         try
         {
-            _onUi(() => _web.Post(new
-            {
-                type = "tool_preset",
-                preset = new
-                {
-                    toolCallId = callId,
-                    toolName = name,
-                    tier = entry.Tier.ToString(),
-                    description = entry.Definition.Function.Description,
-                    fields,
-                    values
-                }
-            }));
+            _onUi(() => _web.Post(new FromHostMessage.ToolPreset(new FromHostMessage.PresetPayload(
+                callId, name, entry.Tier.ToString(), entry.Definition.Function.Description, fields, values))));
         }
         catch { }
-        try { _onUi(() => _web.Post(new { type = "tool_call", text = $"{name}: {argsJson} (awaiting preset {callId})" })); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting preset {callId})"))); } catch { }
 
         var timeout = Task.Delay(TimeSpan.FromMinutes(15));
         Task completed;
@@ -134,8 +121,8 @@ internal sealed class ApprovalGate
         var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_approvalLock) _pendingApprovals[callId] = tcs;
-        try { _onUi(() => _web.Post(new { type = "tool_approval", approval = new { toolCallId = callId, toolName = name, tier = entry.Tier.ToString(), args = argsJson, description = entry.Definition.Function.Description } })); } catch { }
-        try { _onUi(() => _web.Post(new { type = "tool_call", text = $"{name}: {argsJson} (awaiting approval {callId})" })); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolApproval(new FromHostMessage.ApprovalPayload(callId, name, entry.Tier.ToString(), argsJson, entry.Definition.Function.Description)))); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting approval {callId})"))); } catch { }
         var timeout = Task.Delay(TimeSpan.FromSeconds(180));
         var completed = await Task.WhenAny(tcs.Task, timeout);
         bool approved = false;
@@ -143,12 +130,12 @@ internal sealed class ApprovalGate
         else
         {
             lock (_approvalLock) _pendingApprovals.Remove(callId);
-            try { _onUi(() => _web.Post(new { type = "tool_result", text = $"{name} timed out waiting for approval (180s)" })); } catch { }
+            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} timed out waiting for approval (180s)"))); } catch { }
             return "Cancelled: approval timeout (180s).";
         }
         if (!approved)
         {
-            try { _onUi(() => _web.Post(new { type = "tool_result", text = $"{name} denied by user" })); } catch { }
+            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} denied by user"))); } catch { }
             return "Cancelled by user (denied).";
         }
         return null;
@@ -181,19 +168,19 @@ internal sealed class ApprovalGate
         var field = entry?.Presets.FirstOrDefault(f => string.Equals(f.Id, fieldId, StringComparison.OrdinalIgnoreCase));
         if (entry == null || field == null)
         {
-            _web.Post(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "No matching preset field." });
+            _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, Ok: false, ErrorText: "No matching preset field."));
             return;
         }
         if (field.Kind is not PresetFieldKind.PickElements and not PresetFieldKind.PickBox)
         {
-            _web.Post(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "Field is not a pick." });
+            _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, Ok: false, ErrorText: "Field is not a pick."));
             return;
         }
 
         var bridge = App.Bridge;
         if (bridge == null)
         {
-            _web.Post(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = "No Revit bridge." });
+            _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, Ok: false, ErrorText: "No Revit bridge."));
             return;
         }
 
@@ -207,10 +194,10 @@ internal sealed class ApprovalGate
         }
         catch (Exception ex)
         {
-            _web.Post(new { type = "presetPickResult", toolCallId, fieldId, ok = false, error = ex.Message });
+            _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, Ok: false, ErrorText: ex.Message));
             return;
         }
 
-        _web.Post(new { type = "presetPickResult", toolCallId, fieldId, result });
+        _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, result));
     }
 }

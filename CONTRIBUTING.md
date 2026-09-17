@@ -45,12 +45,12 @@ Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `s
 - All `RevitBridge.RunAsync` calls must stay on ExternalEvent; no direct `Document` access off UI thread.
 - Temporary view ops (`Isolate/Hide/Override`) must be inside `Transaction` (Revit 2027 requirement).
 - Keep `Tool` description concise and English.
-- Shipped core surface is `Plugins/core-tools/` (FullAccess, id `core-tools`). Do not add query/view/param/geometry factories back under `src/LoadingAI/Tools`.
-- ToolSelector AlwaysKeep is `get_model_summary`, `get_selection_summary`, `get_element_details`. Everything else wins on keyword/token/tag score. Cap remains 24.
-- Bridge-first: L1 query and L2 view/param tools use `context.Bridge` (`IRevitQuery` / `IRevitViewCommand` / `IRevitParamCommand` / `IRevitElementCommand`). `IRevitCreateCommand` is reserved until create ops have DTOs. Do not implement `IRevitFullAccess` unless the op is on the exception list (geometry / export / family). Plugins that omit `IRevitFullAccess` must not mention `Autodesk.Revit`.
+- Shipped core surface is `Plugins/core-tools/` (id `core-tools`). `CoreToolsPlugin` is the single Bridge-only type (`AllTools.CreateBridge`). It does not implement `IRevitFullAccess`. Do not add query/view/param/geometry factories back under `src/LoadingAI/Tools`.
+- ToolSelector AlwaysKeep is `get_model_summary`, `get_selection_summary`, `get_element_details`. Everything else wins on keyword/token/tag score. Cap remains 24. First round uses `Select`; later rounds use `Recall` (re-score dropped tools, swap lowest non-AlwaysKeep). Do not raise `DefaultMax`.
+- Bridge-first: L1 query (including QueryHealth, Worksharing `sync_info` / `audit_warnings_fix`, and IfcCost `quantity_takeoff_by_category`), L2 view/param (including color overrides, SheetDoc duplicate/template/crop, ParamExcel copy/replace/number, and Worksharing reload/assign), L3 delete/move/create, `save_document`, param mutate, SheetDoc create/place/dimension/tag, and ParamExcel import use `context.Bridge` (`IRevitQuery` / `IRevitViewCommand` / `IRevitParamCommand` / `IRevitElementCommand` / `IRevitCreateCommand` / `IRevitDocumentCommand`). Create tools and `place_view_on_sheet` pass millimetres; the adapter converts with `Metric.MmToFt`. CSV I/O for ParamExcel and IfcCost stays in the tool handler (`ExportPaths`); Adapter does Revit collect/set only. Family load and export stay on `IRawRevitAccess`. Leftover FullAccess: none. Do not implement `IRevitFullAccess` unless the op is on that exception list. Plugins that omit `IRevitFullAccess` must not mention `Autodesk.Revit`. See `docs/adr/0001-bridge-first-hardening.md`.
 - Fail-loud: `RevitBridge.Execute` must not throw into Revit and must not drop the rest of the batch. It logs (`bridge.execute_failed` / `bridge.action_failed`) and keeps draining. The awaiter still gets the real exception because the `RunAsync` action wrapper calls `tcs.TrySetException`. Do not add an empty `catch { }` anywhere on this path.
 - Turn `TransactionGroup`: the host starts one on the first L2 / L3 write in a user turn (never L1, never dry-run). Nested tool `Transaction`s fold into one undo via `Assimilate`. Empty groups and failures (`Cancelled.`, tool exception, LLM error, max-rounds abort) `RollBack`. Finish the group with `CancellationToken.None` so Stop cannot skip rollback.
-- HostPage is the WPF shell. L3 gate and turn `TransactionGroup` live in `ApprovalGate` and `ChatSession`.
+- HostPage is the WPF shell. L3 gate and turn `TransactionGroup` live in `ApprovalGate` and `ChatSession`. WebView2 kinds live in `src/LoadingAI.Core/Protocol/HostProtocol.cs`: ToHost via `ToHostMessage.TryParse`, FromHost via `FromHostMessage` records (`Serialize` uses runtime type — never `Serialize<FromHostMessage>`). Add a kind + record and a `web/src/bridge.ts` union member — do not add a new `case "foo"` in HostPage, do not `Post` anonymous `{ type = "..." }`. Quota never includes `ticket`.
 
 ## Test pyramid
 
@@ -64,7 +64,7 @@ Hosted GitHub Actions **cannot start Revit.exe**. Split coverage:
 
 CI (`.github/workflows/ci.yml`) already runs `dotnet test src/LoadingAI.Tests/...` only. `LoadingAI.RevitTests` has `IsTestProject=false` unless `-p:ForceRevitTests=true`, so `dotnet test LoadingAI.sln` will not launch Revit.
 
-Do **not** call `PluginLoader.Discover` from Fake tests — `ToolGuards.ApplyConfirm` shows a TaskDialog. Call `QueryTools` / `ViewTools` / `ParamTools` `Create*` (or `AllTools.CreateAll`) with `FakePluginContext`.
+Do **not** call `PluginLoader.Discover` from Fake tests — `ToolGuards.ApplyConfirm` shows a TaskDialog. Call `QueryTools` / `ViewTools` / `ParamTools` / `GeometryTools` / `DocumentTools` `Create*` (or `AllTools.CreateBridge`) with `FakePluginContext`. FullAccess factories need a real `IRawRevitAccess`.
 
 In-Revit tests must call `RevitBridge.AttachCurrentThread(uiApp)` before awaiting Adapter/`RunAsync`. ricaun occupies the UI thread; the ExternalEvent path deadlocks there.
 

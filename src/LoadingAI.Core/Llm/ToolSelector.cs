@@ -58,6 +58,109 @@ public static class ToolSelector
         return guaranteed.Concat(fill).ToList();
     }
 
+    /// <summary>
+    /// Re-score dropped catalog tools against later-round text and swap the lowest
+    /// non-AlwaysKeep slots. Size stays &lt;= <paramref name="max"/>. Does not raise the cap.
+    /// Empty later text returns <paramref name="current"/> unchanged.
+    /// </summary>
+    public static List<ToolDefinition> Recall(
+        IEnumerable<LoadingAI.Tools.ToolEntry> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        int max = DefaultMax)
+    {
+        var list = catalog as IList<LoadingAI.Tools.ToolEntry> ?? catalog.ToList();
+        var defs = list.Select(e => e.Definition).ToList();
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in list)
+        {
+            var name = e.Definition.Function.Name ?? "";
+            if (name.Length == 0 || e.Tags.Count == 0 || map.ContainsKey(name)) continue;
+            map[name] = e.Tags;
+        }
+        return Recall(defs, current, laterText, map, max);
+    }
+
+    public static List<ToolDefinition> Recall(
+        IReadOnlyList<ToolDefinition> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        int max = DefaultMax)
+        => Recall(catalog, current, laterText, null, max);
+
+    public static List<ToolDefinition> Recall(
+        IReadOnlyList<ToolDefinition> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? tagMap,
+        int max = DefaultMax)
+    {
+        if (current == null || current.Count == 0)
+            return Select(catalog, laterText ?? "", tagMap, max);
+        if (string.IsNullOrWhiteSpace(laterText))
+            return current.ToList();
+        if (catalog.Count <= max)
+            return catalog.ToList();
+
+        var later = laterText.ToLowerInvariant();
+        var active = ActiveTags(later);
+        int Later(ToolDefinition t)
+            => Score(t, later, TagsFor(t.Function.Name, tagMap), active, includeBase: false);
+
+        var currentNames = new HashSet<string>(
+            current.Select(t => t.Function.Name ?? ""),
+            StringComparer.OrdinalIgnoreCase);
+        var guaranteed = catalog.Where(t => AlwaysKeep.Contains(t.Function.Name ?? "")).ToList();
+        var remainingSlots = Math.Max(0, max - guaranteed.Count);
+        var fill = current
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? ""))
+            .ToList();
+        if (fill.Count > remainingSlots)
+        {
+            fill = fill
+                .OrderByDescending(Later)
+                .ThenBy(t => t.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(remainingSlots)
+                .ToList();
+        }
+
+        var incoming = catalog
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? "") && !currentNames.Contains(t.Function.Name ?? ""))
+            .Select(t => (Tool: t, Score: Later(t)))
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Tool.Function.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var cand in incoming)
+        {
+            if (fill.Count < remainingSlots)
+            {
+                fill.Add(cand.Tool);
+                continue;
+            }
+            if (fill.Count == 0) break;
+            var victim = fill
+                .Select(t => (Tool: t, Score: Later(t)))
+                .OrderBy(x => x.Score)
+                .ThenByDescending(x => x.Tool.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .First();
+            if (cand.Score <= victim.Score) break;
+            fill.RemoveAll(t => string.Equals(t.Function.Name, victim.Tool.Function.Name, StringComparison.OrdinalIgnoreCase));
+            fill.Add(cand.Tool);
+        }
+
+        if (fill.Count > remainingSlots)
+        {
+            fill = fill
+                .OrderByDescending(Later)
+                .ThenBy(t => t.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(remainingSlots)
+                .ToList();
+        }
+        return guaranteed.Concat(fill).ToList();
+    }
+
     public static int Score(ToolDefinition t, string lowerUser)
         => Score(t, lowerUser, InferTags(t.Function.Name), ActiveTags(lowerUser));
 
@@ -106,13 +209,16 @@ public static class ToolSelector
         return tags.Count == 0 ? Array.Empty<string>() : tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static int Score(ToolDefinition t, string lowerUser, IReadOnlyList<string> tags, HashSet<string> activeTags)
+    private static int Score(ToolDefinition t, string lowerUser, IReadOnlyList<string> tags, HashSet<string> activeTags, bool includeBase = true)
     {
         var n = (t.Function.Name ?? "").ToLowerInvariant();
         var d = (t.Function.Description ?? "").ToLowerInvariant();
         int score = 0;
-        if (AlwaysKeep.Contains(n)) score += 100;
-        if (Preferred.Contains(n)) score += 40;
+        if (includeBase)
+        {
+            if (AlwaysKeep.Contains(n)) score += 100;
+            if (Preferred.Contains(n)) score += 40;
+        }
         if (activeTags.Count > 0 && tags.Count > 0 && tags.Any(tag => activeTags.Contains(tag)))
             score += 50;
         if (!string.IsNullOrEmpty(lowerUser) && lowerUser.Contains(n)) score += 80;

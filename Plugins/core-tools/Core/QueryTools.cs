@@ -1,6 +1,6 @@
+using System.IO;
+using System.Text;
 using System.Text.Json;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Plugins;
@@ -23,7 +23,18 @@ public static class QueryTools
         yield return CreateGetLevelsAndGrids(context);
         yield return CreateGetQuantities(context);
         yield return CreateSaveAndSyncInfo(context);
-        yield return CreateSaveDocument(context);
+        yield return CreateGetWorksets(context);
+        yield return CreateGetPhases(context);
+        yield return CreateGetDesignOptions(context);
+        yield return CreateGetSheetsViews(context);
+        yield return CreateGetFamilyTypes(context);
+        yield return CreateGetMaterials(context);
+        yield return CreateGetRoomArea(context);
+        yield return CreateGetClashByBb(context);
+        yield return CreateGetModelHealthScore(context);
+        yield return CreateSyncInfo(context);
+        yield return CreateAuditWarningsFix(context);
+        yield return CreateQuantityTakeoff(context);
     }
 
     internal static ToolEntry CreateGetModelSummary(IPluginContext context)
@@ -559,47 +570,444 @@ public static class QueryTools
         };
     }
 
-    internal static ToolEntry CreateSaveDocument(IPluginContext context)
+    internal static ToolEntry CreateGetWorksets(IPluginContext context)
     {
         return new ToolEntry
         {
-            Tier = ToolTier.L3,
-            RequiresWriteConfirm = true,
+            Tier = ToolTier.L1,
             Definition = new ToolDefinition
             {
                 Function = new ToolFunction
                 {
-                    Name = "save_document",
-                    Description = "Save the active Revit document. L3. Host confirms before write. Fails if the document has never been saved to a path.",
-                    Parameters = new
-                    {
-                        type = "object",
-                        properties = new { },
-                        required = Array.Empty<string>()
-                    }
+                    Name = "get_worksets",
+                    Description = "List worksets (pyRevit: Worksets). No params. Compatible with worksharing models.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
             Handler = async _ =>
             {
-                if (context.FullAccess == null) return "Cannot save: raw Revit access not granted.";
-                return await context.FullAccess.RunRevitAsync(session =>
+                try
                 {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    try
+                    var dto = await context.Bridge.GetWorksetsAsync();
+                    if (dto == null) return "Please open a model first.";
+                    var s = $"Worksets ({dto.Worksets.Count}):\n" + string.Join("\n", dto.Worksets.Select(w =>
+                        $"  {w.Id} \"{w.Name}\" Open:{w.IsOpen} Vis:{w.IsVisibleByDefault}"));
+                    if (!dto.IsWorkshared) s = "(Not workshared) " + s;
+                    return s;
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetPhases(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_phases",
+                    Description = "List phases (pyRevit: Phases). No params.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    var phases = await context.Bridge.GetPhasesAsync();
+                    if (!context.Bridge.HasActiveDocument && phases.Count == 0)
+                        return "Please open a model first.";
+                    return $"Phases ({phases.Count}):\n" + string.Join("\n", phases.Select(p => $"  {p.Id} \"{p.Name}\""));
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetDesignOptions(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_design_options",
+                    Description = "List design options and option sets (Dynamo: DesignOptions). No params.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    var opts = await context.Bridge.GetDesignOptionsAsync();
+                    if (!context.Bridge.HasActiveDocument && opts.Count == 0)
+                        return "Please open a model first.";
+                    return $"DesignOptions ({opts.Count}):\n" + string.Join("\n", opts.Select(o => $"  {o.Id} \"{o.Name}\" Primary:{o.IsPrimary}"));
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetSheetsViews(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_sheets_views",
+                    Description = "List sheets and views counts by type (DiRoots SheetLink). No params.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    var dto = await context.Bridge.GetSheetsViewsAsync();
+                    if (dto == null) return "Please open a model first.";
+                    var sheets = string.Join("\n", dto.Sheets.Select(s => $"  {s.Id} \"{s.Name}\" - {s.SheetNumber}"));
+                    var more = dto.SheetCount > 10 ? "\n..." : "";
+                    var byType = string.Join("\n", dto.ViewsByType.Select(g => $"  {g.Name}: {g.Count}"));
+                    return $"Sheets: {dto.SheetCount}\n{sheets}{more}\nViews: {dto.ViewCount}\n{byType}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetFamilyTypes(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_family_types",
+                    Description = "List family symbols by category (Dynamo: archi-lab Family Types). Params: category optional.",
+                    Parameters = new
                     {
-                        var title = doc.Title;
-                        var path = string.IsNullOrEmpty(doc.PathName) ? "(unsaved)" : doc.PathName;
-                        var ws = doc.IsWorkshared ? "Workshared" : "Not workshared";
-                        var central = "";
-                        try { central = doc.IsWorkshared ? doc.GetWorksharingCentralModelPath()?.ToString() ?? "" : ""; } catch { }
-                        if (string.IsNullOrEmpty(doc.PathName)) return "Cannot save: document has no path (unsaved).";
-                        doc.Save();
-                        return $"Saved {title} to {path} ({ws}) central: {central}";
+                        type = "object",
+                        properties = new { category = new { type = "string", description = "Category e.g. Doors, Windows" } },
+                        required = Array.Empty<string>()
                     }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
+                }
+            },
+            Handler = async json =>
+            {
+                string? cat = null;
+                TryRead(json, d =>
+                {
+                    if (d.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
                 });
+                try
+                {
+                    var dto = await context.Bridge.GetFamilyTypesAsync(cat);
+                    if (dto == null) return "Please open a model first.";
+                    var lines = string.Join("\n", dto.Sample.Select(s => $"  {s.Id} \"{s.FamilyName}:{s.Name}\" Cat:{s.Category}"));
+                    var more = dto.Total > 20 ? "\n..." : "";
+                    return $"FamilySymbols ({dto.Total}):\n{lines}{more}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetMaterials(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_materials",
+                    Description = "List materials in model (BIMOne). No params.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    var dto = await context.Bridge.GetMaterialsAsync();
+                    if (dto == null) return "Please open a model first.";
+                    var lines = string.Join("\n", dto.Sample.Select(m => $"  {m.Id} \"{m.Name}\" Class:{m.MaterialClass}"));
+                    var more = dto.Total > 20 ? "\n..." : "";
+                    return $"Materials ({dto.Total}):\n{lines}{more}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetRoomArea(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_room_area",
+                    Description = "Sum room area by level (Dynamo: Room.Area). Optional levelName.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new { levelName = new { type = "string", description = "Level filter" } },
+                        required = Array.Empty<string>()
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string? lvl = null;
+                TryRead(json, d =>
+                {
+                    if (d.TryGetProperty("levelName", out var v) && v.ValueKind == JsonValueKind.String) lvl = v.GetString();
+                });
+                try
+                {
+                    var dto = await context.Bridge.GetRoomAreaAsync(lvl);
+                    if (dto == null) return "Please open a model first.";
+                    var body = dto.RoomCount > 0
+                        ? "\n" + string.Join("\n", dto.Sample.Select(r =>
+                            $"{r.Id} \"{r.Name}\" Level:{r.LevelName} Area:{Metric.Area(r.AreaSqFt)}"))
+                        : "";
+                    return $"Rooms: {dto.RoomCount} Total area: {Metric.Area(dto.TotalAreaSqFt)}{body}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetClashByBb(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_clash_by_bb",
+                    Description = "Find clashing element pairs by bounding box overlap (Navis clash). Params: category1, category2, limit.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category1 = new { type = "string" },
+                            category2 = new { type = "string" },
+                            limit = new { type = "integer" }
+                        },
+                        required = new[] { "category1", "category2" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string c1, c2;
+                int lim = 20;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    c1 = d.RootElement.GetProperty("category1").GetString() ?? "";
+                    c2 = d.RootElement.GetProperty("category2").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number)
+                        lim = l.GetInt32();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                lim = Polyfills.Clamp(lim, 1, 100);
+                try
+                {
+                    var dto = await context.Bridge.GetClashByBoundingBoxAsync(c1, c2, lim);
+                    if (dto == null) return "Please open a model first.";
+                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
+                    if (dto.ClashCount == 0)
+                        return $"No clashes found between {dto.Category1} and {dto.Category2} (sampled 200 each).";
+                    var lines = string.Join("\n", dto.Clashes.Select(p => $"{p.IdA}({p.CategoryA}) <-> {p.IdB}({p.CategoryB})"));
+                    return $"Clashes ({dto.ClashCount}):\n{lines}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateGetModelHealthScore(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "get_model_health_score",
+                    Description = "Overall health score: warnings, views, worksets, rooms. No params. (pyRevit Health)",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    var dto = await context.Bridge.GetModelHealthScoreAsync();
+                    if (dto == null) return "Please open a model first.";
+                    return $"Health score: {dto.Score:F0}/100\nWarnings: {dto.WarningCount} (score {dto.WarningScore})\nViews: {dto.ViewCount}\nWorkshared: {dto.IsWorkshared}\nTitle: {dto.Title}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateSyncInfo(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "sync_info",
+                    Description = "Get worksharing central and sync status (pyRevit). No params.",
+                    Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async _ =>
+            {
+                try
+                {
+                    if (!context.Bridge.HasActiveDocument)
+                        return "Please open a model first.";
+                    var model = await context.Bridge.GetModelSummaryAsync();
+                    var dto = await context.Bridge.GetSyncInfoAsync();
+                    var isWs = dto?.IsWorkshared ?? false;
+                    string central;
+                    if (!isWs) central = "(not workshared)";
+                    else if (string.IsNullOrEmpty(dto?.CentralPath)) central = "(unknown)";
+                    else central = dto!.CentralPath;
+                    var title = model?.Title ?? "";
+                    var path = model?.Path ?? "";
+                    return $"Workshared: {isWs}\nCentral: {central}\nTitle: {title}\nPath: {path}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateAuditWarningsFix(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "audit_warnings_fix",
+                    Description = "List warnings with suggested fix (pyRevit: Audit). Params: limit.",
+                    Parameters = new { type = "object", properties = new { limit = new { type = "integer" } }, required = Array.Empty<string>() }
+                }
+            },
+            Handler = async json =>
+            {
+                int lim = 10;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number)
+                        lim = l.GetInt32();
+                }
+                catch { }
+                lim = Polyfills.Clamp(lim, 1, 50);
+                try
+                {
+                    if (!context.Bridge.HasActiveDocument)
+                        return "Please open a model first.";
+                    var warns = await context.Bridge.GetWarningsRawAsync(lim);
+                    if (warns.Count == 0) return "No warnings.";
+                    var s = $"Warnings {warns.Count} (top {lim}):\n";
+                    int i = 0;
+                    foreach (var w in warns)
+                    {
+                        var check = w.FailingElementIds.Count > 0
+                            ? string.Join(",", w.FailingElementIds.Take(2))
+                            : "";
+                        s += $"{++i}. {w.Description} - Suggest: check {check}\n";
+                    }
+                    return s;
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateQuantityTakeoff(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "quantity_takeoff_by_category",
+                    Description = "Quantity takeoff by category: count, total area, volume, length aggregated to CSV (Dynamo: Quantity Takeoff). Params: category, filePath optional.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            filePath = new { type = "string" }
+                        },
+                        required = new[] { "category" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string cat = ""; string? fp = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    cat = d.RootElement.GetProperty("category").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("filePath", out var f) && f.ValueKind == JsonValueKind.String)
+                        fp = f.GetString();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                try
+                {
+                    var dto = await context.Bridge.GetQuantityTakeoffAsync(cat);
+                    if (dto == null) return "Please open a model first.";
+                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
+                    var sb = new StringBuilder();
+                    sb.AppendLine("Id,Name,Level,AreaM2,VolumeM3,LengthMm");
+                    foreach (var row in dto.Rows)
+                    {
+                        sb.AppendLine($"{row.Id},\"{row.Name}\",\"{row.Level}\",{Metric.Ft2ToM2(row.AreaFt2):F2},{Metric.Ft3ToM3(row.VolumeFt3):F3},{Metric.FtToMm(row.LengthFt):F0}");
+                    }
+                    var path = ExportPaths.ResolveWrite(fp, $"takeoff_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                    File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                    return $"{cat} takeoff: {dto.Count} instances Area {Metric.Area(dto.TotalAreaFt2)} Vol {Metric.Volume(dto.TotalVolumeFt3)} Len {Metric.Length(dto.TotalLengthFt)}\nCSV: {path}\nPreview:\n" + string.Join("\n", sb.ToString().Split('\n').Take(6));
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
             }
         };
     }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Progress;
+using LoadingAI.Protocol;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -138,28 +139,25 @@ internal sealed class ChatSession
         return $"Active: {active.Name} | {active.BaseUrl} | {active.Model}";
     }
 
-    public ProviderConfig? ResolveProviderForTest(JsonDocument doc)
+    public ProviderConfig? ResolveProviderForTest(string? providerId, ProviderConfig? provider)
     {
         try
         {
-            if (doc.RootElement.TryGetProperty("providerId", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+            if (!string.IsNullOrWhiteSpace(providerId))
             {
-                var id = idEl.GetString() ?? "";
-                var found = _settings.Providers.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+                var found = _settings.Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase));
                 if (found != null) return DefaultLlm.BindForCall(found);
             }
-            if (doc.RootElement.TryGetProperty("provider", out var provEl) && provEl.ValueKind == JsonValueKind.Object)
+            if (provider != null)
             {
-                var prov = JsonSerializer.Deserialize<ProviderConfig>(provEl.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (prov == null) return null;
-                if (ProviderSettings.IsMaskedKey(prov.ApiKey) || string.IsNullOrWhiteSpace(prov.ApiKey))
+                if (ProviderSettings.IsMaskedKey(provider.ApiKey) || string.IsNullOrWhiteSpace(provider.ApiKey))
                 {
-                    var stored = _settings.Providers.FirstOrDefault(p => p.Id.Equals(prov.Id, StringComparison.OrdinalIgnoreCase));
+                    var stored = _settings.Providers.FirstOrDefault(p => p.Id.Equals(provider.Id, StringComparison.OrdinalIgnoreCase));
                     if (stored != null)
-                        prov.ApiKey = stored.ApiKey;
+                        provider.ApiKey = stored.ApiKey;
                 }
-                if (string.IsNullOrWhiteSpace(prov.ApiKind)) prov.ApiKind = ProviderSettings.InferApiKind(prov);
-                return DefaultLlm.BindForCall(prov);
+                if (string.IsNullOrWhiteSpace(provider.ApiKind)) provider.ApiKind = ProviderSettings.InferApiKind(provider);
+                return DefaultLlm.BindForCall(provider);
             }
         }
         catch { }
@@ -224,34 +222,34 @@ internal sealed class ChatSession
                 _cts?.Cancel();
                 _agent?.ClearHistory();
                 try { HistoryStore.Append("system", "Cleared."); } catch { }
-                _web.Post(new { type = "status", text = "Cleared." });
+                _web.Post(new FromHostMessage.Status("Cleared."));
                 return;
             }
             else if (slash.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 var help = "Commands: /plan <goal> read-only plan | /build <goal> write and execute | /ask <question> read-only Q&A | /clear clear session | /help help | /export ifc/dwg/pdf | /isolate isolate selection | /hide hide selection | /resume resume | /checkpoints list checkpoints\nMentions: @selection @activeView @visible @warnings @levels @sheets";
-                _web.Post(new { type = "assistant", text = help });
+                _web.Post(new FromHostMessage.Assistant(help));
                 return;
             }
             else if (slash.Equals("checkpoints", StringComparison.OrdinalIgnoreCase))
             {
                 var cps = CheckpointStore.List();
                 var txt = cps.Count == 0 ? "No checkpoints." : string.Join("\n", cps.Select(c => $"{c.Id} {c.CreatedAt:MM-dd HH:mm} {c.Mode} {c.Preview} ({c.MessageCount} msgs)"));
-                _web.Post(new { type = "checkpoints", checkpoints = cps.Select(c => new { id = c.Id, createdAt = c.CreatedAt, mode = c.Mode, preview = c.Preview, messageCount = c.MessageCount }).ToList() });
-                _web.Post(new { type = "assistant", text = txt });
+                _web.Post(new FromHostMessage.Checkpoints(cps));
+                _web.Post(new FromHostMessage.Assistant(txt));
                 return;
             }
             else if (slash.Equals("resume", StringComparison.OrdinalIgnoreCase))
             {
                 var cps2 = CheckpointStore.List();
                 var last = cps2.FirstOrDefault();
-                if (last == null) { _web.Post(new { type = "error", text = "No checkpoints to resume." }); return; }
+                if (last == null) { _web.Post(new FromHostMessage.Error("No checkpoints to resume.")); return; }
                 var msgs2 = CheckpointStore.Load(last.Id);
                 if (msgs2 != null)
                 {
                     _agent?.RestoreHistory(msgs2);
-                    _web.Post(new { type = "status", text = $"Resumed {last.Id}" });
-                    _web.Post(new { type = "history", messages = msgs2.Select(m => new { role = m.Role, text = LlmJson.GetContentString(m.Content) }).ToList() });
+                    _web.Post(new FromHostMessage.Status($"Resumed {last.Id}"));
+                    _web.Post(new FromHostMessage.History(msgs2.Select(m => new FromHostMessage.HistoryMessage(m.Role, LlmJson.GetContentString(m.Content))).ToList()));
                 }
                 return;
             }
@@ -261,33 +259,33 @@ internal sealed class ChatSession
         _lastUserText = text;
         if (_isRunning)
         {
-            _web.Post(new { type = "error", text = "Already working, please wait or press Stop." });
+            _web.Post(new FromHostMessage.Error("Already working, please wait or press Stop."));
             return;
         }
 
         var provider = ProviderSettings.GetActiveForCall(_settings);
         if (provider == null)
         {
-            _web.Post(new { type = "error", text = "No provider configured." });
+            _web.Post(new FromHostMessage.Error("No provider configured."));
             return;
         }
         if (DefaultLlm.IsBuiltin(provider.Id))
         {
             if (!DefaultLlm.HasKey)
             {
-                _web.Post(new { type = "error", text = $"{DefaultLlm.DisplayName} is not available in this build." });
+                _web.Post(new FromHostMessage.Error($"{DefaultLlm.DisplayName} is not available in this build."));
                 return;
             }
         }
         else if (string.IsNullOrWhiteSpace(provider.ApiKey) && provider.BaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0)
         {
-            _web.Post(new { type = "error", text = $"Provider '{provider.Name}' has no API key. Open Settings and paste your key." });
+            _web.Post(new FromHostMessage.Error($"Provider '{provider.Name}' has no API key. Open Settings and paste your key."));
             return;
         }
 
         if (_agent == null)
         {
-            _web.Post(new { type = "error", text = "Agent not ready. Restart Revit and reopen the pane." });
+            _web.Post(new FromHostMessage.Error("Agent not ready. Restart Revit and reopen the pane."));
             return;
         }
 
@@ -295,13 +293,13 @@ internal sealed class ChatSession
 
         if (DefaultLlm.IsBuiltin(provider.Id))
         {
-            _web.Post(new { type = "status", text = $"Checking {DefaultLlm.DisplayName} allowance..." });
+            _web.Post(new FromHostMessage.Status($"Checking {DefaultLlm.DisplayName} allowance..."));
             var quota = await _client.ConsumeBuiltinQuotaAsync();
             _web.PostQuota(quota);
             if (!quota.Ok)
             {
                 _isRunning = false;
-                _web.Post(new { type = "error", text = quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable." });
+                _web.Post(new FromHostMessage.Error(quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable."));
                 return;
             }
         }
@@ -315,7 +313,7 @@ internal sealed class ChatSession
             try { _onUi(() => _web.PostProgress(snap)); } catch { }
         });
         progress.Report(ProgressSnapshot.Thinking());
-        _web.Post(new { type = "status", text = mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..." });
+        _web.Post(new FromHostMessage.Status(mode == "plan" ? "Planning..." : mode == "ask" ? "Thinking..." : "Working..."));
         ContextSnapshot? ctxSnap = null;
         try
         {
@@ -324,7 +322,7 @@ internal sealed class ChatSession
                 ctxSnap = await ContextCollector.CollectAsync(App.Bridge, ct);
                 _onUi(() =>
                 {
-                    try { _web.Post(new { type = "context", context = new { selectionCount = ctxSnap.SelectionCount, selectionPreview = ctxSnap.SelectionPreview, activeView = ctxSnap.ActiveViewName, visibleCount = ctxSnap.VisibleCount, warningCount = ctxSnap.WarningCount, warningPreview = ctxSnap.WarningPreview } }); } catch { }
+                    try { _web.Post(new FromHostMessage.Context(new FromHostMessage.ContextPayload(ctxSnap.SelectionCount, ctxSnap.SelectionPreview, ctxSnap.ActiveViewName, ctxSnap.VisibleCount, ctxSnap.WarningCount, ctxSnap.WarningPreview))); } catch { }
                 });
             }
         }
@@ -349,15 +347,15 @@ internal sealed class ChatSession
                         ExecuteToolAsync,
                         trace =>
                         {
-                            try { _onUi(() => _web.Post(new { type = "trace", text = trace })); } catch { }
+                            try { _onUi(() => _web.Post(new FromHostMessage.Trace(trace))); } catch { }
                         },
                         delta =>
                         {
-                            try { _onUi(() => _web.Post(new { type = "delta", text = delta })); } catch { }
+                            try { _onUi(() => _web.Post(new FromHostMessage.Delta(delta))); } catch { }
                         },
                         todos =>
                         {
-                            try { _onUi(() => _web.Post(new { type = "todo", todos = todos.Select(t => new { id = t.Id, title = t.Title, tool = t.Tool, status = t.Status, error = t.Error }).ToList() })); } catch { }
+                            try { _onUi(() => _web.Post(new FromHostMessage.Todo(todos))); } catch { }
                         },
                         snap => progress.Report(snap),
                         ct);
@@ -368,7 +366,7 @@ internal sealed class ChatSession
                     {
                         if (!string.IsNullOrWhiteSpace(result))
                         {
-                            _web.Post(new { type = "assistant", text = result });
+                            _web.Post(new FromHostMessage.Assistant(result));
                             try { HistoryStore.Append("assistant", result); HistoryStore.Trim(); } catch { }
                             try { CheckpointStore.Save(agent.History, mode); } catch { }
                             if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
@@ -376,20 +374,13 @@ internal sealed class ChatSession
                                 var draft = PlanParser.TryParse(result);
                                 if (draft != null)
                                 {
-                                    _web.Post(new
-                                    {
-                                        type = "plan",
-                                        plan = new
-                                        {
-                                            title = draft.Title,
-                                            steps = draft.Steps.Select(s => new { title = s.Title, status = "pending" }).ToList(),
-                                            isStreaming = false
-                                        }
-                                    });
+                                    _web.Post(new FromHostMessage.Plan(new FromHostMessage.PlanPayload(
+                                        draft.Title,
+                                        draft.Steps.Select(s => new FromHostMessage.PlanStepPayload(s.Title)).ToList())));
                                 }
                             }
                         }
-                        _web.Post(new { type = "status", text = GetStatusText() });
+                        _web.Post(new FromHostMessage.Status(GetStatusText()));
                         _web.PostProgress(ProgressSnapshot.Complete());
                     });
                 }
@@ -399,15 +390,15 @@ internal sealed class ChatSession
                     progress.Report(ProgressSnapshot.Cancelled());
                     _onUi(() =>
                     {
-                        _web.Post(new { type = "error", text = "Cancelled." });
-                        _web.Post(new { type = "status", text = GetStatusText() });
+                        _web.Post(new FromHostMessage.Error("Cancelled."));
+                        _web.Post(new FromHostMessage.Status(GetStatusText()));
                     });
                 }
                 catch (Exception ex)
                 {
                     await FinishTurnGroupAsync(assimilate: false);
                     progress.Report(ProgressSnapshot.Error(ex.Message));
-                    _onUi(() => _web.Post(new { type = "error", text = ex.Message }));
+                    _onUi(() => _web.Post(new FromHostMessage.Error(ex.Message)));
                 }
                 finally
                 {
@@ -431,7 +422,7 @@ internal sealed class ChatSession
                 name,
                 _registry.GetToolDefinitions().Select(d => d.Function.Name).ToList(),
                 _discovered.SelectMany(p => p.Tools.Select(t => (p.Meta.Id, t.Definition.Function.Name))).ToList());
-            try { _onUi(() => _web.Post(new { type = "tool_result", text = hint })); } catch { }
+            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(hint))); } catch { }
             return hint;
         }
 
@@ -440,7 +431,7 @@ internal sealed class ChatSession
             var preset = await _approvals.AwaitPresetAsync(entry, name, argsJson);
             if (!preset.approved)
             {
-                try { _onUi(() => _web.Post(new { type = "tool_result", text = $"{name} {preset.message}" })); } catch { }
+                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {preset.message}"))); } catch { }
                 MarkTurnFailedIfGroupActive();
                 return preset.message;
             }
@@ -456,7 +447,7 @@ internal sealed class ChatSession
             }
             else
             {
-                try { _onUi(() => _web.Post(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
+                try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson}"))); } catch { }
             }
         }
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
@@ -477,7 +468,7 @@ internal sealed class ChatSession
         }
         else
         {
-            try { _onUi(() => _web.Post(new { type = "tool_call", text = $"{name}: {argsJson}" })); } catch { }
+            try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson}"))); } catch { }
         }
 
         var dryRun = ToolPresets.IsDryRun(argsJson);
@@ -503,7 +494,7 @@ internal sealed class ChatSession
         else if (isWrite)
             _turnWrote = true;
 
-        try { _onUi(() => _web.Post(new { type = "tool_result", text = $"{name} result: {WebHostBridge.Truncate(result, 400)}" })); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} result: {WebHostBridge.Truncate(result, 400)}"))); } catch { }
 
         if (entry.Tier != ToolTier.L1)
         {

@@ -40,7 +40,7 @@ See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/
 Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. Confirm merges form values over AI args; L3 still shows the native TaskDialog.
 
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
-- `Plugins/core-tools/` — FullAccess query/view/param/geometry + compat (63 tools; L3 off by default)
+- `Plugins/core-tools/` — Bridge-only query/view/param/geometry/document (L3 off by default)
 - `Plugins/export-tools/` — `export_pdf`, `export_dwg`, `export_ifc`, `purge_unused`
 - `Plugins/view-tools/` — `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
 - `Plugins/modeling-tools/` — `load_family`, `change_element_type`, `create_topography`
