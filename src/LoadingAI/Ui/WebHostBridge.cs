@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using LoadingAI.Llm;
 using LoadingAI.Progress;
+using LoadingAI.Protocol;
 
 namespace LoadingAI.Ui;
 
@@ -22,7 +23,9 @@ internal sealed class WebHostBridge
     {
         try
         {
-            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            var json = payload is FromHostMessage msg
+                ? FromHostMessage.Serialize(msg)
+                : JsonSerializer.Serialize(payload, JsonOptions);
             _web()?.PostWebMessageAsJson(json);
         }
         catch { }
@@ -53,42 +56,9 @@ internal sealed class WebHostBridge
         }
     }
 
-    public void PostQuota(QuotaStatus quota)
-    {
-        Post(new
-        {
-            type = "quota",
-            quota = new
-            {
-                providerId = DefaultLlm.Id,
-                limit = quota.Limit,
-                used = quota.Used,
-                remaining = quota.Remaining,
-                resetUtc = quota.ResetUtc,
-                exhausted = quota.Exhausted,
-                ok = quota.Ok,
-                message = quota.Message
-            }
-        });
-    }
+    public void PostQuota(QuotaStatus quota) => Post(FromHostMessage.QuotaOf(quota, DefaultLlm.Id));
 
-    public void PostProgress(ProgressSnapshot snap)
-    {
-        Post(new
-        {
-            type = "progress",
-            progress = new
-            {
-                phase = snap.Phase,
-                label = snap.Label,
-                tool = snap.Tool,
-                percent = snap.Percent,
-                current = snap.Current,
-                total = snap.Total,
-                indeterminate = snap.Indeterminate
-            }
-        });
-    }
+    public void PostProgress(ProgressSnapshot snap) => Post(new FromHostMessage.Progress(snap));
 
     public static string Truncate(string s, int n) => s.Length <= n ? s : s.Substring(0, n) + "...";
 }

@@ -17,21 +17,23 @@ namespace LoadingAI.Plugins.Core;
 public sealed class PluginContext : IPluginContext, IRawRevitAccess
 {
     private readonly RevitBridge _raw;
-        private readonly string _pluginDir;
-        private readonly bool _fullAccessGranted;
-        private readonly CancellationTokenSource _shutdown;
+    private readonly IRevitBridge _bridge;
+    private readonly string _pluginDir;
+    private readonly bool _fullAccessGranted;
+    private readonly CancellationTokenSource _shutdown;
 
-        public PluginContext(RevitBridge raw, string pluginDir, bool fullAccessGranted)
-        {
-            _raw = raw;
-            _pluginDir = pluginDir;
+    public PluginContext(RevitBridge raw, string pluginDir, bool fullAccessGranted)
+    {
+        _raw = raw;
+        _bridge = new AdapterRevitBridge(_raw);
+        _pluginDir = pluginDir;
         _fullAccessGranted = fullAccessGranted;
         _shutdown = new CancellationTokenSource();
     }
 
     public IProgressReporter Progress => ProgressReporter.Current;
 
-    public IRevitBridge Bridge => new AdapterRevitBridge(_raw);
+    public IRevitBridge Bridge => _bridge;
 
     public string PluginDir => _pluginDir;
 
@@ -52,7 +54,7 @@ public sealed class PluginContext : IPluginContext, IRawRevitAccess
 
     public IRawRevitAccess? FullAccess => _fullAccessGranted ? this : null;
 
-        /// <summary>Signals this plugin to wind down before unload (cooperative reload gate).</summary>
+    /// <summary>Signals this plugin to wind down before unload (cooperative reload gate).</summary>
     internal void BeginShutdown() => _shutdown.Cancel();
 
     // IRawRevitAccess

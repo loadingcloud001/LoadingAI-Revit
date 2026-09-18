@@ -43,12 +43,14 @@ public class AdapterContractTests
         Assert.Contains(typeof(IRevitParamCommand), interfaces);
         Assert.Contains(typeof(IRevitElementCommand), interfaces);
         Assert.Contains(typeof(IRevitCreateCommand), interfaces);
+        Assert.Contains(typeof(IRevitDocumentCommand), interfaces);
 
         var commandBases = typeof(IRevitCommand).GetInterfaces();
         Assert.Contains(typeof(IRevitViewCommand), commandBases);
         Assert.Contains(typeof(IRevitParamCommand), commandBases);
         Assert.Contains(typeof(IRevitElementCommand), commandBases);
         Assert.Contains(typeof(IRevitCreateCommand), commandBases);
+        Assert.Contains(typeof(IRevitDocumentCommand), commandBases);
     }
 
     [Fact]

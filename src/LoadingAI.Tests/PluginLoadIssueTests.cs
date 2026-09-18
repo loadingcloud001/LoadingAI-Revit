@@ -49,7 +49,8 @@ public class PluginLoadIssueTests
     public void HostAndWeb_SurfaceLoadIssues()
     {
         var host = UiSrc();
-        Assert.Contains("loadIssues = PluginLoader.Issues", host);
+        Assert.Contains("new FromHostMessage.Plugins", host);
+        Assert.Contains("PluginLoader.Issues", host);
         Assert.Contains("EnvironmentWarnings", host);
         Assert.Contains("ApplyPluginLoadWarnings", host);
 

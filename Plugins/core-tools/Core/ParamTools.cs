@@ -1,6 +1,7 @@
+using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Text.Json;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Plugins;
@@ -16,6 +17,11 @@ public static class ParamTools
         yield return CreateBatchSetParameter(context);
         yield return CreateRenameElements(context);
         yield return CreateApplyConstructionDates(context);
+        yield return CreateExportParamsToExcel(context);
+        yield return CreateImportExcelToParams(context);
+        yield return CreateCopyParams(context);
+        yield return CreateReplaceText(context);
+        yield return CreateNumberingAuto(context);
     }
 
     internal static ToolEntry CreateSetParameterById(IPluginContext context)
@@ -184,7 +190,7 @@ public static class ParamTools
                 string? pattern = null;
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                     eids = d.RootElement.GetProperty("elementIds").EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     if (d.RootElement.TryGetProperty("newNames", out var nn) && nn.ValueKind == JsonValueKind.Array) newNames = nn.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     if (d.RootElement.TryGetProperty("newNamePattern", out var pat) && pat.ValueKind == JsonValueKind.String) pattern = pat.GetString();
@@ -193,38 +199,11 @@ public static class ParamTools
                 if (eids.Count == 0) return "Provide elementIds.";
                 if (newNames != null && newNames.Count != eids.Count) return "newNames length must match elementIds.";
                 if (newNames == null && string.IsNullOrWhiteSpace(pattern)) return "Provide newNames or newNamePattern.";
-                var newNamesCapture = newNames; var patternCapture = pattern;
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    int updated = 0;
-                    using var tx = new Transaction(doc, $"LoadingAI for Revit: rename {eids.Count} elements");
-                    tx.Start();
-                    try
-                    {
-                        for (int i = 0; i < eids.Count; i++)
-                        {
-                            var el = doc.GetElement(AllTools.ParseEid(eids[i]));
-                            if (el == null) continue;
-                            var nn = newNamesCapture != null ? newNamesCapture[i] : patternCapture!.Replace("{i}", i.ToString());
-                            // View.Name, etc.
-                            el.Name = nn;
-                            updated++;
-                        }
-                        tx.Commit();
-                    }
-                    catch { try { tx.RollBack(); } catch { } throw; }
-                    return $"Renamed {updated}/{eids.Count} element(s).";
-                });
-                return result;
+                var result = await context.Bridge.RenameElementsAsync(eids, newNames, pattern);
+                return result.Message;
             }
         };
     }
-
-    // ---------- geometry / create ----------
-
 
     internal static ToolEntry CreateApplyConstructionDates(IPluginContext context)
     {
@@ -237,7 +216,7 @@ public static class ParamTools
                 Function = new ToolFunction
                 {
                     Name = "apply_construction_dates",
-                    Description = "Bulk apply Construction Date (or any text param) bottom-up by level elevation in ONE transaction. Provide startDate (YYYY-MM-DD or YYYYMMDD) and intervalDays. Colors? No ??this only sets the parameter value. For coloring use color_by_construction_schedule. Handles all levels sorted low?igh and all categories at once to avoid max rounds.",
+                    Description = "Bulk apply Construction Date (or any text param) bottom-up by level elevation in ONE transaction. Provide startDate (YYYY-MM-DD or YYYYMMDD) and intervalDays. This only sets the parameter value. For coloring use color_by_construction_schedule. Handles all levels sorted low-high and all categories at once to avoid max rounds.",
                     Parameters = new
                     {
                         type = "object",
@@ -257,125 +236,299 @@ public static class ParamTools
                 string startDateStr = ""; int interval = 14; string targetParam = "Construction Date"; List<string>? cats = null;
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                     startDateStr = d.RootElement.GetProperty("startDate").GetString() ?? "";
                     if (d.RootElement.TryGetProperty("intervalDays", out var iv) && iv.ValueKind == JsonValueKind.Number) interval = iv.GetInt32();
                     if (d.RootElement.TryGetProperty("targetParam", out var tp) && tp.ValueKind == JsonValueKind.String) targetParam = tp.GetString() ?? targetParam;
                     if (d.RootElement.TryGetProperty("categories", out var ca) && ca.ValueKind == JsonValueKind.Array) cats = ca.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if (!TryParseDate(startDateStr, out var startDate)) return $"Invalid startDate '{startDateStr}'. Use YYYY-MM-DD or YYYYMMDD.";
+                if (!TryParseDate(startDateStr, out _)) return $"Invalid startDate '{startDateStr}'. Use YYYY-MM-DD or YYYYMMDD.";
                 interval = Polyfills.Clamp(interval, 1, 365);
-
-                // Preview: get levels
-                var preview = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return (err: "Please open a model first.", levels: Array.Empty<(string name, double elev)>());
-                    try
-                    {
-                        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).Select(l => (name: l.Name, elev: l.Elevation)).ToArray();
-                        return (err: "", levels: levels);
-                    }
-                    catch (Exception ex) { return (err: ex.Message, levels: Array.Empty<(string name, double elev)>()); }
-                });
-                if (!string.IsNullOrEmpty(preview.err)) return preview.err;
-                var levelNames = preview.levels.Select(l => l.name).ToArray();
-                var schedule = levelNames.Select((n, i) => (n, date: startDate.AddDays(i * interval).ToString("yyyy-MM-dd"))).ToArray();
-
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    try
-                    {
-                        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
-                        var levelById = levels.ToDictionary(l => l.Id, l => l.Name);
-                        var levelByName = levels.ToDictionary(l => l.Name, l => l, StringComparer.OrdinalIgnoreCase);
-                        var dateByLevel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < levels.Count; i++) dateByLevel[levels[i].Name] = startDate.AddDays(i * interval).ToString("yyyy-MM-dd");
-
-                        // Categories to process
-                        List<BuiltInCategory> bics = new();
-                        if (cats != null && cats.Count > 0)
-                        {
-                            foreach (var c in cats) { var bic = AllTools.ParseCategory(c); if (bic != null) bics.Add(bic.Value); }
-                        }
-                        else
-                        {
-                            string[] defaults = { "Walls", "Doors", "Windows", "Floors", "Ceilings", "Roofs", "Structural Framing", "Structural Columns", "Columns", "Generic Models", "Furniture", "Rooms" };
-                            foreach (var c in defaults) { var bic = AllTools.ParseCategory(c); if (bic != null) bics.Add(bic.Value); }
-                        }
-
-                        int updated = 0, skipped = 0, noParam = 0;
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: apply {targetParam} bottom-up");
-                        tx.Start();
-                        try
-                        {
-                            foreach (var bic in bics)
-                            {
-                                var elems = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements();
-                                foreach (var el in elems)
-                                {
-                                    string? lvlName = null;
-                                    if (el.LevelId != ElementId.InvalidElementId && levelById.TryGetValue(el.LevelId, out var ln)) lvlName = ln;
-                                    else
-                                    {
-                                        // try params
-                                        var p = el.LookupParameter("Base Constraint") ?? el.LookupParameter("Level") ?? el.LookupParameter("Reference Level") ?? el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM) ?? el.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT) ?? el.get_Parameter(BuiltInParameter.LEVEL_PARAM);
-                                        if (p != null)
-                                        {
-                                            if (p.StorageType == StorageType.ElementId) { var id = p.AsElementId(); if (levelById.TryGetValue(id, out var n2)) lvlName = n2; }
-                                            else lvlName = p.AsString() ?? p.AsValueString();
-                                        }
-                                        if (lvlName != null && !levelByName.ContainsKey(lvlName)) lvlName = null; // ignore non-level values like "Parking" may still be valid but not in level list? Keep it if matches level list else fallback to nearest? For now skip unmatched
-                                    }
-                                    if (lvlName == null || !dateByLevel.TryGetValue(lvlName, out var dateVal)) continue;
-                                    if (!AllTools.TrySetParameter(el, targetParam, dateVal, out var err))
-                                    {
-                                        // fallback to Comments if Construction Date missing
-                                        if (targetParam.Equals("Construction Date", StringComparison.OrdinalIgnoreCase) && err.Contains("not found"))
-                                        {
-                                            if (!AllTools.TrySetParameter(el, "Comments", dateVal, out _)) noParam++;
-                                            else updated++;
-                                            continue;
-                                        }
-                                        skipped++;
-                                        continue;
-                                    }
-                                    updated++;
-                                }
-                            }
-                            tx.Commit();
-                        }
-                        catch
-                        {
-                            try { tx.RollBack(); } catch { }
-                            throw;
-                        }
-                        var msg = $"Applied {targetParam} bottom-up {startDate:yyyy-MM-dd} (+{interval}d) to {updated} element(s) across {bics.Count} categories, {levels.Count} levels.";
-                        if (skipped > 0) msg += $" Skipped {skipped} (read-only/type).";
-                        if (noParam > 0) msg += $" No param on {noParam} (used Comments fallback where possible).";
-                        msg += "\nSchedule:\n" + string.Join("\n", schedule.Select(s => $"{s.n} = {s.date}"));
-                        return msg;
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.ApplyConstructionDatesAsync(startDateStr, interval, targetParam, cats);
+                return result.Message;
             }
         };
     }
 
+    internal static ToolEntry CreateExportParamsToExcel(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "export_params_to_excel",
+                    Description = "Export element parameters to CSV (Excel compatible) — pyRevit: Export/DiRoots. Params: category, paramNames (comma), filePath optional, limit.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            paramNames = new { type = "string", description = "Comma separated e.g. Comments,Mark,Level" },
+                            filePath = new { type = "string" },
+                            limit = new { type = "integer" }
+                        },
+                        required = new[] { "category" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string cat = ""; string? paramNames = null; string? filePath = null; int lim = 200;
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    cat = d.RootElement.GetProperty("category").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("paramNames", out var pn) && pn.ValueKind == JsonValueKind.String) paramNames = pn.GetString();
+                    if (d.RootElement.TryGetProperty("filePath", out var fp) && fp.ValueKind == JsonValueKind.String) filePath = fp.GetString();
+                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) lim = l.GetInt32();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                lim = Polyfills.Clamp(lim, 1, 1000);
+                string[] cols = string.IsNullOrWhiteSpace(paramNames) ? new[] { "Comments", "Mark" } : paramNames.SplitTrim(',');
+                var dto = await context.Bridge.ExportParamsAsync(cat, cols, lim);
+                if (dto == null) return "Please open a model first.";
+                if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
+                try
+                {
+                    var path = ExportPaths.ResolveWrite(filePath, $"export_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                    var sb = new StringBuilder();
+                    sb.AppendLine("Id," + string.Join(",", dto.Columns));
+                    foreach (var row in dto.Rows)
+                    {
+                        var vals = new List<string> { row.Id };
+                        foreach (var v in row.Values)
+                            vals.Add($"\"{(v ?? "").Replace("\"", "\"\"")}\"");
+                        sb.AppendLine(string.Join(",", vals));
+                    }
+                    File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                    return $"Exported {dto.Rows.Count} {cat} to {path}\nColumns: {string.Join(", ", dto.Columns)}\nFirst 3:\n" + string.Join("\n", sb.ToString().Split('\n').Take(4));
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateImportExcelToParams(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "import_excel_to_params",
+                    Description = "Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            filePath = new { type = "string" },
+                            paramName = new { type = "string" }
+                        },
+                        required = new[] { "filePath", "paramName" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string fp = "", pn = "";
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    fp = d.RootElement.GetProperty("filePath").GetString() ?? "";
+                    pn = d.RootElement.GetProperty("paramName").GetString() ?? "";
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                try { fp = ExportPaths.ResolveRead(fp); } catch (Exception ex) { return ex.Message; }
+                if (!File.Exists(fp)) return $"File not found: {fp}";
+                var lines = File.ReadAllLines(fp);
+                if (lines.Length < 2) return "File empty or no data rows";
+                var header = lines[0].Split(',');
+                int idIdx = 0; int valIdx = 1;
+                for (int i = 0; i < header.Length; i++)
+                    if (header[i].Trim('"').Equals(pn, StringComparison.OrdinalIgnoreCase)) valIdx = i;
+                var rows = new List<ParamImportRowDto>();
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    var parts = SplitCsv(lines[i]);
+                    if (parts.Length < 2) continue;
+                    var id = idIdx < parts.Length ? parts[idIdx].Trim('"') : "";
+                    var val = valIdx < parts.Length ? parts[valIdx].Trim('"') : "";
+                    rows.Add(new ParamImportRowDto(id, val));
+                }
+                if (rows.Count == 0) return "No rows parsed";
+                var result = await context.Bridge.ImportParamsAsync(pn, rows, fp);
+                return result.Message;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateCopyParams(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "copy_params",
+                    Description = "Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            sourceParam = new { type = "string" },
+                            targetParam = new { type = "string" },
+                            limit = new { type = "integer" }
+                        },
+                        required = new[] { "category", "sourceParam", "targetParam" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string cat = "", src = "", tgt = ""; int lim = 200;
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    cat = d.RootElement.GetProperty("category").GetString() ?? "";
+                    src = d.RootElement.GetProperty("sourceParam").GetString() ?? "";
+                    tgt = d.RootElement.GetProperty("targetParam").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) lim = l.GetInt32();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                lim = Polyfills.Clamp(lim, 1, 1000);
+                var result = await context.Bridge.CopyParamsAsync(cat, src, tgt, lim);
+                return result.Message;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateReplaceText(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "replace_text",
+                    Description = "Regex replace in parameter (pyRevit: Replace). Params: category, paramName, pattern, replacement, limit.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            paramName = new { type = "string" },
+                            pattern = new { type = "string" },
+                            replacement = new { type = "string" },
+                            limit = new { type = "integer" }
+                        },
+                        required = new[] { "category", "paramName", "pattern", "replacement" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string cat = "", pn = "", pat = "", rep = ""; int lim = 200;
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    cat = d.RootElement.GetProperty("category").GetString() ?? "";
+                    pn = d.RootElement.GetProperty("paramName").GetString() ?? "";
+                    pat = d.RootElement.GetProperty("pattern").GetString() ?? "";
+                    rep = d.RootElement.GetProperty("replacement").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) lim = l.GetInt32();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                lim = Polyfills.Clamp(lim, 1, 1000);
+                var result = await context.Bridge.ReplaceTextInParamAsync(cat, pn, pat, rep, lim);
+                return result.Message;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateNumberingAuto(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "numbering_auto",
+                    Description = "Auto number Mark by selection order or category (pyRevit: Auto Number). Params: category or use selection if omitted, prefix, start, pad.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            prefix = new { type = "string" },
+                            start = new { type = "integer" },
+                            pad = new { type = "integer" }
+                        },
+                        required = Array.Empty<string>()
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string? cat = null; string pref = ""; int start = 1, pad = 3;
+                try
+                {
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
+                    if (d.RootElement.TryGetProperty("prefix", out var p) && p.ValueKind == JsonValueKind.String) pref = p.GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("start", out var s) && s.ValueKind == JsonValueKind.Number) start = s.GetInt32();
+                    if (d.RootElement.TryGetProperty("pad", out var pa) && pa.ValueKind == JsonValueKind.Number) pad = pa.GetInt32();
+                }
+                catch { }
+                var result = await context.Bridge.NumberElementsAsync(cat, pref, start, pad);
+                return result.Message;
+            }
+        };
+    }
+
+    private static string[] SplitCsv(string line)
+    {
+        var res = new List<string>();
+        var cur = new StringBuilder();
+        bool inQ = false;
+        foreach (var ch in line)
+        {
+            if (ch == '"') inQ = !inQ;
+            else if (ch == ',' && !inQ) { res.Add(cur.ToString()); cur.Clear(); }
+            else cur.Append(ch);
+        }
+        res.Add(cur.ToString());
+        return res.ToArray();
+    }
+
     private static bool TryParseDate(string s, out DateTime dt)
     {
-        s = s.Trim();
-        if (DateTime.TryParseExact(s, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt)) return true;
-        if (DateTime.TryParseExact(s, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt)) return true;
+        s = (s ?? "").Trim();
+        if (DateTime.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return true;
+        if (DateTime.TryParseExact(s, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return true;
         if (DateTime.TryParse(s, out dt)) return true;
         dt = default;
         return false;
     }
-
 }

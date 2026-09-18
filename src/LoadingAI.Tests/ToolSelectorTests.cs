@@ -143,6 +143,70 @@ public class ToolSelectorTests
             Assert.Contains(selected, t => t.Function.Name == name);
     }
 
+    [Fact]
+    public void Recall_FirstRoundDropThenSwapIn_KeepsCapAndAlwaysKeep()
+    {
+        var catalog = RealSurface();
+        Assert.True(catalog.Count > ToolSelector.DefaultMax);
+        const string first = "hello there, just chatting";
+        const string later = "export a pdf of the sheets";
+        var firstRound = ToolSelector.Select(catalog, first);
+        Assert.DoesNotContain(firstRound, t => t.Function.Name == "export_pdf");
+        Assert.Equal(ToolSelector.DefaultMax, firstRound.Count);
+
+        var recalled = ToolSelector.Recall(catalog, firstRound, later);
+        Assert.True(recalled.Count <= ToolSelector.DefaultMax);
+        Assert.Equal(ToolSelector.DefaultMax, recalled.Count);
+        Assert.Contains(recalled, t => t.Function.Name == "export_pdf");
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(recalled, t => t.Function.Name == name);
+    }
+
+    [Fact]
+    public void Recall_EmptyLaterText_LeavesSelectionUnchanged()
+    {
+        var catalog = RealSurface();
+        var first = ToolSelector.Select(catalog, "hello there, just chatting");
+        var recalled = ToolSelector.Recall(catalog, first, "   ");
+        Assert.Equal(first.Select(t => t.Function.Name), recalled.Select(t => t.Function.Name));
+    }
+
+    [Fact]
+    public void Recall_DoesNotEvictAlwaysKeep()
+    {
+        var catalog = RealSurface();
+        var first = ToolSelector.Select(catalog, "hello there, just chatting");
+        var recalled = ToolSelector.Recall(catalog, first, "export a pdf of the sheets split beams by columns create formwork");
+        Assert.True(recalled.Count <= ToolSelector.DefaultMax);
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(recalled, t => t.Function.Name == name);
+    }
+
+    [Fact]
+    public void ComposeRecallText_IncludesUserAndToolNames()
+    {
+        var history = new List<ChatMessage>
+        {
+            new() { Role = "system", Content = "sys" },
+            ChatMessage.FromText("user", "hello there, just chatting"),
+            new()
+            {
+                Role = "assistant",
+                Content = "I'll inspect first",
+                ToolCalls = new List<ToolCall>
+                {
+                    new() { Function = new ToolCallFunction { Name = "get_model_summary" } }
+                }
+            },
+            new() { Role = "tool", Name = "get_model_summary", Content = "Model has 12 sheets ready for export pdf" }
+        };
+        var text = AgentLoop.ComposeRecallText(history);
+        Assert.Contains("hello there", text);
+        Assert.Contains("get_model_summary", text);
+        Assert.Contains("export pdf", text);
+        Assert.DoesNotContain("sys", text);
+    }
+
     [Theory]
     [InlineData("split all beams by columns", "split_beams_by_columns")]
     [InlineData("split the slab at the beams", "split_floors_by_beams")]

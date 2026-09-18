@@ -15,17 +15,6 @@
     <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
-    <ProjectReference Include="..\..\src\LoadingAI.RevitUtil\LoadingAI.RevitUtil.csproj">
-      <Private>false</Private>
-    </ProjectReference>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)">
-      <Private>false</Private>
-      <ExcludeAssets>runtime</ExcludeAssets>
-    </PackageReference>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)">
-      <Private>false</Private>
-      <ExcludeAssets>runtime</ExcludeAssets>
-    </PackageReference>
   </ItemGroup>
   <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(PluginOutDir)" />

@@ -121,26 +121,16 @@ public sealed class AgentLoop
         var userTextForSelect = LlmJson.GetContentString(userMsg.Content);
         try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
-        IEnumerable<ToolEntry> catalog = _registry.Entries;
+        IEnumerable<ToolEntry> catalogQuery = _registry.Entries;
         if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            catalog = catalog.Where(e => e.Tier == ToolTier.L1);
+            catalogQuery = catalogQuery.Where(e => e.Tier == ToolTier.L1);
         }
+        var catalog = catalogQuery as IList<ToolEntry> ?? catalogQuery.ToList();
         var selected = ToolSelector.Select(catalog, userTextForSelect);
-        var tools = selected.Count == 0 ? null : selected;
-        var sys = BuildSystemPrompt(selected, EnvironmentWarnings);
-        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
-            sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
-        else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
-            sys = "ASK MODE — read-only: you may use L1 inspect tools to answer. Do not modify the model. Be concise.\n" + sys;
-        else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
-            sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
-        lock (_historyLock)
-        {
-            if (_history.Count > 0 && _history[0].Role == "system")
-                _history[0].Content = sys;
-        }
+        List<ToolDefinition>? tools = selected.Count == 0 ? null : selected;
+        ApplySystemPrompt(mode, selected);
 
         const int MaxRounds = 64;
         void Report(ProgressSnapshot snap)
@@ -152,6 +142,15 @@ public sealed class AgentLoop
         {
             ct.ThrowIfCancellationRequested();
             Report(ProgressSnapshot.Thinking(round + 1));
+
+            if (round > 0)
+            {
+                List<ChatMessage> recallSnap;
+                lock (_historyLock) recallSnap = new List<ChatMessage>(_history);
+                selected = ToolSelector.Recall(catalog, selected, ComposeRecallText(recallSnap));
+                tools = selected.Count == 0 ? null : selected;
+                ApplySystemPrompt(mode, selected);
+            }
 
             List<ChatMessage> snapshot;
             lock (_historyLock) snapshot = new List<ChatMessage>(_history);
@@ -307,6 +306,62 @@ public sealed class AgentLoop
         var abort = "Max tool rounds (64) reached. I stopped to avoid an infinite loop. Say 'continue' to keep going, or press Stop. Partial work may have been applied.";
         lock (_historyLock) _history.Add(new ChatMessage { Role = "assistant", Content = abort });
         return abort;
+    }
+
+    private void ApplySystemPrompt(string? mode, IReadOnlyList<ToolDefinition> selected)
+    {
+        var sys = BuildSystemPrompt(selected, EnvironmentWarnings);
+        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+            sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
+        else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
+            sys = "ASK MODE — read-only: you may use L1 inspect tools to answer. Do not modify the model. Be concise.\n" + sys;
+        else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
+            sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
+        lock (_historyLock)
+        {
+            if (_history.Count > 0 && _history[0].Role == "system")
+                _history[0].Content = sys;
+        }
+    }
+
+    /// <summary>
+    /// Later-round hint for <see cref="ToolSelector.Recall"/>: user text plus recent tool names and results.
+    /// </summary>
+    public static string ComposeRecallText(IReadOnlyList<ChatMessage> history)
+    {
+        var parts = new List<string>();
+        var toolNames = new List<string>();
+        var toolSnips = new List<string>();
+        foreach (var m in history)
+        {
+            if (string.Equals(m.Role, "system", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                var text = LlmJson.GetContentString(m.Content);
+                if (!string.IsNullOrWhiteSpace(text)) parts.Add(text);
+            }
+            if (m.ToolCalls != null)
+            {
+                foreach (var tc in m.ToolCalls)
+                {
+                    var n = tc.Function?.Name;
+                    if (!string.IsNullOrWhiteSpace(n)) toolNames.Add(n!);
+                }
+            }
+            if (string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(m.Name)) toolNames.Add(m.Name!);
+                var body = LlmJson.GetContentString(m.Content);
+                if (!string.IsNullOrWhiteSpace(body))
+                    toolSnips.Add(body.Length > 240 ? body.Substring(0, 240) : body);
+            }
+        }
+        if (toolNames.Count > 4) toolNames = toolNames.Skip(toolNames.Count - 4).ToList();
+        if (toolSnips.Count > 2) toolSnips = toolSnips.Skip(toolSnips.Count - 2).ToList();
+        if (toolNames.Count > 0) parts.Add(string.Join(" ", toolNames));
+        parts.AddRange(toolSnips);
+        return string.Join("\n", parts);
     }
 
     public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools, string? environmentWarnings = null)

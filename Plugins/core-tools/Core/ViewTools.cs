@@ -1,6 +1,5 @@
+using System.Globalization;
 using System.Text.Json;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Plugins;
@@ -17,6 +16,13 @@ public static class ViewTools
         yield return CreateOverrideColorInView(context);
         yield return CreateColorByConstructionSchedule(context);
         yield return CreateColorByParameter(context);
+        yield return CreateCreateSheet(context);
+        yield return CreatePlaceViewOnSheet(context);
+        yield return CreateDuplicateViewEx(context);
+        yield return CreateSetViewTemplate(context);
+        yield return CreateSetCropBox(context);
+        yield return CreateCreateDimension(context);
+        yield return CreateTagAll(context);
     }
 
     internal static ToolEntry CreateIsolateInView(IPluginContext context)
@@ -169,7 +175,7 @@ public static class ViewTools
                 bool reset = false;
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
                     if (d.RootElement.TryGetProperty("elementIds", out var a) && a.ValueKind == JsonValueKind.Array) eids = a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
                     if (d.RootElement.TryGetProperty("color", out var col) && col.ValueKind == JsonValueKind.String) color = col.GetString();
@@ -182,83 +188,11 @@ public static class ViewTools
                     eids = sel.ElementIds.ToList();
                 }
                 if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return "Please select elements first.";
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    if (view.IsTemplate) return "Cannot override in view template.";
-                    try
-                    {
-                        Color clr = new Color(255, 0, 0);
-                        if (!reset && !string.IsNullOrWhiteSpace(color))
-                        {
-                            clr = ParseColor(color!);
-                        }
-                        var ogs = new OverrideGraphicSettings();
-                        if (reset) { /* empty resets */ }
-                        else
-                        {
-                            ogs.SetProjectionLineColor(clr);
-                            ogs.SetSurfaceForegroundPatternColor(clr);
-                            ogs.SetCutForegroundPatternColor(clr);
-                        }
-
-                        using var tx = new Transaction(doc, reset ? $"LoadingAI for Revit: reset color in {view.Name}" : $"LoadingAI for Revit: color {color} in {view.Name}");
-                        tx.Start();
-                        try
-                        {
-                            if (!string.IsNullOrWhiteSpace(cat) && (eids == null || eids.Count == 0))
-                            {
-                                var bic = AllTools.ParseCategory(cat);
-                                if (bic == null) { tx.RollBack(); return $"Unknown category '{cat}'."; }
-                                var catObj = doc.Settings.Categories.get_Item(bic.Value);
-                                if (catObj == null) { tx.RollBack(); return $"Category '{cat}' not found."; }
-                                view.SetCategoryOverrides(catObj.Id, reset ? new OverrideGraphicSettings() : ogs);
-                                tx.Commit();
-                                return reset ? $"Reset color for {cat} in '{view.Name}'." : $"Set {color} override for {cat} in '{view.Name}'.";
-                            }
-                            else
-                            {
-                                var ids = eids!.Select(AllTools.ParseEid).ToList();
-                                foreach (var id in ids) view.SetElementOverrides(id, reset ? new OverrideGraphicSettings() : ogs);
-                                tx.Commit();
-                                return reset ? $"Reset color for {ids.Count} element(s) in '{view.Name}'." : $"Set {color} override for {ids.Count} element(s) in '{view.Name}'.";
-                            }
-                        }
-                        catch
-                        {
-                            try { tx.RollBack(); } catch { }
-                            throw;
-                        }
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.OverrideColorInViewAsync(eids, cat, color, reset);
+                return result.Message;
             }
         };
     }
-
-    private static Color ParseColor(string s)
-    {
-        s = s.Trim().ToLowerInvariant();
-        return s switch
-        {
-            "red" => new Color(255, 0, 0),
-            "green" => new Color(0, 200, 0),
-            "blue" => new Color(0, 0, 255),
-            "yellow" => new Color(255, 255, 0),
-            "orange" => new Color(255, 165, 0),
-            "purple" => new Color(128, 0, 128),
-            _ when s.StartsWith("#") && s.Length == 7 && int.TryParse(s.Substring(1, 2), System.Globalization.NumberStyles.HexNumber, null, out var r) && int.TryParse(s.Substring(3, 2), System.Globalization.NumberStyles.HexNumber, null, out var g) && int.TryParse(s.Substring(5, 2), System.Globalization.NumberStyles.HexNumber, null, out var b) => new Color((byte)r, (byte)g, (byte)b),
-            _ => new Color(255, 0, 0)
-        };
-    }
-
-    // ---------- param ----------
-
 
     internal static ToolEntry CreateColorByConstructionSchedule(IPluginContext context)
     {
@@ -270,7 +204,7 @@ public static class ViewTools
                 Function = new ToolFunction
                 {
                     Name = "color_by_construction_schedule",
-                    Description = "Bulk color elements in active view by construction schedule bottom-up (earliest blue ??latest red) in ONE transaction. Avoids per-level find+override loops. Provide startDate and intervalDays, optional categories and palette.",
+                    Description = "Bulk color elements in active view by construction schedule bottom-up (earliest blue → latest red) in ONE transaction. Avoids per-level find+override loops. Provide startDate and intervalDays, optional categories and palette.",
                     Parameters = new
                     {
                         type = "object",
@@ -290,128 +224,17 @@ public static class ViewTools
                 string startDateStr = ""; int interval = 14; List<string>? cats = null; string palette = "rainbow";
                 try
                 {
-                    using var d = JsonDocument.Parse(json);
-                    startDateStr = d.RootElement.GetProperty("startDate").GetString() ?? "";
+                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                    if (d.RootElement.TryGetProperty("startDate", out var sd) && sd.ValueKind == JsonValueKind.String) startDateStr = sd.GetString() ?? "";
                     if (d.RootElement.TryGetProperty("intervalDays", out var iv) && iv.ValueKind == JsonValueKind.Number) interval = iv.GetInt32();
                     if (d.RootElement.TryGetProperty("categories", out var ca) && ca.ValueKind == JsonValueKind.Array) cats = ca.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
                     if (d.RootElement.TryGetProperty("palette", out var pal) && pal.ValueKind == JsonValueKind.String) palette = pal.GetString() ?? palette;
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                if (!AllTools.TryParseDate(startDateStr, out var startDate)) return $"Invalid startDate '{startDateStr}'.";
+                if (!TryParseDate(startDateStr, out _)) return $"Invalid startDate '{startDateStr}'.";
                 interval = Polyfills.Clamp(interval, 1, 365);
-
-                var preview = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return (err: "Please open a model first.", n: 0);
-                    try
-                    {
-                        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
-                        return (err: "", n: levels.Count);
-                    }
-                    catch (Exception ex) { return (err: ex.Message, n: 0); }
-                });
-                if (!string.IsNullOrEmpty(preview.err)) return preview.err;
-
-                var result = await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    if (view.IsTemplate) return "Cannot color in view template.";
-                    try
-                    {
-                        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
-                        var levelById = levels.ToDictionary(l => l.Id, l => l.Name);
-                        // date map not needed for color, just index
-                        var colors = GeneratePalette(levels.Count, palette);
-                        var dateByLevel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < levels.Count; i++) dateByLevel[levels[i].Name] = startDate.AddDays(i * interval).ToString("yyyy-MM-dd");
-
-                        // categories
-                        List<BuiltInCategory> bics = new();
-                        if (cats != null && cats.Count > 0)
-                        {
-                            // handle "all" keyword
-                            if (cats.Count == 1 && cats[0].Equals("all", StringComparison.OrdinalIgnoreCase))
-                            {
-                                string[] defaults = { "Walls", "Doors", "Windows", "Floors", "Ceilings", "Roofs", "Structural Framing", "Structural Columns", "Columns", "Generic Models" };
-                                foreach (var c in defaults) { var bic = AllTools.ParseCategory(c); if (bic != null) bics.Add(bic.Value); }
-                            }
-                            else foreach (var c in cats) { var bic = AllTools.ParseCategory(c); if (bic != null) bics.Add(bic.Value); }
-                        }
-                        else
-                        {
-                            bics.Add(BuiltInCategory.OST_Walls); // default walls if not specified, to keep it light
-                        }
-
-                        // Build level -> ids map
-                        var levelToIds = new Dictionary<string, List<ElementId>>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var lvl in levels) levelToIds[lvl.Name] = new List<ElementId>();
-
-                        foreach (var bic in bics)
-                        {
-                            var elems = new FilteredElementCollector(doc, view.Id).OfCategory(bic).WhereElementIsNotElementType().ToElements();
-                            // also include not visible? Use view collector to only color visible elements to avoid off-view clutter
-                            // For each element, resolve level name
-                            foreach (var el in elems)
-                            {
-                                string? lvlName = null;
-                                if (el.LevelId != ElementId.InvalidElementId && levelById.TryGetValue(el.LevelId, out var ln)) lvlName = ln;
-                                else
-                                {
-                                    var p = el.LookupParameter("Base Constraint") ?? el.LookupParameter("Level") ?? el.LookupParameter("Reference Level") ?? el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM) ?? el.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT);
-                                    if (p != null)
-                                    {
-                                        if (p.StorageType == StorageType.ElementId) { var id = p.AsElementId(); if (levelById.TryGetValue(id, out var n2)) lvlName = n2; }
-                                        else lvlName = p.AsString() ?? p.AsValueString();
-                                    }
-                                }
-                                if (lvlName != null && levelToIds.ContainsKey(lvlName)) levelToIds[lvlName].Add(el.Id);
-                            }
-                        }
-
-                        // Single transaction for all colors
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: color by schedule {startDate:yyyy-MM-dd}");
-                        tx.Start();
-                        try
-                        {
-                            int total = 0;
-                            for (int i = 0; i < levels.Count; i++)
-                            {
-                                var lvl = levels[i];
-                                var ids = levelToIds[lvl.Name];
-                                if (ids.Count == 0) continue;
-                                var clr = colors[i];
-                                var ogs = new OverrideGraphicSettings();
-                                ogs.SetProjectionLineColor(clr);
-                                ogs.SetSurfaceForegroundPatternColor(clr);
-                                ogs.SetCutForegroundPatternColor(clr);
-                                ogs.SetProjectionLineWeight(4);
-                                foreach (var id in ids)
-                                {
-                                    view.SetElementOverrides(id, ogs);
-                                    total++;
-                                }
-                            }
-                            tx.Commit();
-                            var msg = $"Colored {total} element(s) in '{view.Name}' by construction schedule bottom-up {startDate:yyyy-MM-dd} (+{interval}d) across {levels.Count} levels, {bics.Count} categories. Palette {palette}.";
-                            msg += "\nLegend:\n" + string.Join("\n", levels.Select((l, i) => $"{l.Name} ({l.Elevation:F1}ft) = {dateByLevel[l.Name]} -> #{colors[i].Red:X2}{colors[i].Green:X2}{colors[i].Blue:X2}"));
-                            msg += "\nTo reset: say 'reset view' (reset_temporary_view).";
-                            return msg;
-                        }
-                        catch
-                        {
-                            try { tx.RollBack(); } catch { }
-                            throw;
-                        }
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
-                return result;
+                var result = await context.Bridge.ColorByConstructionScheduleAsync(startDateStr, interval, cats, palette);
+                return result.Message;
             }
         };
     }
@@ -460,121 +283,296 @@ public static class ViewTools
                     var sel = await context.Bridge.GetSelectionSummaryAsync();
                     if (sel.ElementCount > 0) selIds = sel.ElementIds.ToList();
                 }
-                return await context.FullAccess!.RunRevitAsync(session =>
-                {
-                    var uiApp = session.As<UIApplication>();
-                    var doc = uiApp.ActiveUIDocument?.Document;
-                    if (doc == null) return "Please open a model first.";
-                    var view = doc.ActiveView;
-                    if (view == null) return "No active view.";
-                    if (view.IsTemplate) return "Cannot color in view template.";
-                    try
-                    {
-                        List<Element> elems;
-                        if (selIds != null)
-                        {
-                            elems = selIds.Select(id => doc.GetElement(AllTools.ParseEid(id))).Where(e => e != null).Cast<Element>().ToList();
-                        }
-                        else
-                        {
-                            var bic = AllTools.ParseCategory(string.IsNullOrWhiteSpace(cat) ? "Walls" : cat);
-                            if (bic == null) return $"Unknown category '{cat}'.";
-                            elems = new FilteredElementCollector(doc, view.Id).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().ToList();
-                        }
-                        var groups = new SortedDictionary<string, List<ElementId>>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var el in elems)
-                        {
-                            var key = ReadParam(el, paramName);
-                            if (!groups.TryGetValue(key, out var ids)) { ids = new List<ElementId>(); groups[key] = ids; }
-                            ids.Add(el.Id);
-                        }
-                        if (groups.Count == 0) return "No elements to color.";
-                        var colors = GeneratePalette(groups.Count, palette);
-                        using var tx = new Transaction(doc, $"LoadingAI for Revit: color by {paramName}");
-                        tx.Start();
-                        try
-                        {
-                            int i = 0, total = 0;
-                            var legend = new List<string>();
-                            foreach (var kv in groups)
-                            {
-                                var clr = colors[i];
-                                var ogs = new OverrideGraphicSettings();
-                                ogs.SetProjectionLineColor(clr);
-                                ogs.SetSurfaceForegroundPatternColor(clr);
-                                ogs.SetCutForegroundPatternColor(clr);
-                                foreach (var id in kv.Value) { view.SetElementOverrides(id, ogs); total++; }
-                                legend.Add($"{kv.Key} ({kv.Value.Count}) -> #{clr.Red:X2}{clr.Green:X2}{clr.Blue:X2}");
-                                i++;
-                            }
-                            tx.Commit();
-                            return $"Colored {total} element(s) in '{view.Name}' by '{paramName}' ({groups.Count} values). Palette {palette}.\nLegend:\n" + string.Join("\n", legend);
-                        }
-                        catch
-                        {
-                            try { tx.RollBack(); } catch { }
-                            throw;
-                        }
-                    }
-                    catch (Exception ex) { return $"Failed: {ex.Message}"; }
-                });
+                var result = await context.Bridge.ColorByParameterAsync(paramName, cat, selIds, palette);
+                return result.Message;
             }
         };
     }
 
-    static string ReadParam(Element el, string paramName)
+    internal static ToolEntry CreateCreateSheet(IPluginContext context)
     {
-        var p = el.LookupParameter(paramName);
-        if (p == null)
+        return new ToolEntry
         {
-            foreach (Parameter q in el.Parameters)
+            Tier = ToolTier.L3,
+            RequiresWriteConfirm = true,
+            Definition = new ToolDefinition
             {
-                if (q?.Definition?.Name != null && q.Definition.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase))
-                { p = q; break; }
+                Function = new ToolFunction
+                {
+                    Name = "create_sheet",
+                    Description = "Create a new sheet with a title block. pyRevit: Create Sheets",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            sheetNumber = new { type = "string" },
+                            sheetName = new { type = "string" },
+                            titleBlockName = new { type = "string", description = "Optional title block type name" }
+                        },
+                        required = new[] { "sheetNumber", "sheetName" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string num = "", name = ""; string? tb = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    num = d.RootElement.GetProperty("sheetNumber").GetString() ?? "";
+                    name = d.RootElement.GetProperty("sheetName").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("titleBlockName", out var t) && t.ValueKind == JsonValueKind.String) tb = t.GetString();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.CreateSheetAsync(num, name, tb);
+                return result.Message;
             }
-        }
-        if (p == null) return "(none)";
-        var vs = p.AsValueString();
-        if (!string.IsNullOrWhiteSpace(vs)) return vs.Trim();
-        if (p.StorageType == StorageType.String) return string.IsNullOrWhiteSpace(p.AsString()) ? "(empty)" : p.AsString()!.Trim();
-        if (p.StorageType == StorageType.Integer) return p.AsInteger().ToString();
-        if (p.StorageType == StorageType.Double) return p.AsDouble().ToString("G4");
-        if (p.StorageType == StorageType.ElementId)
+        };
+    }
+
+    internal static ToolEntry CreatePlaceViewOnSheet(IPluginContext context)
+    {
+        return new ToolEntry
         {
-            var id = p.AsElementId();
-            if (id == ElementId.InvalidElementId) return "(none)";
-            return el.Document.GetElement(id)?.Name ?? id.ToString();
-        }
-        return "(none)";
+            Tier = ToolTier.L3,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "place_view_on_sheet",
+                    Description = "Place a view onto a sheet at (x,y) mm. pyRevit: Place Views on Sheets",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            viewId = new { type = "string" },
+                            sheetId = new { type = "string" },
+                            x = new { type = "number", description = "X mm from sheet origin" },
+                            y = new { type = "number", description = "Y mm from sheet origin" }
+                        },
+                        required = new[] { "viewId", "sheetId" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string vid = "", sid = ""; double x = 0, y = 0;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+                    sid = d.RootElement.GetProperty("sheetId").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("x", out var xv)) x = xv.GetDouble();
+                    if (d.RootElement.TryGetProperty("y", out var yv)) y = yv.GetDouble();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.PlaceViewOnSheetAsync(vid, sid, x, y);
+                return result.Message;
+            }
+        };
     }
 
-    private static List<Color> GeneratePalette(int n, string palette)
+    internal static ToolEntry CreateDuplicateViewEx(IPluginContext context)
     {
-        palette = palette?.ToLowerInvariant() ?? "rainbow";
-        // Predefined gradient blue->red
-        string[] hexRainbow = { "#1565C0", "#1E88E5", "#039BE5", "#00ACC1", "#00897B", "#43A047", "#7CB342", "#FBC02D", "#FFA000", "#FB8C00", "#F4511E", "#E53935", "#D32F2F", "#C2185B", "#7B1FA2", "#512DA8", "#303F9F", "#455A64", "#FF6F00", "#FF4081" };
-        var list = new List<Color>();
-        for (int i = 0; i < n; i++)
+        return new ToolEntry
         {
-            string hex;
-            if (palette == "heat") hex = InterpolateHeat((double)i / Math.Max(1, n - 1));
-            else hex = hexRainbow[i % hexRainbow.Length];
-            list.Add(HexToColor(hex));
-        }
-        return list;
+            Tier = ToolTier.L2,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "duplicate_view_ex",
+                    Description = "Duplicate a view, optionally with detailing. pyRevit: Duplicate Views",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            viewId = new { type = "string" },
+                            withDetailing = new { type = "boolean", description = "Include detailing. Default false." }
+                        },
+                        required = new[] { "viewId" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string vid = ""; bool det = false;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("withDetailing", out var w)) det = w.GetBoolean();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.DuplicateViewAsync(vid, det);
+                return result.Message;
+            }
+        };
     }
 
-    private static string InterpolateHeat(double t)
+    internal static ToolEntry CreateSetViewTemplate(IPluginContext context)
     {
-        // blue -> yellow -> red
-        if (t < 0.5) { int r = (int)(255 * t * 2); int g = (int)(255 * t * 2); int b = 255; return $"#{r:X2}{g:X2}{b:X2}"; }
-        else { int r = 255; int g = (int)(255 * (1 - t) * 2); int b = (int)(255 * (1 - t) * 2); return $"#{r:X2}{g:X2}{b:X2}"; }
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "set_view_template",
+                    Description = "Apply or clear a view template. Empty templateId clears.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            viewId = new { type = "string" },
+                            templateId = new { type = "string", description = "Template element id. Empty to clear." }
+                        },
+                        required = new[] { "viewId" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string vid = ""; string? tid = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("templateId", out var t) && t.ValueKind == JsonValueKind.String) tid = t.GetString();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.SetViewTemplateAsync(vid, tid);
+                return result.Message;
+            }
+        };
     }
 
-    private static Color HexToColor(string hex)
+    internal static ToolEntry CreateSetCropBox(IPluginContext context)
     {
-        hex = hex.Trim().TrimStart('#');
-        if (hex.Length == 6 && int.TryParse(hex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber, null, out var r) && int.TryParse(hex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber, null, out var g) && int.TryParse(hex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber, null, out var b)) return new Color((byte)r, (byte)g, (byte)b);
-        return new Color(255, 0, 0);
+        return new ToolEntry
+        {
+            Tier = ToolTier.L2,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "set_crop_box",
+                    Description = "Turn crop box on or off for a view.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            viewId = new { type = "string" },
+                            enabled = new { type = "boolean" }
+                        },
+                        required = new[] { "viewId", "enabled" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string vid = ""; bool en = false;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+                    en = d.RootElement.GetProperty("enabled").GetBoolean();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.SetCropBoxAsync(vid, en);
+                return result.Message;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateCreateDimension(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "create_dimension",
+                    Description = "Create a dimension between two walls in a view (active if omitted). pyRevit: Dimension",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            wallId1 = new { type = "string" },
+                            wallId2 = new { type = "string" },
+                            viewId = new { type = "string", description = "Optional. Defaults to active view." }
+                        },
+                        required = new[] { "wallId1", "wallId2" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string w1 = "", w2 = ""; string? vid = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    w1 = d.RootElement.GetProperty("wallId1").GetString() ?? "";
+                    w2 = d.RootElement.GetProperty("wallId2").GetString() ?? "";
+                    if (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String) vid = v.GetString();
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.CreateDimensionBetweenWallsAsync(w1, w2, vid);
+                return result.Message;
+            }
+        };
+    }
+
+    internal static ToolEntry CreateTagAll(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L3,
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "tag_all",
+                    Description = "Tag up to 50 elements of a category in the active view. pyRevit: Tag All",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new { category = new { type = "string", description = "e.g. Walls, Doors, Windows" } },
+                        required = new[] { "category" }
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                string cat = "";
+                try
+                {
+                    using var d = JsonDocument.Parse(json);
+                    cat = d.RootElement.GetProperty("category").GetString() ?? "";
+                }
+                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                var result = await context.Bridge.TagAllInActiveViewAsync(cat);
+                return result.Message;
+            }
+        };
+    }
+
+    private static bool TryParseDate(string s, out DateTime dt)
+    {
+        s = (s ?? "").Trim();
+        if (DateTime.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return true;
+        if (DateTime.TryParseExact(s, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return true;
+        if (DateTime.TryParse(s, out dt)) return true;
+        dt = default;
+        return false;
     }
 }
