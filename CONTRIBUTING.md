@@ -2,6 +2,11 @@
 
 All code is MIT. No billing, no closed-source plugins.
 
+Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Proposed** ADR before code if you would break one. 0001 is closed; do not append to it.
+
+- [ADR-0002](docs/adr/0002-plugin-shelf-bridge-first.md) — plugin folder, Core-only, Bridge-first, never host.
+- [ADR-0003](docs/adr/0003-fullaccess-exceptions.md) — `IRevitFullAccess` is opt-in and listed.
+
 ## How to add a plugin
 
 1. Fork the repo.
