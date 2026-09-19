@@ -33,7 +33,7 @@ Plugins/hello/
 - `verified:true` = merged via PR and reviewed.
 - `verified:false` = local drop, shown in **Settings** as unverified.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggle in Web requires no restart, adding/removing DLL requires restart (AppDomain lock).
-- csproj must ProjectReference `LoadingAI.Core` (and `LoadingAI.RevitUtil` if FullAccess). Never reference the host `LoadingAI.csproj`.
+- csproj must ProjectReference `LoadingAI.Core` — and nothing else. Never reference the host `LoadingAI.csproj`, `LoadingAI.RevitUtil`, or the Nice3point RevitAPI packages (no shipped plugin does).
 
 See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/` for a minimal Bridge-only example.
 
@@ -45,7 +45,7 @@ Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/view-tools/` — Bridge-only `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
 - `Plugins/modeling-tools/` — Bridge-only `load_family`, `change_element_type`, `create_topography`
 - `Plugins/structure-cuts/` — Bridge-only `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected host-side from `scope=selection|visible|all`, so chat never has to paste hundreds of ids; `IRevitQuery.CollectHostsAsync` exposes the same page to callers that want it directly. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
-- `Plugins/qs-formwork/` — `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params`
+- `Plugins/qs-formwork/` — Bridge-only `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params` (L3 default off). Panel geometry is generated host-side (`IRevitCreateCommand.Formwork*Async`) with the algorithms in `src/LoadingAI/Revit/Formwork/`, so chat passes ids + millimetres, not a `Document`. See `Plugins/qs-formwork/README.md`.
 
 ## structure-cuts
 

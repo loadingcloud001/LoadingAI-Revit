@@ -50,7 +50,7 @@ src/LoadingAI.Core/          agent, DTO, no RevitAPI
 src/LoadingAI.Tests/         xunit (Fake IRevitBridge + contracts; hosted CI)
 src/LoadingAI.RevitTests/    NUnit in-Revit (local Revit 2027 / ricaun; not hosted CI)
 Plugins/example.hello/       sample plugin
-Plugins/core-tools/          shipped FullAccess: query/view/param/geometry + compat (63)
+Plugins/core-tools/          shipped Bridge-only: query/view/param/geometry + compat (63)
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
 Plugins/modeling-tools/      load_family, change_element_type, create_topography

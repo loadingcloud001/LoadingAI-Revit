@@ -57,9 +57,10 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0000](0000-template.md) | Template | — |
 | [0001](0001-bridge-first-hardening.md) | Bridge-first hardening (core-tools, HostProtocol, Recall) | Accepted |
 | [0002](0002-plugin-shelf-bridge-first.md) | Plugin shelf: Core-only, Bridge-first, never host | Accepted |
-| [0003](0003-fullaccess-exceptions.md) | FullAccess is opt-in and listed | Accepted |
+| [0003](0003-fullaccess-exceptions.md) | FullAccess is opt-in and listed | Superseded by 0009 |
 | [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Accepted |
 | [0005](0005-port-modeling-tools-onto-bridge.md) | Port modeling-tools onto Bridge | Accepted |
 | [0006](0006-port-export-tools-onto-bridge.md) | Port export-tools onto Bridge | Accepted |
 | [0007](0007-port-view-tools-onto-bridge.md) | Port view-tools onto Bridge | Accepted |
 | [0008](0008-port-structure-cuts-onto-bridge.md) | Port structure-cuts onto Bridge | Accepted |
+| [0009](0009-port-qs-formwork-onto-bridge.md) | Port qs-formwork onto Bridge and retire FullAccess | Accepted |

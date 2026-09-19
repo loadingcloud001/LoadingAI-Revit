@@ -1017,7 +1017,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task SaveDocument_UnsavedPath_FailsWithoutFullAccess()
+    public async Task SaveDocument_UnsavedPath_Fails()
     {
         var bridge = new FakeRevitBridge
         {

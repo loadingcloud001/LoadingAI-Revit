@@ -1,14 +1,19 @@
 # ADR-0003 — FullAccess is opt-in and listed
 
-- Status: Accepted
+- Status: **Superseded by [ADR-0009](0009-port-qs-formwork-onto-bridge.md)**
 - Date: 2026-09-18
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0002](0002-plugin-shelf-bridge-first.md)
 - Does not supersede: [ADR-0001](0001-bridge-first-hardening.md)
 
+> **Superseded.** ADR-0005 through ADR-0009 moved every listed row onto Bridge. The table
+> below is empty, and ADR-0009 deleted `IRevitFullAccess` and its support types outright.
+> This file is kept for the reasoning, not as a live rule. See ADR-0009 for the current rule:
+> plugins are Bridge-only, and there is no opt-in path to `UIApplication`.
+
 ## Context
 
-ADR-0001 made `core-tools` Bridge-only. Other shipped plugins still need Autodesk types the Bridge does not expose: schedules/views, formwork solids, beam/floor cuts. `modeling-tools` moved onto Bridge in [ADR-0005](0005-port-modeling-tools-onto-bridge.md); `export-tools` moved onto Bridge in [ADR-0006](0006-port-export-tools-onto-bridge.md); `view-tools` moved onto Bridge in [ADR-0007](0007-port-view-tools-onto-bridge.md); `structure-cuts` moved onto Bridge in [ADR-0008](0008-port-structure-cuts-onto-bridge.md).
+ADR-0001 made `core-tools` Bridge-only. Other shipped plugins still need Autodesk types the Bridge does not expose: schedules/views, formwork solids, beam/floor cuts. `modeling-tools` moved onto Bridge in [ADR-0005](0005-port-modeling-tools-onto-bridge.md); `export-tools` moved onto Bridge in [ADR-0006](0006-port-export-tools-onto-bridge.md); `view-tools` moved onto Bridge in [ADR-0007](0007-port-view-tools-onto-bridge.md); `structure-cuts` moved onto Bridge in [ADR-0008](0008-port-structure-cuts-onto-bridge.md); `qs-formwork` moved onto Bridge in [ADR-0009](0009-port-qs-formwork-onto-bridge.md), which supersedes this ADR and removes the marker.
 
 `IRevitFullAccess` is an **empty marker**. The host (`PluginLoader`) sets `requestFull = typeof(IRevitFullAccess).IsAssignableFrom(pt)` and only then supplies `IPluginContext.FullAccess` (`IRawRevitAccess`). `FakePluginContext.FullAccess` is always null, so FullAccess handlers cannot run in hosted CI.
 
@@ -36,7 +41,7 @@ flowchart LR
 
 | Plugin id | Why FullAccess |
 |---|---|
-| `qs-formwork` | formwork solids / panels |
+| _(none)_ | the last row, `qs-formwork`, moved onto Bridge in ADR-0009 |
 
 **Rules for those plugins**
 
@@ -48,22 +53,21 @@ flowchart LR
 
 **Not FullAccess**
 
-- `core-tools`, `example.hello`, `modeling-tools`, `export-tools`, `view-tools`, `structure-cuts`, and any new plugin that can be expressed with existing Bridge slices.
-- PluginLoader `requestFull` stays. Do not delete the marker to “simplify” core-tools.
+- `core-tools`, `example.hello`, `modeling-tools`, `export-tools`, `view-tools`, `structure-cuts`, `qs-formwork`, and any new plugin that can be expressed with existing Bridge slices.
+- With the table empty there is no plugin left to list, and no `requestFull` in `PluginLoader` to keep: ADR-0009 deleted the marker, `IPluginContext.FullAccess`, `IRawRevitAccess` and `FullAccessSession`. Do not re-add them.
 
 Moving a row in the table onto Bridge is a **new ADR** (0004+), one plugin (or one DTO slice) at a time, with FakeBridge tests before deleting the marker.
 
 ## Consequences
 
-- `NonFullAccessPlugins_DoNotMentionAutodeskRevit` skips a folder only if some `.cs` contains `IRevitFullAccess`. Removing the marker from a listed plugin without a Bridge port **fails CI**.
-- `ShippedPlugin_DoesNotReferenceHost(..., requiresRevitUtil: true)` locks RevitUtil on the one listed plugin.
-- Fake tests must not call FullAccess factories; `FullAccess` is null.
+- `NonFullAccessPlugins_DoNotMentionAutodeskRevit` skips a folder only if some `.cs` contains `IRevitFullAccess`. Removing the marker from a listed plugin without a Bridge port **fails CI**. ADR-0009 renamed it to `ShippedPlugins_DoNotMentionAutodeskRevit` and deleted the skip, because with zero listed plugins the guard made the test pass vacuously.
+- `ShippedPlugin_DoesNotReferenceHost(..., requiresRevitUtil: true)` locked RevitUtil on the one listed plugin. That count is now **zero**: no shipped plugin references `LoadingAI.RevitUtil`. The parameter and its branch are kept as a forward guard, so a future plugin that genuinely needs RevitUtil can still declare it.
+- Fake tests must not call FullAccess factories; `FullAccess` is null. ADR-0009 deleted the property, so there is no factory to call.
 
 ## Do not
 
 - Do not add FullAccess tools to `core-tools`.
-- Do not implement `IRevitFullAccess` on a new plugin unless this table gains a row in a new ADR (or this file is updated in the same PR that adds the plugin, with a why).
+- Do not implement `IRevitFullAccess` on a new plugin: the marker no longer exists (ADR-0009). A plugin that needs a new Revit operation gets a **new Bridge slice**, not a raw `UIApplication` escape hatch.
 - Do not pass `UIApplication` through Core.
-- Do not migrate qs-formwork onto Bridge in a drive-by PR.
-- Do not remove PluginLoader `requestFull`.
-- Do not call `Selection.PickObjects` from a FullAccess plugin; declare presets and let the host pick.
+- Do not re-add `IPluginContext.FullAccess`, `IRawRevitAccess`, `FullAccessSession`, or `PluginLoader`'s `requestFull`; ADR-0009 deleted all four.
+- Do not call `Selection.PickObjects` from a plugin; declare presets and let the host pick.
