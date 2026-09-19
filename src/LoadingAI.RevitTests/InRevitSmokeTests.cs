@@ -94,7 +94,7 @@ public class InRevitSmokeTests
         // constructed in OneTimeSetUp. AttachCurrentThread makes RunAsync
         // invoke immediately, so GetAwaiter().GetResult() cannot deadlock.
         var raw = _bridge ?? throw new InvalidOperationException("RevitBridge was not created.");
-        var ctx = new PluginContext(raw, "builtin", fullAccessGranted: false);
+        var ctx = new PluginContext(raw, "builtin");
         var tool = QueryTools.Create(ctx).Single(t => t.Definition.Function.Name == "get_model_summary");
 
         var text = tool.Handler("{}").GetAwaiter().GetResult();

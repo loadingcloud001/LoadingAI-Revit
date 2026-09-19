@@ -724,6 +724,22 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<SplitRequestDto> SplitByGridsCalls { get; } = new();
 
+    public FormworkSetupResultDto? NextFormworkSetupResult { get; set; }
+
+    public List<FormworkSetupRequestDto> FormworkSetupCalls { get; } = new();
+
+    public FormworkPanelsResultDto? NextFormworkPanelsResult { get; set; }
+
+    public List<FormworkPanelsRequestDto> FormworkPanelsCalls { get; } = new();
+
+    public CleanupResultDto? NextCleanupFormworkResult { get; set; }
+
+    public List<CleanupRequestDto> CleanupFormworkCalls { get; } = new();
+
+    public CopyParamsResultDto? NextCopyFormworkParentParamsResult { get; set; }
+
+    public List<CopyParamsRequestDto> CopyFormworkParentParamsCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -1204,6 +1220,75 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     private static SplitResultDto ClosedSplit()
         => new("Please open a model first.", 0, 0, 0, Array.Empty<string>());
+
+    /// <summary>
+    /// Write-shaped, so it records before guarding: a closed model still shows up in the
+    /// call list, matching the other write fakes.
+    /// </summary>
+    public Task<FormworkSetupResultDto?> FormworkSetupAsync(
+        FormworkSetupRequestDto request, CancellationToken ct = default)
+    {
+        FormworkSetupCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<FormworkSetupResultDto?>(ClosedFormworkSetup());
+        if (NextFormworkSetupResult != null)
+            return Task.FromResult<FormworkSetupResultDto?>(NextFormworkSetupResult);
+        return Task.FromResult<FormworkSetupResultDto?>(new FormworkSetupResultDto(
+            "Formwork setup complete. Linked models: 2. Parameters bound: 12, failed: 0 (none). Existing panels: 3."));
+    }
+
+    public Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(
+        FormworkPanelsRequestDto request, CancellationToken ct = default)
+    {
+        FormworkPanelsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<FormworkPanelsResultDto?>(ClosedFormworkPanels());
+        if (NextFormworkPanelsResult != null)
+            return Task.FromResult<FormworkPanelsResultDto?>(NextFormworkPanelsResult);
+        return Task.FromResult<FormworkPanelsResultDto?>(new FormworkPanelsResultDto(
+            $"Formwork panels: selected {request.Ids?.Count ?? 0}, candidates 4, created 4, updated 0, duplicates 0, "
+            + "coverage skipped 1, panel overlap skipped 0, trimmed 0, obsolete deleted 0, failed 0."));
+    }
+
+    public Task<CleanupResultDto?> CleanupFormworkAsync(
+        CleanupRequestDto request, CancellationToken ct = default)
+    {
+        CleanupFormworkCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<CleanupResultDto?>(ClosedCleanupFormwork());
+        if (NextCleanupFormworkResult != null)
+            return Task.FromResult<CleanupResultDto?>(NextCleanupFormworkResult);
+        return Task.FromResult<CleanupResultDto?>(new CleanupResultDto(
+            request.Action is "stats" or ""
+                ? "Formwork panels: 3 total. By type: wall=2, beam=1."
+                : $"Deleted 2 formwork panel(s) ({request.Action})."));
+    }
+
+    public Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(
+        CopyParamsRequestDto request, CancellationToken ct = default)
+    {
+        CopyFormworkParentParamsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<CopyParamsResultDto?>(ClosedCopyFormworkParentParams());
+        if (NextCopyFormworkParentParamsResult != null)
+            return Task.FromResult<CopyParamsResultDto?>(NextCopyFormworkParentParamsResult);
+        return Task.FromResult<CopyParamsResultDto?>(new CopyParamsResultDto(
+            request.Names == null || request.Names.Count == 0
+                ? "Copyable parent parameters: FW_ConcreteGrade, FW_Thickness."
+                : $"Copied {request.Names.Count} parent parameter value(s) onto 3 panel(s). Empty skipped 0, type mismatch 0, unresolved parent 0, unloaded link 0."));
+    }
+
+    private static FormworkSetupResultDto ClosedFormworkSetup()
+        => new("Please open a model first.");
+
+    private static FormworkPanelsResultDto ClosedFormworkPanels()
+        => new("Please open a model first.");
+
+    private static CleanupResultDto ClosedCleanupFormwork()
+        => new("Please open a model first.");
+
+    private static CopyParamsResultDto ClosedCopyFormworkParentParams()
+        => new("Please open a model first.");
 
     /// <summary>A dry run reports no writes, so the counters stay at zero.</summary>
     private static SplitResultDto Split(SplitRequestDto request, string report)

@@ -10,8 +10,6 @@ public interface IPluginContextFactory
 {
     /// <summary>
     /// Builds a context for the plugin at <paramref name="pluginDir"/>.
-    /// <paramref name="requestFullAccess"/> is true when the plugin class
-    /// implements <see cref="IRevitFullAccess"/>.
     /// </summary>
-    IPluginContext Create(string pluginDir, bool requestFullAccess);
+    IPluginContext Create(string pluginDir);
 }

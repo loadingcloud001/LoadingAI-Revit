@@ -3,6 +3,7 @@ using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
+using LoadingAI.Revit.Formwork;
 using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tools;
 
@@ -3232,6 +3233,58 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 return new SplitResultDto($"Failed: {ex.Message}", 0, 0, 0, Array.Empty<string>());
             }
         }, ct);
+    }
+
+    public Task<FormworkSetupResultDto?> FormworkSetupAsync(FormworkSetupRequestDto request, CancellationToken ct = default)
+        => RunFormwork(uiApp => FormworkSetup.Run(uiApp), r => new FormworkSetupResultDto(r), null, ct);
+
+    public Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(FormworkPanelsRequestDto request, CancellationToken ct = default)
+        => RunFormwork(
+            uiApp => FormworkPanels.Run(
+                uiApp,
+                request.Ids ?? Array.Empty<string>(),
+                request.ThicknessMm,
+                request.FaceTypes ?? Array.Empty<string>(),
+                request.Collision,
+                request.DeleteExisting,
+                request.IncludeUnselectedLinks),
+            r => new FormworkPanelsResultDto(r),
+            FormworkPanels.GenerateTimeout,
+            ct);
+
+    public Task<CleanupResultDto?> CleanupFormworkAsync(CleanupRequestDto request, CancellationToken ct = default)
+        => RunFormwork(
+            uiApp => FormworkCleanup.Run(uiApp, request.Action, request.FaceType),
+            r => new CleanupResultDto(r),
+            null,
+            ct);
+
+    public Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(CopyParamsRequestDto request, CancellationToken ct = default)
+        => RunFormwork(
+            uiApp => FormworkParentParams.Run(
+                uiApp,
+                request.Ids ?? Array.Empty<string>(),
+                request.Names ?? Array.Empty<string>()),
+            r => new CopyParamsResultDto(r),
+            null,
+            ct);
+
+    /// <summary>
+    /// Shared shape of the four formwork tools. The host entry points already return their own
+    /// prose and absorb their own exceptions, so this only picks the timeout and lifts the
+    /// string into the slice's result DTO. <c>null</c> means the bridge was cancelled before
+    /// it ran, which the slices surface as <c>null</c> rather than a made-up report.
+    /// </summary>
+    private async Task<TDto?> RunFormwork<TDto>(
+        Func<UIApplication, string> run,
+        Func<string, TDto> project,
+        TimeSpan? timeout,
+        CancellationToken ct)
+    {
+        var report = timeout is { } budget
+            ? await _bridge.RunAsync(run, budget, ct)
+            : await _bridge.RunAsync(run, ct);
+        return report == null ? default : project(report);
     }
 
     /// <summary>Body rows shown when a caller passes no usable <c>rowLimit</c>.</summary>

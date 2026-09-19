@@ -55,7 +55,7 @@ public class StructureCutsInRevitTests
         _pluginDir = Path.Combine(Path.GetTempPath(), "LoadingAI.RevitTests.structure-cuts");
         Directory.CreateDirectory(_pluginDir);
         var raw = _bridge ?? throw new InvalidOperationException("RevitBridge was not created.");
-        var ctx = new PluginContext(raw, _pluginDir, fullAccessGranted: true);
+        var ctx = new PluginContext(raw, _pluginDir);
         _tools = new StructureCutsPlugin()
             .CreateTools(ctx)
             .ToDictionary(t => t.Definition.Function.Name, StringComparer.Ordinal);

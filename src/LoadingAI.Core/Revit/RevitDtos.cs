@@ -325,3 +325,58 @@ public sealed record SplitResultDto(
     int Skipped,
     IReadOnlyList<string> NewIds,
     string? Error = null);
+
+/// <summary>
+/// Input for one formwork setup run. The tool takes no arguments today; the type exists
+/// so the slice keeps the same request/result shape as its siblings and a future knob
+/// does not need a signature change.
+/// </summary>
+public sealed record FormworkSetupRequestDto();
+
+/// <summary>
+/// Outcome of one formwork setup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// </summary>
+public sealed record FormworkSetupResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one formwork panel generation run. <c>Ids</c> null means the current selection;
+/// an empty list is honoured as-is. <c>FaceTypes</c> null or empty means every face type the
+/// generator supports, and <c>ThicknessMm</c> is in millimetres like the tool argument.
+/// </summary>
+public sealed record FormworkPanelsRequestDto(
+    IReadOnlyList<string>? Ids,
+    double ThicknessMm,
+    IReadOnlyList<string>? FaceTypes,
+    bool Collision,
+    bool DeleteExisting,
+    bool IncludeUnselectedLinks);
+
+/// <summary>
+/// Outcome of one formwork panel generation run. The generator's counters are already
+/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// </summary>
+public sealed record FormworkPanelsResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one formwork cleanup run. <c>Action</c> is already normalised to lower case
+/// by the caller and is one of <c>stats</c>, <c>delete_all</c>, <c>delete_by_type</c> or
+/// <c>cleanup_orphans</c>; <c>FaceType</c> is only consulted by <c>delete_by_type</c>.
+/// </summary>
+public sealed record CleanupRequestDto(string Action, string? FaceType);
+
+/// <summary>
+/// Outcome of one formwork cleanup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// </summary>
+public sealed record CleanupResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one parent-parameter copy run. <c>Ids</c> null or empty means every formwork
+/// panel in the model; an empty <c>Names</c> asks for the parameter catalogue instead of a copy.
+/// </summary>
+public sealed record CopyParamsRequestDto(IReadOnlyList<string>? Ids, IReadOnlyList<string>? Names);
+
+/// <summary>
+/// Outcome of one parent-parameter copy run. The copied/skipped counters are already
+/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// </summary>
+public sealed record CopyParamsResultDto(string Report, string? Error = null);

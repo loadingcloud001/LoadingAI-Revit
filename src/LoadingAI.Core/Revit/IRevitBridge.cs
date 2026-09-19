@@ -353,6 +353,27 @@ public interface IRevitCreateCommand
 
     /// <summary>Split walls, beams, columns and floors at the grids that cross them.</summary>
     Task<SplitResultDto?> SplitByGridsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Bind the formwork shared parameters and create the panel schema. Run once per
+    /// project before generating panels.
+    /// </summary>
+    Task<FormworkSetupResultDto?> FormworkSetupAsync(FormworkSetupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create DirectShape formwork panels from the linked (or host) structural elements
+    /// in <c>Ids</c>, or from the current selection when <c>Ids</c> is null.
+    /// </summary>
+    Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(FormworkPanelsRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Report or delete formwork panels by <c>Action</c>.</summary>
+    Task<CleanupResultDto?> CleanupFormworkAsync(CleanupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Copy named parameters from each panel's parent host onto the matching <c>FW_*</c>
+    /// instance parameters. An empty <c>Names</c> lists the catalogue instead.
+    /// </summary>
+    Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(CopyParamsRequestDto request, CancellationToken ct = default);
 }
 
 /// <summary>

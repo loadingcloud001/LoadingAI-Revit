@@ -83,7 +83,6 @@ public class FakeBridgeToolTests
             Selection = new(0, Array.Empty<string>(), Array.Empty<string>())
         };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = ViewTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "override_color_in_view");
 
@@ -127,11 +126,10 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task ColorByConstructionSchedule_Success_WithoutFullAccess()
+    public async Task ColorByConstructionSchedule_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = ViewTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "color_by_construction_schedule");
 
@@ -161,7 +159,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task ColorByParameter_Selection_WithoutFullAccess()
+    public async Task ColorByParameter_Selection()
     {
         var bridge = new FakeRevitBridge
         {
@@ -169,7 +167,6 @@ public class FakeBridgeToolTests
             Selection = new(2, new[] { "Walls" }, new[] { "101", "102" })
         };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = ViewTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "color_by_parameter");
 
@@ -227,11 +224,10 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task CreateSheet_Success_WithoutFullAccess()
+    public async Task CreateSheet_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = ViewTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "create_sheet");
 
@@ -401,11 +397,10 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task TagAll_Success_WithoutFullAccess()
+    public async Task TagAll_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = ViewTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "tag_all");
 
@@ -501,7 +496,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task RenameElements_Success_WithoutFullAccess()
+    public async Task RenameElements_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = ParamTools.Create(new FakePluginContext(bridge))
@@ -512,7 +507,6 @@ public class FakeBridgeToolTests
         Assert.Equal("Renamed 2/2 element(s).", text);
         Assert.Single(bridge.RenameElementsCalls);
         Assert.Equal(new[] { "1", "2" }, bridge.RenameElementsCalls[0].Ids);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
@@ -544,7 +538,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task ApplyConstructionDates_Success_WithoutFullAccess()
+    public async Task ApplyConstructionDates_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = ParamTools.Create(new FakePluginContext(bridge))
@@ -557,7 +551,6 @@ public class FakeBridgeToolTests
         Assert.Contains("2024-01-08", text);
         Assert.Single(bridge.ApplyConstructionDatesCalls);
         Assert.Equal(14, bridge.ApplyConstructionDatesCalls[0].IntervalDays);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
@@ -586,7 +579,6 @@ public class FakeBridgeToolTests
         Assert.Empty(bridge.ExportParamsCalls);
         Assert.Equal(ToolTier.L1, tool.Tier);
         Assert.False(tool.RequiresWriteConfirm);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
@@ -730,7 +722,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task CopyParams_Success_WithoutFullAccess()
+    public async Task CopyParams_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = ParamTools.Create(new FakePluginContext(bridge))
@@ -743,7 +735,6 @@ public class FakeBridgeToolTests
         Assert.Equal(200, bridge.CopyParamsCalls[0].Limit);
         Assert.True(tool.RequiresWriteConfirm);
         Assert.Equal(ToolTier.L2, tool.Tier);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
@@ -760,7 +751,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task ReplaceText_Success_WithoutFullAccess()
+    public async Task ReplaceText_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = ParamTools.Create(new FakePluginContext(bridge))
@@ -817,15 +808,13 @@ public class FakeBridgeToolTests
 
         Assert.Equal("Please open a model first.", text);
         Assert.Single(bridge.CreateWallCalls);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
-    public async Task CreateWall_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task CreateWall_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = GeometryTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "create_wall");
 
@@ -840,7 +829,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task CreateFamilyInstance_Success_WithoutFullAccess()
+    public async Task CreateFamilyInstance_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -856,7 +845,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task DuplicateElement_Success_WithoutFullAccess()
+    public async Task DuplicateElement_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -880,11 +869,10 @@ public class FakeBridgeToolTests
         Assert.Equal("Please open a model first.", text);
         Assert.Single(bridge.CreateFloorCalls);
         Assert.Equal(4000, bridge.CreateFloorCalls[0].X2);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
-    public async Task CreateFloorByOutline_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task CreateFloorByOutline_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -901,7 +889,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task CreateRoof_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task CreateRoof_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -935,7 +923,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task CreateFamilyInstanceArray_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task CreateFamilyInstanceArray_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -951,7 +939,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task RotateElements_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task RotateElements_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -969,7 +957,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task MirrorElements_Success_WithoutFullAccess_PassesMillimetres()
+    public async Task MirrorElements_Success_PassesMillimetres()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -999,7 +987,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task JoinGeometry_IsL2_WithoutFullAccess()
+    public async Task JoinGeometry_IsL2()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = GeometryTools.Create(new FakePluginContext(bridge))
@@ -1024,7 +1012,6 @@ public class FakeBridgeToolTests
 
         Assert.Equal("Please open a model first.", text);
         Assert.Equal(1, bridge.SaveDocumentCallCount);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
         Assert.True(tool.RequiresWriteConfirm);
         Assert.Equal(ToolTier.L3, tool.Tier);
     }
@@ -1047,7 +1034,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task SaveDocument_Success_WithoutFullAccess_KeepsWorksharingText()
+    public async Task SaveDocument_Success_KeepsWorksharingText()
     {
         var bridge = new FakeRevitBridge
         {
@@ -1077,11 +1064,10 @@ public class FakeBridgeToolTests
         Assert.Equal(1, bridge.ReloadLinksCallCount);
         Assert.Equal(ToolTier.L2, tool.Tier);
         Assert.False(tool.RequiresWriteConfirm);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
-    public async Task ReloadLinks_Success_WithoutFullAccess()
+    public async Task ReloadLinks_Success()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = DocumentTools.Create(new FakePluginContext(bridge))
@@ -1139,7 +1125,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task WorksetAssign_Success_WithoutFullAccess()
+    public async Task WorksetAssign_Success()
     {
         var bridge = new FakeRevitBridge
         {
@@ -1147,7 +1133,6 @@ public class FakeBridgeToolTests
             SyncInfo = new(@"\\central\hq.rvt", false, true, "alice", 2)
         };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = DocumentTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "workset_assign");
 
@@ -1174,7 +1159,7 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task SyncInfo_Success_WithoutFullAccess_KeepsCompatFormat()
+    public async Task SyncInfo_Success_KeepsCompatFormat()
     {
         var bridge = new FakeRevitBridge
         {
@@ -1183,7 +1168,6 @@ public class FakeBridgeToolTests
             SyncInfo = new(@"\\central\hq.rvt", false, true, "alice", 2)
         };
         var ctx = new FakePluginContext(bridge);
-        Assert.Null(ctx.FullAccess);
         var tool = QueryTools.Create(ctx)
             .Single(t => t.Definition.Function.Name == "sync_info");
 
@@ -1253,7 +1237,6 @@ public class FakeBridgeToolTests
         Assert.Empty(bridge.QuantityTakeoffCalls);
         Assert.Equal(ToolTier.L1, tool.Tier);
         Assert.False(tool.RequiresWriteConfirm);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]
@@ -1330,7 +1313,6 @@ public class FakeBridgeToolTests
         Assert.Equal("Please open a model first.", text);
         Assert.Equal(ToolTier.L1, tool.Tier);
         Assert.False(tool.RequiresWriteConfirm);
-        Assert.Null(new FakePluginContext(bridge).FullAccess);
     }
 
     [Fact]

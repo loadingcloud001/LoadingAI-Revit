@@ -25,6 +25,10 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -48,6 +52,10 @@ public class L3CommandContractTests
         Assert.Contains("SplitFloorsByBeamsAsync", names);
         Assert.Contains("SplitByLevelsAsync", names);
         Assert.Contains("SplitByGridsAsync", names);
+        Assert.Contains("FormworkSetupAsync", names);
+        Assert.Contains("CreateFormworkPanelsAsync", names);
+        Assert.Contains("CleanupFormworkAsync", names);
+        Assert.Contains("CopyFormworkParentParamsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
         Assert.DoesNotContain("LoadFamilyAsync", names);
@@ -115,6 +123,10 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -137,6 +149,10 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -150,6 +166,10 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
         Assert.DoesNotContain("CreateScheduleAsync", names);
         Assert.DoesNotContain("CreateFloorPlanAsync", names);
         Assert.DoesNotContain("Create3DViewAsync", names);

@@ -3,7 +3,7 @@ using Autodesk.Revit.DB;
 namespace LoadingAI.Tools;
 
 /// <summary>
-/// Revit-bound parse/set helpers shared by the host and FullAccess plugins.
+/// Revit-bound parse/set helpers used by the host.
 /// Lives outside the add-in so plugins do not reference LoadingAI.dll.
 /// </summary>
 public static class RevitParse

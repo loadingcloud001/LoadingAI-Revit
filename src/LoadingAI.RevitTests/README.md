@@ -43,4 +43,4 @@ If `dotnet test -p:ForceRevitTests=true` cannot start Revit:
 2. Load that DLL with [Revit.TestRunner](https://github.com/geberit/Revit.TestRunner) inside Revit 2027.
 3. First slice avoids App.Bridge, ribbon, HostPage, WebView2, and TaskDialog.
 
-Kind B bridge-only plugins (structure-cuts) use `CreateTools` with `PluginContext(..., fullAccessGranted: true)` — not `PluginLoader.Discover`. Dry-run first (empty selection / scope all skip reasons). One write is wrapped in `TransactionGroup.RollBack` so it does not persist. The host smoke rollback test starts a transaction and rolls it back; it does not persist writes.
+Kind B bridge-only plugins (structure-cuts, qs-formwork) use `CreateTools` with a plain `PluginContext(raw, pluginDir)` — not `PluginLoader.Discover`. Dry-run first (empty selection / scope all skip reasons). One write is wrapped in `TransactionGroup.RollBack` so it does not persist. The host smoke rollback test starts a transaction and rolls it back; it does not persist writes.

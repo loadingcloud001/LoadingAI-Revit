@@ -6,7 +6,8 @@ using LoadingAI.Revit;
 namespace LoadingAI.Tests.Fakes;
 
 /// <summary>
-/// Minimal <see cref="IPluginContext"/> for tool-handler tests. Does not grant FullAccess.
+/// Minimal <see cref="IPluginContext"/> for tool-handler tests. The host owns every
+/// Revit call, so there is no raw access to grant.
 /// </summary>
 internal sealed class FakePluginContext : IPluginContext
 {
@@ -32,6 +33,4 @@ internal sealed class FakePluginContext : IPluginContext
     public IProgressReporter Progress => ProgressReporter.Current;
 
     public CancellationToken ShutdownToken => CancellationToken.None;
-
-    public IRawRevitAccess? FullAccess => null;
 }
