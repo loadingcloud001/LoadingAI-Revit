@@ -6,7 +6,7 @@ Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Propos
 
 - [ADR-0002](docs/adr/0002-plugin-shelf-bridge-first.md) — plugin folder, Core-only, Bridge-first, never host.
 - [ADR-0003](docs/adr/0003-fullaccess-exceptions.md) — `IRevitFullAccess` is opt-in and listed.
-- [ADR-0004](docs/adr/0004-host-owned-l3-confirm.md) — host-owned L3: web then native; presets skip the web card; dry-run skips both. **Proposed.**
+- [ADR-0004](docs/adr/0004-host-owned-l3-confirm.md) — host-owned L3: web then native; presets skip the web card; dry-run skips both.
 
 ## How to add a plugin
 

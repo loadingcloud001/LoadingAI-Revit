@@ -1,6 +1,6 @@
 # ADR-0004 — Host-owned L3 confirm
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-19
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0002](0002-plugin-shelf-bridge-first.md)
@@ -70,7 +70,7 @@ sequenceDiagram
   - `HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm`
   - `ToolGuards_SkipsL3_HostOwnsTheGate`
   - `AllToolScripts_DoNotShowTheirOwnTaskDialog`
-- Flip Status to **Accepted** in the same PR if reviewers agree the Decision matches `ChatSession` / `ApprovalGate` / `ToolGuards` with no behavior change.
+- Status **Accepted**: Decision matches `ChatSession` / `ApprovalGate` / `ToolGuards` with no behavior change. A later PR that needs a different gate writes a new ADR first.
 
 ## Do not
 
