@@ -227,3 +227,16 @@ public sealed record QuantityTakeoffDto(
 public sealed record ParamImportRowDto(
     string Id,
     string Value);
+
+/// <summary>
+/// Outcome of a purge run. <c>DeletedCount</c> and <c>Passes</c> stay 0 when
+/// <c>Preview</c> is true, so a preview can never be mistaken for a delete.
+/// Same partial-failure convention as <see cref="QuantityTakeoffDto"/>.
+/// </summary>
+public sealed record PurgeUnusedResultDto(
+    bool Preview,
+    int UnusedCount,
+    int DeletedCount,
+    int Passes,
+    IReadOnlyList<string> Sample,
+    string? Error = null);

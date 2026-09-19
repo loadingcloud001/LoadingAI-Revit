@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Revit;
@@ -8,12 +6,11 @@ using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.ExportTools;
 
-public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
+public sealed class ExportToolsPlugin : IRevitToolPlugin
 {
     public string Id => "export-tools";
     public string Name => "Export Tools";
-    public string Version => "1.0.0";
-    private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
+    public string Version => "1.0.1";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -53,29 +50,11 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var folder = args.Str("folder");
             var name = args.Str("name");
             var combine = args.Bool("combine", true);
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var dir = ExportPaths.ResolveDirectory(folder);
-                    var views = ResolvePrintable(doc, ids, preferSheets: true);
-                    if (views.Count == 0) return "No printable sheets/views to export.";
-                    var options = new PDFExportOptions
-                    {
-                        FileName = ExportPaths.SanitizeFileName(name, doc.Title),
-                        Combine = combine
-                    };
-                    var ok = doc.Export(dir, views, options);
-                    if (!ok) return $"PDF export failed ({views.Count} views) to {dir}.";
-                    var dest = combine
-                        ? Path.Combine(dir, options.FileName + ".pdf")
-                        : dir;
-                    return $"Exported {views.Count} sheet(s)/view(s) to PDF: {dest}";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }, ExportTimeout);
+            string dir;
+            try { dir = ExportPaths.ResolveDirectory(folder); }
+            catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            var result = await context.Bridge.ExportPdfAsync(dir, ids.Count == 0 ? null : ids, name, combine);
+            return result.Message;
         }
     };
 
@@ -107,23 +86,11 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var ids = args.Strings("viewIds");
             var folder = args.Str("folder");
             var name = args.Str("name");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var dir = ExportPaths.ResolveDirectory(folder);
-                    var views = ResolvePrintable(doc, ids, preferSheets: false);
-                    if (views.Count == 0) return "No printable views to export.";
-                    var fname = ExportPaths.SanitizeFileName(name, doc.Title);
-                    var options = new DWGExportOptions { FileVersion = ACADVersion.R2018 };
-                    var ok = doc.Export(dir, fname, views, options);
-                    if (!ok) return $"DWG export failed ({views.Count} views) to {dir}.";
-                    return $"Exported {views.Count} view(s) to DWG in {dir} (prefix \"{fname}\")";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }, ExportTimeout);
+            string dir;
+            try { dir = ExportPaths.ResolveDirectory(folder); }
+            catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            var result = await context.Bridge.ExportDwgAsync(dir, ids.Count == 0 ? null : ids, name);
+            return result.Message;
         }
     };
 
@@ -155,35 +122,11 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var folder = args.Str("folder");
             var name = args.Str("name");
             var version = args.Str("version");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var dir = ExportPaths.ResolveDirectory(folder);
-                    var fname = ExportPaths.SanitizeFileName(name, doc.Title);
-                    var options = new IFCExportOptions();
-                    if (!string.IsNullOrWhiteSpace(version) && Enum.TryParse<IFCVersion>(version, true, out var ver))
-                        options.FileVersion = ver;
-                    var path = Path.Combine(dir, fname + ".ifc");
-                    DebugLog.Write("export_ifc.start", new
-                    {
-                        dir,
-                        fname,
-                        version,
-                        title = doc.Title,
-                        inTransaction = doc.IsModifiable
-                    });
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    var ok = doc.Export(dir, fname, options);
-                    sw.Stop();
-                    DebugLog.Write("export_ifc.end", new { ok, path, elapsedMs = sw.ElapsedMilliseconds });
-                    if (!ok) return $"IFC export failed to {path}.";
-                    return $"Exported IFC: {path}";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }, ExportTimeout);
+            string dir;
+            try { dir = ExportPaths.ResolveDirectory(folder); }
+            catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            var result = await context.Bridge.ExportIfcAsync(dir, name, version);
+            return result.Message;
         }
     };
 
@@ -207,79 +150,18 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin, IRevitFullAccess
         Handler = async json =>
         {
             var preview = Args.Parse(json).Bool("preview", true);
-            return await context.FullAccess!.RunRevitAsync(session =>
+            var result = await context.Bridge.PurgeUnusedAsync(preview);
+            if (result.Error != null) return result.Error;
+            if (result.UnusedCount == 0) return "Nothing to purge.";
+            if (result.Preview)
             {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var unused = doc.GetUnusedElements(new HashSet<ElementId>());
-                    if (unused == null || unused.Count == 0) return "Nothing to purge.";
-                    if (preview)
-                    {
-                        var sample = unused.Take(15).Select(id =>
-                        {
-                            var el = doc.GetElement(id);
-                            if (el == null) return id.ToString();
-                            var cat = el.Category?.Name ?? "(no category)";
-                            return $"{cat}/{el.Name} ({id})";
-                        });
-                        return $"Purge preview: {unused.Count} unused elements that can be deleted.\nSample:\n{string.Join("\n", sample)}\nRun with preview:false to delete.";
-                    }
-
-                    int deleted = 0, passes = 0;
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: purge unused");
-                    tx.Start();
-                    for (var i = 0; i < 8; i++)
-                    {
-                        var batch = doc.GetUnusedElements(new HashSet<ElementId>());
-                        if (batch == null || batch.Count == 0) break;
-                        doc.Delete(batch);
-                        deleted += batch.Count;
-                        passes++;
-                    }
-                    tx.Commit();
-                    return $"Purged {deleted} unused element(s) in {passes} pass(es).";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+                return $"Purge preview: {result.UnusedCount} unused elements that can be deleted.\n"
+                     + $"Sample:\n{string.Join("\n", result.Sample)}\n"
+                     + "Run with preview:false to delete.";
+            }
+            return $"Purged {result.DeletedCount} unused element(s) in {result.Passes} pass(es).";
         }
     };
-
-    private static List<ElementId> ResolvePrintable(Document doc, List<string> ids, bool preferSheets)
-    {
-        var result = new List<ElementId>();
-        if (ids.Count > 0)
-        {
-            foreach (var s in ids)
-            {
-                try
-                {
-                    var view = doc.GetElement(RevitParse.ParseEid(s)) as View;
-                    if (view != null && IsExportable(view)) result.Add(view.Id);
-                }
-                catch { }
-            }
-            return result;
-        }
-
-        if (preferSheets)
-        {
-            result.AddRange(new FilteredElementCollector(doc)
-                .OfClass(typeof(ViewSheet))
-                .Cast<ViewSheet>()
-                .Where(s => !s.IsPlaceholder && IsExportable(s))
-                .Select(s => s.Id));
-            if (result.Count > 0) return result;
-        }
-
-        var active = doc.ActiveView;
-        if (active != null && IsExportable(active)) result.Add(active.Id);
-        return result;
-    }
-
-    private static bool IsExportable(View view)
-        => !view.IsTemplate && view.CanBePrinted;
 
     private readonly struct Args
     {

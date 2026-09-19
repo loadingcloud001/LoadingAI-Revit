@@ -1617,6 +1617,193 @@ public class FakeBridgeToolTests
         Assert.Equal(50, bridge.CreateTopographyCalls[0].Points[2].Z);
     }
 
+    [Fact]
+    public async Task ExportPdf_FolderOutsideExportsRoot_DoesNotCallBridge()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests", "outside-root");
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_pdf");
+
+        var text = await tool.Handler($$"""{"folder":{{JsonEncode(outside)}}}""");
+
+        Assert.Equal($"Failed: Folder must be under {ExportPaths.Root}", text);
+        Assert.Empty(bridge.ExportPdfCalls);
+    }
+
+    [Fact]
+    public async Task ExportPdf_NoFolder_UsesExportsRootAndCombines()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_pdf");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal($"Exported 1 sheet(s)/view(s) to PDF: {Path.Combine(ExportPaths.Root, "export.pdf")}", text);
+        var call = Assert.Single(bridge.ExportPdfCalls);
+        Assert.Equal(ExportPaths.Root, call.Directory);
+        Assert.True(call.Combine);
+        Assert.Null(call.FileName);
+        Assert.Null(call.SheetIds);
+    }
+
+    [Fact]
+    public async Task ExportPdf_ExplicitSheetsAndName_ForwardsArgs()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_pdf");
+
+        var text = await tool.Handler("""{"sheetIds":["101","102"],"name":"HQ Set","combine":false}""");
+
+        Assert.Equal($"Exported 2 sheet(s)/view(s) to PDF: {ExportPaths.Root}", text);
+        var call = Assert.Single(bridge.ExportPdfCalls);
+        Assert.Equal(new[] { "101", "102" }, call.SheetIds);
+        Assert.Equal("HQ Set", call.FileName);
+        Assert.False(call.Combine);
+    }
+
+    [Fact]
+    public async Task ExportPdf_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_pdf");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.ExportPdfCalls);
+    }
+
+    [Fact]
+    public async Task ExportDwg_OpenDocument_PassesViewsAndPrefix()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_dwg");
+
+        var text = await tool.Handler("""{"viewIds":["7"],"name":"Plan"}""");
+
+        Assert.Equal($"Exported 1 view(s) to DWG in {ExportPaths.Root} (prefix \"Plan\")", text);
+        var call = Assert.Single(bridge.ExportDwgCalls);
+        Assert.Equal(new[] { "7" }, call.ViewIds);
+        Assert.Equal("Plan", call.FileName);
+    }
+
+    [Fact]
+    public async Task ExportDwg_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_dwg");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.ExportDwgCalls);
+    }
+
+    [Fact]
+    public async Task ExportIfc_OpenDocument_PassesVersionAndName()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_ifc");
+
+        var text = await tool.Handler("""{"version":"IFC4RV","name":"HQ"}""");
+
+        Assert.Equal($"Exported IFC: {Path.Combine(ExportPaths.Root, "HQ.ifc")}", text);
+        var call = Assert.Single(bridge.ExportIfcCalls);
+        Assert.Equal(ExportPaths.Root, call.Directory);
+        Assert.Equal("HQ", call.FileName);
+        Assert.Equal("IFC4RV", call.Version);
+    }
+
+    [Fact]
+    public async Task ExportIfc_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "export_ifc");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.ExportIfcCalls);
+    }
+
+    [Fact]
+    public async Task PurgeUnused_NoDocument_ReturnsBridgeError()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "purge_unused");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Equal(new[] { true }, bridge.PurgeUnusedCalls);
+    }
+
+    [Fact]
+    public async Task PurgeUnused_NothingUnused_SaysNothingToPurge()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextPurgeUnusedResult = new PurgeUnusedResultDto(true, 0, 0, 0, Array.Empty<string>())
+        };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "purge_unused");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Nothing to purge.", text);
+    }
+
+    [Fact]
+    public async Task PurgeUnused_Preview_ListsSampleAndDeleteHint()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextPurgeUnusedResult = new PurgeUnusedResultDto(
+                true, 3, 0, 0, new[] { "Walls/Basic Wall (101)" })
+        };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "purge_unused");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal(
+            "Purge preview: 3 unused elements that can be deleted.\n"
+            + "Sample:\nWalls/Basic Wall (101)\n"
+            + "Run with preview:false to delete.",
+            text);
+        Assert.Equal(new[] { true }, bridge.PurgeUnusedCalls);
+    }
+
+    [Fact]
+    public async Task PurgeUnused_Delete_ReportsCountAndPasses()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextPurgeUnusedResult = new PurgeUnusedResultDto(false, 5, 5, 2, Array.Empty<string>())
+        };
+        var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "purge_unused");
+
+        var text = await tool.Handler("""{"preview":false}""");
+
+        Assert.Equal("Purged 5 unused element(s) in 2 pass(es).", text);
+        Assert.Equal(new[] { false }, bridge.PurgeUnusedCalls);
+    }
+
+    private static LoadingAI.Plugins.ExportTools.ExportToolsPlugin ExportPlugin() => new();
+
     private static string WriteTempRfa()
     {
         var dir = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests");

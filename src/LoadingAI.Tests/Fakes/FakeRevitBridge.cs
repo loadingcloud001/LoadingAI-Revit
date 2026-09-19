@@ -646,6 +646,22 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<string> LoadFamilyCalls { get; } = new();
 
+    public CommandResultDto? NextExportPdfResult { get; set; }
+
+    public List<(string Directory, IReadOnlyList<string>? SheetIds, string? FileName, bool Combine)> ExportPdfCalls { get; } = new();
+
+    public CommandResultDto? NextExportDwgResult { get; set; }
+
+    public List<(string Directory, IReadOnlyList<string>? ViewIds, string? FileName)> ExportDwgCalls { get; } = new();
+
+    public CommandResultDto? NextExportIfcResult { get; set; }
+
+    public List<(string Directory, string? FileName, string? Version)> ExportIfcCalls { get; } = new();
+
+    public PurgeUnusedResultDto? NextPurgeUnusedResult { get; set; }
+
+    public List<bool> PurgeUnusedCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -921,6 +937,69 @@ internal sealed class FakeRevitBridge : IRevitBridge
             true,
             $"Loaded family \"{name}\" (901) with 1 symbol(s): {name}",
             1));
+    }
+
+    public Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default)
+    {
+        ExportPdfCalls.Add((directory, sheetIds, fileName, combine));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportPdfResult != null)
+            return Task.FromResult(NextExportPdfResult);
+        var views = sheetIds?.Count ?? 1;
+        var dest = combine ? Path.Combine(directory, (fileName ?? "export") + ".pdf") : directory;
+        return Task.FromResult(new CommandResultDto(
+            true, $"Exported {views} sheet(s)/view(s) to PDF: {dest}", views));
+    }
+
+    public Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default)
+    {
+        ExportDwgCalls.Add((directory, viewIds, fileName));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportDwgResult != null)
+            return Task.FromResult(NextExportDwgResult);
+        var views = viewIds?.Count ?? 1;
+        return Task.FromResult(new CommandResultDto(
+            true,
+            $"Exported {views} view(s) to DWG in {directory} (prefix \"{fileName ?? "export"}\")",
+            views));
+    }
+
+    public Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
+        CancellationToken ct = default)
+    {
+        ExportIfcCalls.Add((directory, fileName, version));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportIfcResult != null)
+            return Task.FromResult(NextExportIfcResult);
+        var fname = fileName ?? "export";
+        return Task.FromResult(new CommandResultDto(
+            true, $"Exported IFC: {Path.Combine(directory, fname + ".ifc")}", 1));
+    }
+
+    public Task<PurgeUnusedResultDto> PurgeUnusedAsync(bool preview = true, CancellationToken ct = default)
+    {
+        PurgeUnusedCalls.Add(preview);
+        if (!HasActiveDocument)
+            return Task.FromResult(new PurgeUnusedResultDto(
+                preview, 0, 0, 0, Array.Empty<string>(), "Please open a model first."));
+        if (NextPurgeUnusedResult != null)
+            return Task.FromResult(NextPurgeUnusedResult);
+        return Task.FromResult(new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>()));
     }
 
     private CommandResultDto FailIfClosed(string emptyMessage, IReadOnlyList<string>? elementIds, string? category)

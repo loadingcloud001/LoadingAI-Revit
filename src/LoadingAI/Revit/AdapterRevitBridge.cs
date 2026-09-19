@@ -1,6 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using LoadingAI.Llm;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Revit;
@@ -13,6 +14,9 @@ namespace LoadingAI.Revit;
 public sealed class AdapterRevitBridge : IRevitBridge
 {
     private readonly RevitBridge _bridge;
+
+    /// <summary>Exports write whole models to disk, so they get a longer leash than <see cref="RevitBridge.DefaultTimeout"/>.</summary>
+    private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
 
     public AdapterRevitBridge(RevitBridge bridge) => _bridge = bridge;
 
@@ -2696,6 +2700,201 @@ public sealed class AdapterRevitBridge : IRevitBridge
             }
         }, ct);
     }
+
+    public Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            try
+            {
+                var views = ResolvePrintable(doc, sheetIds, preferSheets: true);
+                if (views.Count == 0)
+                    return new CommandResultDto(false, "No printable sheets/views to export.");
+                var options = new PDFExportOptions
+                {
+                    FileName = ExportPaths.SanitizeFileName(fileName, doc.Title),
+                    Combine = combine
+                };
+                if (!doc.Export(directory, views, options))
+                    return new CommandResultDto(false, $"PDF export failed ({views.Count} views) to {directory}.");
+                var dest = combine
+                    ? System.IO.Path.Combine(directory, options.FileName + ".pdf")
+                    : directory;
+                return new CommandResultDto(
+                    true, $"Exported {views.Count} sheet(s)/view(s) to PDF: {dest}", views.Count);
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ExportTimeout, ct);
+    }
+
+    public Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            try
+            {
+                var views = ResolvePrintable(doc, viewIds, preferSheets: false);
+                if (views.Count == 0)
+                    return new CommandResultDto(false, "No printable views to export.");
+                var fname = ExportPaths.SanitizeFileName(fileName, doc.Title);
+                var options = new DWGExportOptions { FileVersion = ACADVersion.R2018 };
+                if (!doc.Export(directory, fname, views, options))
+                    return new CommandResultDto(false, $"DWG export failed ({views.Count} views) to {directory}.");
+                return new CommandResultDto(
+                    true,
+                    $"Exported {views.Count} view(s) to DWG in {directory} (prefix \"{fname}\")",
+                    views.Count);
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ExportTimeout, ct);
+    }
+
+    public Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            try
+            {
+                var fname = ExportPaths.SanitizeFileName(fileName, doc.Title);
+                var options = new IFCExportOptions();
+                if (!string.IsNullOrWhiteSpace(version)
+                    && Enum.TryParse<IFCVersion>(version, true, out var ver))
+                    options.FileVersion = ver;
+                var path = System.IO.Path.Combine(directory, fname + ".ifc");
+                DebugLog.Write("export_ifc.start", new
+                {
+                    dir = directory,
+                    fname,
+                    version,
+                    title = doc.Title,
+                    inTransaction = doc.IsModifiable
+                });
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var ok = doc.Export(directory, fname, options);
+                sw.Stop();
+                DebugLog.Write("export_ifc.end", new { ok, path, elapsedMs = sw.ElapsedMilliseconds });
+                if (!ok) return new CommandResultDto(false, $"IFC export failed to {path}.");
+                return new CommandResultDto(true, $"Exported IFC: {path}", 1);
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ExportTimeout, ct);
+    }
+
+    public Task<PurgeUnusedResultDto> PurgeUnusedAsync(bool preview = true, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null)
+                return new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>(), "Please open a model first.");
+            try
+            {
+                var unused = doc.GetUnusedElements(new HashSet<ElementId>());
+                if (unused == null || unused.Count == 0)
+                    return new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>());
+                var count = unused.Count;
+
+                if (preview)
+                {
+                    var sample = unused.Take(15).Select(id =>
+                    {
+                        var el = doc.GetElement(id);
+                        if (el == null) return id.ToString();
+                        return $"{el.Category?.Name ?? "(no category)"}/{el.Name} ({id})";
+                    }).ToList();
+                    return new PurgeUnusedResultDto(true, count, 0, 0, sample);
+                }
+
+                int deleted = 0, passes = 0;
+                using var tx = new Transaction(doc, "LoadingAI for Revit: purge unused");
+                tx.Start();
+                try
+                {
+                    for (var i = 0; i < 8; i++)
+                    {
+                        var batch = doc.GetUnusedElements(new HashSet<ElementId>());
+                        if (batch == null || batch.Count == 0) break;
+                        doc.Delete(batch);
+                        deleted += batch.Count;
+                        passes++;
+                    }
+                    tx.Commit();
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new PurgeUnusedResultDto(preview, count, 0, passes, Array.Empty<string>(), $"Failed: {inner.Message}");
+                }
+                return new PurgeUnusedResultDto(false, count, deleted, passes, Array.Empty<string>());
+            }
+            catch (Exception ex)
+            {
+                return new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>(), $"Failed: {ex.Message}");
+            }
+        }, ExportTimeout, ct);
+    }
+
+    private static List<ElementId> ResolvePrintable(Document doc, IReadOnlyList<string>? ids, bool preferSheets)
+    {
+        var result = new List<ElementId>();
+        if (ids != null && ids.Count > 0)
+        {
+            foreach (var s in ids)
+            {
+                try
+                {
+                    if (doc.GetElement(AllTools.ParseEid(s)) is View view && IsPrintable(view))
+                        result.Add(view.Id);
+                }
+                catch { }
+            }
+            return result;
+        }
+
+        if (preferSheets)
+        {
+            result.AddRange(new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet))
+                .Cast<ViewSheet>()
+                .Where(s => !s.IsPlaceholder && IsPrintable(s))
+                .Select(s => s.Id));
+            if (result.Count > 0) return result;
+        }
+
+        var active = doc.ActiveView;
+        if (active != null && IsPrintable(active)) result.Add(active.Id);
+        return result;
+    }
+
+    private static bool IsPrintable(View view) => !view.IsTemplate && view.CanBePrinted;
 
     private static Level? ResolveLevel(Document doc, string? levelId, string? levelName)
     {

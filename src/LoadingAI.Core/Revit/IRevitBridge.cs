@@ -181,8 +181,7 @@ public interface IRevitParamCommand
 }
 
 /// <summary>
-/// Destructive element mutations (delete / move / type change). Export
-/// stays on <c>IRawRevitAccess</c> until it has DTOs.
+/// Destructive element mutations (delete / move / type change / purge).
 /// </summary>
 public interface IRevitElementCommand
 {
@@ -196,12 +195,19 @@ public interface IRevitElementCommand
     Task<CommandResultDto> ChangeElementTypeAsync(
         string elementId, string? typeName = null, string? typeId = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// <c>Document.GetUnusedElements</c>. When <paramref name="preview"/> is true
+    /// nothing is deleted and <see cref="PurgeUnusedResultDto.Sample"/> describes
+    /// the first few candidates.
+    /// </summary>
+    Task<PurgeUnusedResultDto> PurgeUnusedAsync(
+        bool preview = true, CancellationToken ct = default);
 }
 
 /// <summary>
 /// Geometry create / transform. Coordinates are millimetres; the adapter
-/// converts to feet for the Revit API. Export stays on
-/// <c>IRawRevitAccess</c>.
+/// converts to feet for the Revit API.
 /// </summary>
 public interface IRevitCreateCommand
 {
@@ -280,7 +286,9 @@ public interface IRevitCreateCommand
 /// <summary>
 /// Document-level writes. Do not wrap <c>Save</c> in a Transaction —
 /// Revit rejects that. <c>LoadFamily</c> does need a Transaction.
-/// Export stays on <c>IRawRevitAccess</c>.
+/// Exports are not Transactions either. <c>directory</c> is always an
+/// absolute path already validated by the caller against
+/// <c>ExportPaths</c>; the adapter never touches the file system itself.
 /// </summary>
 public interface IRevitDocumentCommand
 {
@@ -291,6 +299,31 @@ public interface IRevitDocumentCommand
         string worksetName,
         CancellationToken ct = default);
     Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sheets (or the given views) to a combined/split PDF. <paramref name="fileName"/>
+    /// is sanitised against the model title when omitted.
+    /// </summary>
+    Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default);
+
+    /// <summary>Views (or the active view) to DWG, AutoCAD 2018 format.</summary>
+    Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default);
+
+    /// <summary>Whole model to IFC. <paramref name="version"/> is an <c>IFCVersion</c> name, ignored when unknown.</summary>
+    Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
+        CancellationToken ct = default);
 }
 
 /// <summary>

@@ -7,7 +7,7 @@ public class PluginProjectContractTests
 {
     [Theory]
     [InlineData("Plugins/core-tools/CoreToolsPlugin.csproj", false)]
-    [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj", true)]
+    [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj", false)]
     [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj", true)]
     [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", false)]
     [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj", true)]

@@ -13,6 +13,10 @@ public class L3CommandContractTests
         Assert.Contains("DeleteElementsAsync", names);
         Assert.Contains("MoveElementsAsync", names);
         Assert.Contains("ChangeElementTypeAsync", names);
+        Assert.Contains("PurgeUnusedAsync", names);
+        Assert.DoesNotContain("ExportPdfAsync", names);
+        Assert.DoesNotContain("ExportDwgAsync", names);
+        Assert.DoesNotContain("ExportIfcAsync", names);
         Assert.DoesNotContain("IsolateInViewAsync", names);
         Assert.DoesNotContain("SetParameterAsync", names);
         Assert.DoesNotContain("LoadFamilyAsync", names);
@@ -72,6 +76,10 @@ public class L3CommandContractTests
         Assert.Contains("ReloadLinksAsync", names);
         Assert.Contains("AssignWorksetAsync", names);
         Assert.Contains("LoadFamilyAsync", names);
+        Assert.Contains("ExportPdfAsync", names);
+        Assert.Contains("ExportDwgAsync", names);
+        Assert.Contains("ExportIfcAsync", names);
+        Assert.DoesNotContain("PurgeUnusedAsync", names);
         Assert.DoesNotContain("GetWarningsRawAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
         Assert.DoesNotContain("ChangeElementTypeAsync", names);
