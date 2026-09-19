@@ -1,6 +1,6 @@
 using Autodesk.Revit.DB;
 
-namespace LoadingAI.Plugins.QsFormwork;
+namespace LoadingAI.Revit.Formwork;
 
 internal static class FormworkGenerator
 {

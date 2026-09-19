@@ -3,7 +3,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using LoadingAI.Tools;
 
-namespace LoadingAI.Plugins.QsFormwork;
+namespace LoadingAI.Revit.Formwork;
 
 internal static class FormworkCore
 {
