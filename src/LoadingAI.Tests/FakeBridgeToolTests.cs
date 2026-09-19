@@ -1802,7 +1802,419 @@ public class FakeBridgeToolTests
         Assert.Equal(new[] { false }, bridge.PurgeUnusedCalls);
     }
 
+    [Fact]
+    public async Task CreateSchedule_ExplicitName_SendsCategoryAndNameToken()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextCreateScheduleResult = new ViewRefDto(
+                "7001", "Wall Schedule", "Created schedule 7001 \"Wall Schedule\" with 2 field(s).")
+        };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_schedule");
+
+        var text = await tool.Handler(
+            """{"category":"Walls","name":"Wall Schedule","fields":["Type","Length"]}""");
+
+        Assert.Equal("Created schedule 7001 \"Wall Schedule\" with 2 field(s).", text);
+        var call = Assert.Single(bridge.CreateScheduleCalls);
+        Assert.Equal("Walls:Wall Schedule", call.Name);
+        Assert.Equal(new[] { "Type", "Length" }, call.Fields);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_CategoryOnly_SendsBareCategoryToken()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_schedule");
+
+        var text = await tool.Handler("""{"category":"Walls"}""");
+
+        Assert.Equal("Created schedule 5001 \"Walls Schedule\" with 0 field(s).", text);
+        Assert.Equal("Walls", Assert.Single(bridge.CreateScheduleCalls).Name);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_MissingCategory_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_schedule");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("category is required.", text);
+        Assert.Empty(bridge.CreateScheduleCalls);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_schedule");
+
+        var text = await tool.Handler("""{"category":"Walls"}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CreateScheduleCalls);
+    }
+
+    [Fact]
+    public async Task GetScheduleData_ForwardsIdNameAndRowLimit()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "get_schedule_data");
+
+        var text = await tool.Handler("""{"scheduleId":"1001","name":"Door Schedule","rowLimit":2}""");
+
+        Assert.Equal(
+            new[] { "Door Schedule (1001) rows=3 cols=2 showing=2", "W-1\t200", "W-1\t200", "" },
+            text.Replace("\r\n", "\n").Split('\n'));
+        var call = Assert.Single(bridge.GetScheduleDataCalls);
+        Assert.Equal("1001", call.ScheduleId);
+        Assert.Equal("Door Schedule", call.ScheduleName);
+        Assert.Equal(2, call.RowLimit);
+    }
+
+    [Fact]
+    public async Task GetScheduleData_ZeroRowLimit_LetsBridgeApplyItsDefault()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "get_schedule_data");
+
+        await tool.Handler("{}");
+
+        Assert.Equal(0, Assert.Single(bridge.GetScheduleDataCalls).RowLimit);
+    }
+
+    [Fact]
+    public async Task GetScheduleData_BridgeError_ReturnsErrorText()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextScheduleData = new ScheduleDataDto(
+                string.Empty, string.Empty, 0, 0, 0, Array.Empty<IReadOnlyList<string>>(),
+                "Schedule not found. Pass scheduleId or name.")
+        };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "get_schedule_data");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Schedule not found. Pass scheduleId or name.", text);
+    }
+
+    [Fact]
+    public async Task GetScheduleData_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "get_schedule_data");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+    }
+
+    [Fact]
+    public async Task CreateFloorPlan_LevelIdWinsOverLevelName()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_floor_plan");
+
+        var text = await tool.Handler("""{"levelId":"42","levelName":"Level 9","name":"Rooftop"}""");
+
+        Assert.Equal("Created floor plan 5002 \"Rooftop\" on 42", text);
+        var call = Assert.Single(bridge.CreateFloorPlanCalls);
+        Assert.Equal("42", call.LevelIdOrName);
+        Assert.Equal("Rooftop", call.Name);
+    }
+
+    [Fact]
+    public async Task CreateFloorPlan_UnsavedDocument_ReturnsBridgeError()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextCreateFloorPlanResult = new ViewRefDto(
+                string.Empty, string.Empty, string.Empty,
+                "Level not found. Pass levelId or levelName.")
+        };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_floor_plan");
+
+        var text = await tool.Handler("""{"levelName":"Nope"}""");
+
+        Assert.Equal("Level not found. Pass levelId or levelName.", text);
+    }
+
+    [Fact]
+    public async Task CreateFloorPlan_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_floor_plan");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CreateFloorPlanCalls);
+    }
+
+    [Fact]
+    public async Task Create3DView_AlwaysRequestsIsometric()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_3d_view");
+
+        var text = await tool.Handler("""{"name":"Overview"}""");
+
+        Assert.Equal("Created 3D view 5003 \"Overview\"", text);
+        var call = Assert.Single(bridge.Create3DViewCalls);
+        Assert.Equal("Overview", call.Name);
+        Assert.True(call.Isometric);
+    }
+
+    [Fact]
+    public async Task Create3DView_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_3d_view");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.Create3DViewCalls);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_PassesMmBoxWithoutConverting()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"x1":0,"y1":1000,"x2":5000,"y2":1000,"z":250,"name":"Section A"}""");
+
+        Assert.Equal("Created section 5004 \"Section A\"", text);
+        var call = Assert.Single(bridge.CreateSectionViewCalls);
+        Assert.Equal("Section A", call.Name);
+        Assert.Equal(0, call.Min.X);
+        Assert.Equal(1000, call.Min.Y);
+        Assert.Equal(250, call.Min.Z);
+        Assert.Equal(5000, call.Max.X);
+        Assert.Equal(250, call.Max.Z);
+        Assert.Null(call.ViewDirection);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_ElementId_RejectedWithoutCallingBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"elementId":"123456"}""");
+
+        Assert.Equal(
+            "elementId sections need explicit coordinates: pass x1,y1,x2,y2 (mm) instead of 123456.",
+            text);
+        Assert.Empty(bridge.CreateSectionViewCalls);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_CustomHeight_RejectedWithoutCallingBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"x1":0,"y1":0,"x2":5000,"y2":0,"height":4000}""");
+
+        Assert.Equal(
+            "custom height/depth are not available; the section box is fixed at 3000 x 2500 mm.",
+            text);
+        Assert.Empty(bridge.CreateSectionViewCalls);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_DefaultHeightAndDepth_StillCallsBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"x1":0,"y1":0,"x2":5000,"y2":0,"height":3000,"depth":2500}""");
+
+        Assert.Equal("Created section 5004 \"Section 1\"", text);
+        Assert.Single(bridge.CreateSectionViewCalls);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_MissingCoordinates_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"x1":0,"y1":0}""");
+
+        Assert.Equal("Pass elementId or x1,y1,x2,y2.", text);
+        Assert.Empty(bridge.CreateSectionViewCalls);
+    }
+
+    [Fact]
+    public async Task CreateSectionView_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_section_view");
+
+        var text = await tool.Handler("""{"x1":0,"y1":0,"x2":5000,"y2":0}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CreateSectionViewCalls);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_PointShorthand_PassesOnePair()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler("""{"viewId":"9","startX":0,"startY":0,"endX":3000,"endY":500}""");
+
+        Assert.Equal("Created 1/1 path(s) in 9: 9001", text);
+        var call = Assert.Single(bridge.CreatePathOfTravelCalls);
+        Assert.Equal("9", call.ViewIdOrName);
+        var pair = Assert.Single(call.Pairs);
+        Assert.Equal(0, pair.Start.X);
+        Assert.Equal(0, pair.Start.Y);
+        Assert.Equal(3000, pair.End.X);
+        Assert.Equal(500, pair.End.Y);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_StartsAndEndsArrays_PassesEveryPair()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler(
+            """{"starts":[[0,0],[1000,0]],"ends":[[0,4000],[1000,4000]]}""");
+
+        Assert.Equal("Created 2/2 path(s) in Level 1: 9001, 9002", text);
+        var call = Assert.Single(bridge.CreatePathOfTravelCalls);
+        Assert.Equal(string.Empty, call.ViewIdOrName);
+        Assert.Equal(2, call.Pairs.Count);
+        Assert.Equal(4000, call.Pairs[1].End.Y);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_PairCountMismatch_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler("""{"starts":[[0,0],[1000,0]],"ends":[[0,4000]]}""");
+
+        Assert.Equal("starts and ends must have the same count.", text);
+        Assert.Empty(bridge.CreatePathOfTravelCalls);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_NoInput_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Pass startX/startY/endX/endY or starts/ends arrays.", text);
+        Assert.Empty(bridge.CreatePathOfTravelCalls);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_PairCapSurfacesBridgeError()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextCreatePathOfTravelResult = new PathOfTravelResultDto(
+                string.Empty, 6, 0, Array.Empty<string>(), Array.Empty<string>(),
+                "Max 5 path pairs per call.")
+        };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler(
+            """{"starts":[[0,0],[1,0],[2,0],[3,0],[4,0],[5,0]],"ends":[[0,9],[1,9],[2,9],[3,9],[4,9],[5,9]]}""");
+
+        Assert.Equal("Max 5 path pairs per call.", text);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_PartialFailures_AppendFailedList()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextCreatePathOfTravelResult = new PathOfTravelResultDto(
+                "Level 1", 2, 1, new[] { "9001" }, new[] { "#1:PathNotFound" })
+        };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler("""{"starts":[[0,0],[1000,0]],"ends":[[0,4000],[1000,4000]]}""");
+
+        Assert.Equal("Created 1/2 path(s) in Level 1: 9001\nFailed: #1:PathNotFound", text);
+    }
+
+    [Fact]
+    public async Task PathOfTravel_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = ViewPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "path_of_travel");
+
+        var text = await tool.Handler("""{"startX":0,"startY":0,"endX":10,"endY":10}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CreatePathOfTravelCalls);
+    }
+
+    [Fact]
+    public async Task ViewTools_DeclareFrozenNamesAndTiers()
+    {
+        var tools = ViewPlugin().CreateTools(new FakePluginContext(new FakeRevitBridge()))
+            .Select(t => (t.Definition.Function.Name, t.Tier))
+            .ToDictionary(x => x.Name, x => x.Tier);
+
+        Assert.Equal(6, tools.Count);
+        Assert.Equal(ToolTier.L3, tools["create_schedule"]);
+        Assert.Equal(ToolTier.L1, tools["get_schedule_data"]);
+        Assert.Equal(ToolTier.L3, tools["create_floor_plan"]);
+        Assert.Equal(ToolTier.L3, tools["create_3d_view"]);
+        Assert.Equal(ToolTier.L3, tools["create_section_view"]);
+        Assert.Equal(ToolTier.L3, tools["path_of_travel"]);
+    }
+
     private static LoadingAI.Plugins.ExportTools.ExportToolsPlugin ExportPlugin() => new();
+
+    private static LoadingAI.Plugins.ViewTools.ViewToolsPlugin ViewPlugin() => new();
 
     private static string WriteTempRfa()
     {

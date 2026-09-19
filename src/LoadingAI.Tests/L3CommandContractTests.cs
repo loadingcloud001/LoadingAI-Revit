@@ -95,5 +95,42 @@ public class L3CommandContractTests
         Assert.DoesNotContain("PlaceViewOnSheetAsync", names);
         Assert.DoesNotContain("TagAllInActiveViewAsync", names);
         Assert.DoesNotContain("GetQuantityTakeoffAsync", names);
+        Assert.DoesNotContain("CreateScheduleAsync", names);
+        Assert.DoesNotContain("CreateFloorPlanAsync", names);
+        Assert.DoesNotContain("Create3DViewAsync", names);
+        Assert.DoesNotContain("CreateSectionViewAsync", names);
+        Assert.DoesNotContain("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("GetScheduleDataAsync", names);
+    }
+
+    [Fact]
+    public void IRevitViewCommand_DeclaresScheduleAndViewCreateMethods()
+    {
+        var names = typeof(IRevitViewCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("CreateScheduleAsync", names);
+        Assert.Contains("CreateFloorPlanAsync", names);
+        Assert.Contains("Create3DViewAsync", names);
+        Assert.Contains("CreateSectionViewAsync", names);
+        Assert.Contains("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("GetScheduleDataAsync", names);
+        Assert.DoesNotContain("CreateWallAsync", names);
+        Assert.DoesNotContain("SaveDocumentAsync", names);
+        Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("SetParameterAsync", names);
+        Assert.DoesNotContain("PurgeUnusedAsync", names);
+    }
+
+    [Fact]
+    public void IRevitQuery_DeclaresScheduleReadMethod()
+    {
+        var names = typeof(IRevitQuery).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("GetScheduleDataAsync", names);
+        Assert.DoesNotContain("CreateScheduleAsync", names);
+        Assert.DoesNotContain("CreateFloorPlanAsync", names);
+        Assert.DoesNotContain("Create3DViewAsync", names);
+        Assert.DoesNotContain("CreateSectionViewAsync", names);
+        Assert.DoesNotContain("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("ExportPdfAsync", names);
+        Assert.DoesNotContain("DeleteElementsAsync", names);
     }
 }

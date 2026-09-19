@@ -148,6 +148,10 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<string> QuantityTakeoffCalls { get; } = new();
 
+    public ScheduleDataDto? NextScheduleData { get; set; }
+
+    public List<(string? ScheduleId, string? ScheduleName, int RowLimit)> GetScheduleDataCalls { get; } = new();
+
     public Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default)
     {
         if (!HasActiveDocument)
@@ -157,6 +161,24 @@ internal sealed class FakeRevitBridge : IRevitBridge
             return Task.FromResult<QuantityTakeoffDto?>(NextQuantityTakeoff);
         return Task.FromResult<QuantityTakeoffDto?>(
             new QuantityTakeoffDto(category, 0, 0, 0, 0, Array.Empty<QuantityTakeoffRowDto>()));
+    }
+
+    public Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default)
+    {
+        if (!HasActiveDocument)
+            return Task.FromResult<ScheduleDataDto?>(new ScheduleDataDto(
+                string.Empty, string.Empty, 0, 0, 0, Array.Empty<IReadOnlyList<string>>(),
+                "Please open a model first."));
+        GetScheduleDataCalls.Add((scheduleId, scheduleName, rowLimit));
+        if (NextScheduleData != null)
+            return Task.FromResult<ScheduleDataDto?>(NextScheduleData);
+        var rows = new List<IReadOnlyList<string>>();
+        var shown = Math.Min(3, rowLimit);
+        for (var r = 0; r < shown; r++)
+            rows.Add(new[] { "W-1", "200" });
+        return Task.FromResult<ScheduleDataDto?>(new ScheduleDataDto(
+            "1001", scheduleName ?? "Wall Schedule", 3, 2, shown, rows));
     }
 
     public Task<CommandResultDto> IsolateInViewAsync(
@@ -662,6 +684,26 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<bool> PurgeUnusedCalls { get; } = new();
 
+    public ViewRefDto? NextCreateScheduleResult { get; set; }
+
+    public List<(string Name, IReadOnlyList<string> Fields)> CreateScheduleCalls { get; } = new();
+
+    public ViewRefDto? NextCreateFloorPlanResult { get; set; }
+
+    public List<(string LevelIdOrName, string Name)> CreateFloorPlanCalls { get; } = new();
+
+    public ViewRefDto? NextCreate3DViewResult { get; set; }
+
+    public List<(string Name, bool Isometric)> Create3DViewCalls { get; } = new();
+
+    public ViewRefDto? NextCreateSectionViewResult { get; set; }
+
+    public List<(string Name, PointMmDto Min, PointMmDto Max, string? ViewDirection)> CreateSectionViewCalls { get; } = new();
+
+    public PathOfTravelResultDto? NextCreatePathOfTravelResult { get; set; }
+
+    public List<(string ViewIdOrName, IReadOnlyList<PathPairDto> Pairs)> CreatePathOfTravelCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -1000,6 +1042,78 @@ internal sealed class FakeRevitBridge : IRevitBridge
         if (NextPurgeUnusedResult != null)
             return Task.FromResult(NextPurgeUnusedResult);
         return Task.FromResult(new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>()));
+    }
+
+    public Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        CreateScheduleCalls.Add((name, fields));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateScheduleResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateScheduleResult);
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5001", $"{name.Trim()} Schedule",
+            $"Created schedule 5001 \"{name.Trim()} Schedule\" with {fields?.Count ?? 0} field(s)."));
+    }
+
+    public Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name, CancellationToken ct = default)
+    {
+        CreateFloorPlanCalls.Add((levelIdOrName, name));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateFloorPlanResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateFloorPlanResult);
+        var level = string.IsNullOrWhiteSpace(levelIdOrName) ? "Level 1" : levelIdOrName;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5002", string.IsNullOrWhiteSpace(name) ? level : name,
+            $"Created floor plan 5002 \"{(string.IsNullOrWhiteSpace(name) ? level : name)}\" on {level}"));
+    }
+
+    public Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric, CancellationToken ct = default)
+    {
+        Create3DViewCalls.Add((name, isometric));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreate3DViewResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreate3DViewResult);
+        var viewName = string.IsNullOrWhiteSpace(name) ? "3D View 1" : name;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5003", viewName, $"Created 3D view 5003 \"{viewName}\""));
+    }
+
+    public Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max, string? viewDirection, CancellationToken ct = default)
+    {
+        CreateSectionViewCalls.Add((name, min, max, viewDirection));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateSectionViewResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateSectionViewResult);
+        var viewName = string.IsNullOrWhiteSpace(name) ? "Section 1" : name;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5004", viewName, $"Created section 5004 \"{viewName}\""));
+    }
+
+    public Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs, CancellationToken ct = default)
+    {
+        CreatePathOfTravelCalls.Add((viewIdOrName, pairs));
+        if (!HasActiveDocument)
+            return Task.FromResult<PathOfTravelResultDto?>(new PathOfTravelResultDto(
+                string.Empty, 0, 0, Array.Empty<string>(), Array.Empty<string>(), "Please open a model first."));
+        if (NextCreatePathOfTravelResult != null)
+            return Task.FromResult<PathOfTravelResultDto?>(NextCreatePathOfTravelResult);
+        var ids = Enumerable.Range(1, pairs?.Count ?? 0).Select(i => (9000 + i).ToString()).ToList();
+        return Task.FromResult<PathOfTravelResultDto?>(new PathOfTravelResultDto(
+            string.IsNullOrWhiteSpace(viewIdOrName) ? "Level 1" : viewIdOrName,
+            ids.Count, ids.Count, ids, Array.Empty<string>()));
     }
 
     private CommandResultDto FailIfClosed(string emptyMessage, IReadOnlyList<string>? elementIds, string? category)

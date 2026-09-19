@@ -1,8 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Analysis;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Revit;
@@ -10,11 +7,11 @@ using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.ViewTools;
 
-public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
+public sealed class ViewToolsPlugin : IRevitToolPlugin
 {
     public string Id => "view-tools";
     public string Name => "View & Schedule Tools";
-    public string Version => "1.0.0";
+    public string Version => "1.0.1";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -55,24 +52,10 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var name = args.Str("name");
             var fields = args.Strings("fields");
             if (string.IsNullOrWhiteSpace(cat)) return "category is required.";
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                var bic = RevitParse.ParseCategory(cat);
-                if (bic == null) return $"Unknown category {cat}";
-                try
-                {
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: create schedule");
-                    tx.Start();
-                    var schedule = ViewSchedule.CreateSchedule(doc, new ElementId(bic.Value), ElementId.InvalidElementId);
-                    schedule.Name = string.IsNullOrWhiteSpace(name) ? $"{cat} Schedule" : name.Trim();
-                    var added = AddScheduleFields(schedule, fields);
-                    tx.Commit();
-                    return $"Created schedule {schedule.Id} \"{schedule.Name}\" with {added} field(s).";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            // The bridge takes one token: "<category>", or "<category>:<name>" for an explicit schedule name.
+            var token = string.IsNullOrWhiteSpace(name) ? cat!.Trim() : $"{cat.Trim()}:{name.Trim()}";
+            var result = await context.Bridge.CreateScheduleAsync(token, fields);
+            return result == null ? "Please open a model first." : result.Error ?? result.Message;
         }
     };
 
@@ -103,31 +86,15 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var args = Args.Parse(json);
             var sid = args.Str("scheduleId");
             var name = args.Str("name");
-            var limit = Math.Min(40, Math.Max(1, args.Int("rowLimit", 25)));
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var schedule = FindSchedule(doc, sid, name);
-                    if (schedule == null) return "Schedule not found. Pass scheduleId or name.";
-                    var body = schedule.GetTableData().GetSectionData(SectionType.Body);
-                    var rows = Math.Min(body.NumberOfRows, limit);
-                    var cols = body.NumberOfColumns;
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"{schedule.Name} ({schedule.Id}) rows={body.NumberOfRows} cols={cols} showing={rows}");
-                    for (var r = 0; r < rows; r++)
-                    {
-                        var cells = new List<string>(cols);
-                        for (var c = 0; c < cols; c++)
-                            cells.Add(schedule.GetCellText(SectionType.Body, r, c).Replace('\t', ' '));
-                        sb.AppendLine(string.Join("\t", cells));
-                    }
-                    return sb.ToString();
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            var limit = args.Int("rowLimit", 0);
+            var data = await context.Bridge.GetScheduleDataAsync(sid, name, limit);
+            if (data == null) return "Please open a model first.";
+            if (data.Error != null) return data.Error;
+            var sb = new StringBuilder();
+            sb.AppendLine($"{data.Name} ({data.Id}) rows={data.TotalRows} cols={data.TotalColumns} showing={data.ShownRows}");
+            foreach (var row in data.Rows)
+                sb.AppendLine(string.Join("\t", row));
+            return sb.ToString();
         }
     };
 
@@ -159,25 +126,10 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var levelId = args.Str("levelId");
             var levelName = args.Str("levelName");
             var name = args.Str("name");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var typeId = FindViewFamily(doc, ViewFamily.FloorPlan);
-                    if (typeId == null) return "No FloorPlan view type found.";
-                    var level = ResolveLevel(doc, levelId, levelName);
-                    if (level == null) return "Level not found. Pass levelId or levelName.";
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: create floor plan");
-                    tx.Start();
-                    var view = ViewPlan.Create(doc, typeId, level.Id);
-                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
-                    tx.Commit();
-                    return $"Created floor plan {view.Id} \"{view.Name}\" on {level.Name}";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            // The bridge resolves a level by id first, then by name, then falls back to the lowest level.
+            var levelToken = !string.IsNullOrWhiteSpace(levelId) ? levelId!.Trim() : (levelName ?? string.Empty).Trim();
+            var result = await context.Bridge.CreateFloorPlanAsync(levelToken, (name ?? string.Empty).Trim());
+            return result == null ? "Please open a model first." : result.Error ?? result.Message;
         }
     };
 
@@ -201,23 +153,9 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
         Handler = async json =>
         {
             var name = Args.Parse(json).Str("name");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    var typeId = FindViewFamily(doc, ViewFamily.ThreeDimensional);
-                    if (typeId == null) return "No 3D view type found.";
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: create 3D view");
-                    tx.Start();
-                    var view = View3D.CreateIsometric(doc, typeId);
-                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
-                    tx.Commit();
-                    return $"Created 3D view {view.Id} \"{view.Name}\"";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            // This tool has always created an isometric view; the bridge also offers perspective.
+            var result = await context.Bridge.Create3DViewAsync((name ?? string.Empty).Trim(), true);
+            return result == null ? "Please open a model first." : result.Error ?? result.Message;
         }
     };
 
@@ -254,45 +192,20 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             var args = Args.Parse(json);
             var eid = args.Str("elementId");
             var name = args.Str("name");
-            var height = Metric.MmToFt(args.Dbl("height", 3000));
-            var depth = Metric.MmToFt(args.Dbl("depth", 2500));
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    XYZ? a = null, b = null;
-                    if (!string.IsNullOrWhiteSpace(eid))
-                    {
-                        var el = doc.GetElement(RevitParse.ParseEid(eid));
-                        if (el?.Location is LocationCurve lc && lc.Curve != null)
-                        {
-                            a = lc.Curve.GetEndPoint(0);
-                            b = lc.Curve.GetEndPoint(1);
-                        }
-                        else return $"Element {eid} has no location curve (use a wall).";
-                    }
-                    else if (args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2"))
-                    {
-                        var z = Metric.MmToFt(args.Dbl("z", 0));
-                        a = new XYZ(Metric.MmToFt(args.Dbl("x1", 0)), Metric.MmToFt(args.Dbl("y1", 0)), z);
-                        b = new XYZ(Metric.MmToFt(args.Dbl("x2", 0)), Metric.MmToFt(args.Dbl("y2", 0)), z);
-                    }
-                    if (a == null || b == null) return "Pass elementId or x1,y1,x2,y2.";
-
-                    var typeId = FindViewFamily(doc, ViewFamily.Section);
-                    if (typeId == null) return "No Section view type found.";
-                    var box = SectionBox(a, b, height, depth);
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: create section");
-                    tx.Start();
-                    var view = ViewSection.CreateSection(doc, typeId, box);
-                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
-                    tx.Commit();
-                    return $"Created section {view.Id} \"{view.Name}\"";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            // The bridge's section contract owns the box extents (3000 x 2500 mm, the former
+            // defaults), so custom extents are rejected instead of being silently ignored.
+            if ((args.HasNumber("height") && Math.Abs(args.Dbl("height", 3000) - 3000) > 1)
+                || (args.HasNumber("depth") && Math.Abs(args.Dbl("depth", 2500) - 2500) > 1))
+                return "custom height/depth are not available; the section box is fixed at 3000 x 2500 mm.";
+            if (!string.IsNullOrWhiteSpace(eid))
+                return $"elementId sections need explicit coordinates: pass x1,y1,x2,y2 (mm) instead of {eid}.";
+            if (!(args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2")))
+                return "Pass elementId or x1,y1,x2,y2.";
+            var z = args.Dbl("z", 0);
+            var a = new PointMmDto(args.Dbl("x1", 0), args.Dbl("y1", 0), z);
+            var b = new PointMmDto(args.Dbl("x2", 0), args.Dbl("y2", 0), z);
+            var result = await context.Bridge.CreateSectionViewAsync((name ?? string.Empty).Trim(), a, b, null);
+            return result == null ? "Please open a model first." : result.Error ?? result.Message;
         }
     };
 
@@ -326,117 +239,26 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             var args = Args.Parse(json);
             var viewId = args.Str("viewId");
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var doc = session.As<UIApplication>().ActiveUIDocument?.Document;
-                if (doc == null) return "Please open a model first.";
-                try
-                {
-                    View? view = string.IsNullOrWhiteSpace(viewId)
-                        ? doc.ActiveView
-                        : doc.GetElement(RevitParse.ParseEid(viewId)) as View;
-                    if (view is not ViewPlan)
-                        return "path_of_travel requires a floor plan view. Pass viewId of a ViewPlan.";
-
-                    var starts = args.Points("starts");
-                    var ends = args.Points("ends");
-                    if (starts.Count == 0 && args.HasNumber("startX") && args.HasNumber("startY"))
-                        starts.Add(new XYZ(Metric.MmToFt(args.Dbl("startX", 0)), Metric.MmToFt(args.Dbl("startY", 0)), 0));
-                    if (ends.Count == 0 && args.HasNumber("endX") && args.HasNumber("endY"))
-                        ends.Add(new XYZ(Metric.MmToFt(args.Dbl("endX", 0)), Metric.MmToFt(args.Dbl("endY", 0)), 0));
-                    if (starts.Count == 0 || ends.Count == 0) return "Pass startX/startY/endX/endY or starts/ends arrays.";
-                    if (starts.Count != ends.Count) return "starts and ends must have the same count.";
-                    if (starts.Count > 5) return "Max 5 path pairs per call.";
-
-                    using var tx = new Transaction(doc, "LoadingAI for Revit: path of travel");
-                    tx.Start();
-                    var paths = PathOfTravel.CreateMultiple(view, starts, ends, out IList<PathOfTravelCalculationStatus> statuses);
-                    tx.Commit();
-                    var ok = paths.Count(p => p != null);
-                    var fail = string.Join(", ", statuses.Select((s, i) => paths[i] == null ? $"#{i}:{s}" : null).Where(s => s != null));
-                    var ids = string.Join(", ", paths.Where(p => p != null).Select(p => p!.Id.ToString()));
-                    return $"Created {ok}/{starts.Count} path(s) in {view.Name}: {ids}" + (string.IsNullOrEmpty(fail) ? "" : $"\nFailed: {fail}");
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            });
+            var starts = args.Points("starts");
+            var ends = args.Points("ends");
+            if (starts.Count == 0 && args.HasNumber("startX") && args.HasNumber("startY"))
+                starts.Add(new PointMmDto(args.Dbl("startX", 0), args.Dbl("startY", 0), 0));
+            if (ends.Count == 0 && args.HasNumber("endX") && args.HasNumber("endY"))
+                ends.Add(new PointMmDto(args.Dbl("endX", 0), args.Dbl("endY", 0), 0));
+            if (starts.Count == 0 || ends.Count == 0) return "Pass startX/startY/endX/endY or starts/ends arrays.";
+            if (starts.Count != ends.Count) return "starts and ends must have the same count.";
+            var pairs = new List<PathPairDto>(starts.Count);
+            for (var i = 0; i < starts.Count; i++) pairs.Add(new PathPairDto(starts[i], ends[i]));
+            // The bridge clamps to 5 pairs and needs a floor plan view; both checks stay there.
+            var result = await context.Bridge.CreatePathOfTravelAsync((viewId ?? string.Empty).Trim(), pairs);
+            if (result == null) return "Please open a model first.";
+            if (result.Error != null) return result.Error;
+            var ids = string.Join(", ", result.CreatedIds);
+            var fail = string.Join(", ", result.Failures);
+            return $"Created {result.Created}/{result.Requested} path(s) in {result.ViewName}: {ids}"
+                + (string.IsNullOrEmpty(fail) ? "" : $"\nFailed: {fail}");
         }
     };
-
-    private static int AddScheduleFields(ViewSchedule schedule, List<string> wanted)
-    {
-        var added = 0;
-        foreach (var sf in schedule.Definition.GetSchedulableFields())
-        {
-            if (sf.FieldType != ScheduleFieldType.Instance && sf.FieldType != ScheduleFieldType.ElementType)
-                continue;
-            if (sf.ParameterId.Value == (long)BuiltInParameter.ALL_MODEL_MARK)
-                continue;
-            var fname = sf.GetName(schedule.Document);
-            if (wanted.Count > 0)
-            {
-                if (!wanted.Any(w => fname.Equals(w, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-            }
-            else if (added >= 8) break;
-            schedule.Definition.AddField(sf);
-            added++;
-        }
-        return added;
-    }
-
-    private static ViewSchedule? FindSchedule(Document doc, string? id, string? name)
-    {
-        if (!string.IsNullOrWhiteSpace(id))
-            return doc.GetElement(RevitParse.ParseEid(id)) as ViewSchedule;
-        if (string.IsNullOrWhiteSpace(name)) return null;
-        return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
-            .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static Level? ResolveLevel(Document doc, string? id, string? name)
-    {
-        if (!string.IsNullOrWhiteSpace(id))
-            return doc.GetElement(RevitParse.ParseEid(id)) as Level;
-        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>();
-        if (!string.IsNullOrWhiteSpace(name))
-            return levels.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        return levels.OrderBy(l => l.Elevation).FirstOrDefault();
-    }
-
-    private static ElementId? FindViewFamily(Document doc, ViewFamily family)
-        => new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
-            .FirstOrDefault(t => t.ViewFamily == family)?.Id;
-
-    private static BoundingBoxXYZ SectionBox(XYZ a, XYZ b, double height, double depth)
-    {
-        var along = b - a;
-        if (along.GetLength() < 1e-6) throw new InvalidOperationException("Section line is too short.");
-        var viewDir = along.Normalize();
-        var up = XYZ.BasisZ;
-        var right = up.CrossProduct(viewDir);
-        if (right.GetLength() < 1e-6)
-        {
-            up = XYZ.BasisY;
-            right = up.CrossProduct(viewDir);
-        }
-        right = right.Normalize();
-        up = viewDir.CrossProduct(right).Normalize();
-        var t = Transform.Identity;
-        t.Origin = (a + b) / 2;
-        t.set_Basis(0, right);
-        t.set_Basis(1, up);
-        t.set_Basis(2, viewDir);
-        var halfW = Math.Max(along.GetLength() / 2, 1);
-        var halfH = Math.Max(height / 2, 1);
-        var halfD = Math.Max(depth / 2, 0.5);
-        return new BoundingBoxXYZ
-        {
-            Enabled = true,
-            Min = new XYZ(-halfW, -halfH, -halfD),
-            Max = new XYZ(halfW, halfH, halfD),
-            Transform = t
-        };
-    }
 
     private readonly struct Args
     {
@@ -494,16 +316,16 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin, IRevitFullAccess
             return list;
         }
 
-        public List<XYZ> Points(string name)
+        public List<PointMmDto> Points(string name)
         {
-            var list = new List<XYZ>();
+            var list = new List<PointMmDto>();
             if (_root is not { } r || !r.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array)
                 return list;
             foreach (var item in v.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Array) continue;
                 var nums = item.EnumerateArray().Where(n => n.ValueKind == JsonValueKind.Number).Select(n => n.GetDouble()).ToList();
-                if (nums.Count >= 2) list.Add(new XYZ(Metric.MmToFt(nums[0]), Metric.MmToFt(nums[1]), nums.Count > 2 ? Metric.MmToFt(nums[2]) : 0));
+                if (nums.Count >= 2) list.Add(new PointMmDto(nums[0], nums[1], nums.Count > 2 ? nums[2] : 0));
             }
             return list;
         }

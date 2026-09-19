@@ -26,5 +26,8 @@
     <ProjectReference Include="..\..\Plugins\export-tools\ExportToolsPlugin.csproj">
       <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\view-tools\ViewToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
@@ -2861,6 +2862,397 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 return new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>(), $"Failed: {ex.Message}");
             }
         }, ct);
+    }
+
+    public Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default)
+    {
+        // The row window is bounded here rather than by the caller so the cap holds for every slice consumer.
+        if (rowLimit <= 0) rowLimit = DefaultScheduleRows;
+        if (rowLimit > MaxScheduleRows) rowLimit = MaxScheduleRows;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                var schedule = FindSchedule(doc, scheduleId, scheduleName);
+                if (schedule == null)
+                    return new ScheduleDataDto(string.Empty, string.Empty, 0, 0, 0,
+                        Array.Empty<IReadOnlyList<string>>(), "Schedule not found. Pass scheduleId or name.");
+                var body = schedule.GetTableData().GetSectionData(SectionType.Body);
+                var rows = Math.Min(body.NumberOfRows, rowLimit);
+                var cols = body.NumberOfColumns;
+                var grid = new List<IReadOnlyList<string>>(rows);
+                for (var r = 0; r < rows; r++)
+                {
+                    var cells = new List<string>(cols);
+                    for (var c = 0; c < cols; c++)
+                        cells.Add(schedule.GetCellText(SectionType.Body, r, c).Replace('\t', ' '));
+                    grid.Add(cells);
+                }
+                return new ScheduleDataDto(schedule.Id.ToString(), schedule.Name, body.NumberOfRows, cols, rows, grid);
+            }
+            catch (Exception ex)
+            {
+                return new ScheduleDataDto(string.Empty, string.Empty, 0, 0, 0,
+                    Array.Empty<IReadOnlyList<string>>(), $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                // The one token carries both frozen tool arguments: "<category>" when the caller
+                // wants the conventional name, or "<category>:<schedule name>" when an explicit
+                // schedule name was asked for.
+                var token = name ?? string.Empty;
+                var colon = token.IndexOf(':');
+                var categoryToken = colon >= 0 ? token.Substring(0, colon) : token;
+                var explicitName = colon >= 0 ? token.Substring(colon + 1).Trim() : null;
+                var bic = ResolveScheduleCategory(categoryToken);
+                if (bic == null)
+                    return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Unknown category {categoryToken.Trim()}");
+                var scheduleName = string.IsNullOrWhiteSpace(explicitName)
+                    ? $"{categoryToken.Trim()} Schedule"
+                    : explicitName!;
+                using var tx = new Transaction(doc, "LoadingAI for Revit: create schedule");
+                tx.Start();
+                try
+                {
+                    var schedule = ViewSchedule.CreateSchedule(doc, new ElementId(bic.Value), ElementId.InvalidElementId);
+                    schedule.Name = scheduleName;
+                    var added = AddScheduleFields(schedule, fields);
+                    tx.Commit();
+                    return new ViewRefDto(schedule.Id.ToString(), schedule.Name,
+                        $"Created schedule {schedule.Id} \"{schedule.Name}\" with {added} field(s).");
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                var typeId = FindViewFamily(doc, ViewFamily.FloorPlan);
+                if (typeId == null) return new ViewRefDto(string.Empty, string.Empty, string.Empty, "No FloorPlan view type found.");
+                var level = ResolveLevelToken(doc, levelIdOrName);
+                if (level == null) return new ViewRefDto(string.Empty, string.Empty, string.Empty, "Level not found. Pass levelId or levelName.");
+                using var tx = new Transaction(doc, "LoadingAI for Revit: create floor plan");
+                tx.Start();
+                try
+                {
+                    var view = ViewPlan.Create(doc, typeId, level.Id);
+                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
+                    tx.Commit();
+                    return new ViewRefDto(view.Id.ToString(), view.Name,
+                        $"Created floor plan {view.Id} \"{view.Name}\" on {level.Name}");
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                var typeId = FindViewFamily(doc, ViewFamily.ThreeDimensional);
+                if (typeId == null) return new ViewRefDto(string.Empty, string.Empty, string.Empty, "No 3D view type found.");
+                using var tx = new Transaction(doc, "LoadingAI for Revit: create 3D view");
+                tx.Start();
+                try
+                {
+                    var view = isometric ? View3D.CreateIsometric(doc, typeId) : View3D.CreatePerspective(doc, typeId);
+                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
+                    tx.Commit();
+                    return new ViewRefDto(view.Id.ToString(), view.Name,
+                        $"Created 3D view {view.Id} \"{view.Name}\"");
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max, string? viewDirection, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                var a = new XYZ(Metric.MmToFt(min.X), Metric.MmToFt(min.Y), Metric.MmToFt(min.Z));
+                var b = new XYZ(Metric.MmToFt(max.X), Metric.MmToFt(max.Y), Metric.MmToFt(max.Z));
+                var typeId = FindViewFamily(doc, ViewFamily.Section);
+                if (typeId == null) return new ViewRefDto(string.Empty, string.Empty, string.Empty, "No Section view type found.");
+                var box = SectionBox(a, b, SectionHeight, SectionDepth, viewDirection);
+                using var tx = new Transaction(doc, "LoadingAI for Revit: create section");
+                tx.Start();
+                try
+                {
+                    var view = ViewSection.CreateSection(doc, typeId, box);
+                    if (!string.IsNullOrWhiteSpace(name)) view.Name = name.Trim();
+                    tx.Commit();
+                    return new ViewRefDto(view.Id.ToString(), view.Name,
+                        $"Created section {view.Id} \"{view.Name}\"");
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ViewRefDto(string.Empty, string.Empty, string.Empty, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    public Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            var wanted = pairs?.Count ?? 0;
+            PathOfTravelResultDto Fail(string message) =>
+                new PathOfTravelResultDto(string.Empty, wanted, 0, Array.Empty<string>(), Array.Empty<string>(), message);
+            try
+            {
+                var view = ResolveViewPlan(doc, viewIdOrName);
+                if (view == null)
+                    return Fail("path_of_travel requires a floor plan view. Pass viewId of a ViewPlan.");
+                if (pairs == null || pairs.Count == 0)
+                    return Fail("Pass startX/startY/endX/endY or starts/ends arrays.");
+                // The pair cap is enforced here rather than by the caller so it holds for every slice consumer.
+                if (pairs.Count > MaxPathOfTravelPairs)
+                    return Fail($"Max {MaxPathOfTravelPairs} path pairs per call.");
+
+                var starts = new List<XYZ>(pairs.Count);
+                var ends = new List<XYZ>(pairs.Count);
+                foreach (var pair in pairs)
+                {
+                    starts.Add(new XYZ(Metric.MmToFt(pair.Start.X), Metric.MmToFt(pair.Start.Y), Metric.MmToFt(pair.Start.Z)));
+                    ends.Add(new XYZ(Metric.MmToFt(pair.End.X), Metric.MmToFt(pair.End.Y), Metric.MmToFt(pair.End.Z)));
+                }
+
+                using var tx = new Transaction(doc, "LoadingAI for Revit: path of travel");
+                tx.Start();
+                try
+                {
+                    var paths = PathOfTravel.CreateMultiple(view, starts, ends, out IList<PathOfTravelCalculationStatus> statuses);
+                    tx.Commit();
+                    var ids = new List<string>();
+                    var failures = new List<string>();
+                    for (var i = 0; i < paths.Count; i++)
+                    {
+                        if (paths[i] != null) ids.Add(paths[i]!.Id.ToString());
+                        else if (i < statuses.Count) failures.Add($"#{i}:{statuses[i]}");
+                    }
+                    return new PathOfTravelResultDto(view.Name, starts.Count, ids.Count, ids, failures);
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return Fail($"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return Fail($"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    /// <summary>Body rows shown when a caller passes no usable <c>rowLimit</c>.</summary>
+    private const int DefaultScheduleRows = 25;
+
+    /// <summary>Hard ceiling on schedule body rows returned in one call.</summary>
+    private const int MaxScheduleRows = 40;
+
+    /// <summary>Hard ceiling on path-of-travel pairs accepted in one call.</summary>
+    private const int MaxPathOfTravelPairs = 5;
+
+    /// <summary>Section box height used when a caller does not describe one (3000 mm).</summary>
+    private static readonly double SectionHeight = Metric.MmToFt(3000);
+
+    /// <summary>Section box depth used when a caller does not describe one (2500 mm).</summary>
+    private static readonly double SectionDepth = Metric.MmToFt(2500);
+
+    private static int AddScheduleFields(ViewSchedule schedule, IReadOnlyList<string>? wanted)
+    {
+        var focus = wanted ?? Array.Empty<string>();
+        var added = 0;
+        foreach (var sf in schedule.Definition.GetSchedulableFields())
+        {
+            if (sf.FieldType != ScheduleFieldType.Instance && sf.FieldType != ScheduleFieldType.ElementType)
+                continue;
+            if (sf.ParameterId.Value == (long)BuiltInParameter.ALL_MODEL_MARK)
+                continue;
+            var fname = sf.GetName(schedule.Document);
+            if (focus.Count > 0)
+            {
+                if (!focus.Any(w => fname.Equals(w, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+            }
+            else if (added >= 8) break;
+            schedule.Definition.AddField(sf);
+            added++;
+        }
+        return added;
+    }
+
+    private static ViewSchedule? FindSchedule(Document doc, string? scheduleId, string? scheduleName)
+    {
+        if (!string.IsNullOrWhiteSpace(scheduleId))
+            return TryGetElement(doc, scheduleId) as ViewSchedule;
+        if (string.IsNullOrWhiteSpace(scheduleName)) return null;
+        return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+            .FirstOrDefault(s => s.Name.Equals(scheduleName!.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Resolves a level from an element id or a level name; blank picks the lowest level.</summary>
+    private static Level? ResolveLevelToken(Document doc, string? idOrName)
+    {
+        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>();
+        if (string.IsNullOrWhiteSpace(idOrName)) return levels.OrderBy(l => l.Elevation).FirstOrDefault();
+        var token = idOrName!.Trim();
+        if (TryGetElement(doc, token) is Level byId) return byId;
+        return levels.FirstOrDefault(l => l.Name.Equals(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Resolves a floor plan from a view id or name; blank uses the active view.</summary>
+    private static ViewPlan? ResolveViewPlan(Document doc, string? idOrName)
+    {
+        if (string.IsNullOrWhiteSpace(idOrName)) return doc.ActiveView as ViewPlan;
+        var token = idOrName!.Trim();
+        if (TryGetElement(doc, token) is ViewPlan byId) return byId;
+        return new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+            .FirstOrDefault(v => v.Name.Equals(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static Element? TryGetElement(Document doc, string? idStr)
+    {
+        if (string.IsNullOrWhiteSpace(idStr)) return null;
+        try { return doc.GetElement(AllTools.ParseEid(idStr)); }
+        catch { return null; }
+    }
+
+    private static ElementId? FindViewFamily(Document doc, ViewFamily family)
+        => new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+            .FirstOrDefault(t => t.ViewFamily == family)?.Id;
+
+    /// <summary>
+    /// Reads the category out of a create_schedule token: the whole token first, then its
+    /// leading words, so "Door List" still resolves to the Door category.
+    /// </summary>
+    private static BuiltInCategory? ResolveScheduleCategory(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        var words = token!.Trim().Split(' ');
+        for (var n = words.Length; n >= 1; n--)
+        {
+            var candidate = AllTools.ParseCategory(string.Join(" ", words.Take(n)));
+            if (candidate != null) return candidate;
+        }
+        return null;
+    }
+
+    /// <summary>Axis token (x / -y / z) for a section view direction; null when absent or unrecognised.</summary>
+    private static XYZ? ParseViewDirection(string? direction)
+    {
+        if (string.IsNullOrWhiteSpace(direction)) return null;
+        var token = direction!.Trim().ToLowerInvariant();
+        var negative = token.StartsWith("-", StringComparison.Ordinal);
+        if (negative) token = token.Substring(1).Trim();
+        if (token.StartsWith("+", StringComparison.Ordinal)) token = token.Substring(1).Trim();
+        XYZ axis;
+        switch (token)
+        {
+            case "x": case "east": case "right": axis = XYZ.BasisX; break;
+            case "y": case "north": case "up": axis = XYZ.BasisY; break;
+            case "z": axis = XYZ.BasisZ; break;
+            default: return null;
+        }
+        return negative ? axis.Negate() : axis;
+    }
+
+    private static BoundingBoxXYZ SectionBox(XYZ a, XYZ b, double height, double depth, string? viewDirection)
+    {
+        var along = b - a;
+        if (along.GetLength() < 1e-6) throw new InvalidOperationException("Section line is too short.");
+        var viewDir = ParseViewDirection(viewDirection) ?? along.Normalize();
+        var up = XYZ.BasisZ;
+        var right = up.CrossProduct(viewDir);
+        if (right.GetLength() < 1e-6)
+        {
+            up = XYZ.BasisY;
+            right = up.CrossProduct(viewDir);
+        }
+        right = right.Normalize();
+        up = viewDir.CrossProduct(right).Normalize();
+        var t = Transform.Identity;
+        t.Origin = (a + b) / 2;
+        t.set_Basis(0, right);
+        t.set_Basis(1, up);
+        t.set_Basis(2, viewDir);
+        var halfW = Math.Max(along.GetLength() / 2, 1);
+        var halfH = Math.Max(height / 2, 1);
+        var halfD = Math.Max(depth / 2, 0.5);
+        return new BoundingBoxXYZ
+        {
+            Enabled = true,
+            Min = new XYZ(-halfW, -halfH, -halfD),
+            Max = new XYZ(halfW, halfH, halfD),
+            Transform = t
+        };
     }
 
     private static List<ElementId> ResolvePrintable(Document doc, IReadOnlyList<string>? ids, bool preferSheets)

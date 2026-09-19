@@ -240,3 +240,44 @@ public sealed record PurgeUnusedResultDto(
     int Passes,
     IReadOnlyList<string> Sample,
     string? Error = null);
+
+/// <summary>
+/// Handle on a view or schedule the Adapter just created. <c>Message</c> is the
+/// human-readable outcome composed Adapter-side, same convention as
+/// <see cref="CommandResultDto.Message"/>, so a plugin handler stays plumbing.
+/// </summary>
+public sealed record ViewRefDto(
+    string Id,
+    string Name,
+    string Message,
+    string? Error = null);
+
+/// <summary>
+/// Schedule table body, already clamped to the requested row window. Cell text
+/// is tab-scrubbed Adapter-side so a row can be joined for display. Same
+/// nullable-DTO / trailing <c>Error</c> convention as <see cref="ElementDetailsDto"/>.
+/// </summary>
+public sealed record ScheduleDataDto(
+    string Id,
+    string Name,
+    int TotalRows,
+    int TotalColumns,
+    int ShownRows,
+    IReadOnlyList<IReadOnlyList<string>> Rows,
+    string? Error = null);
+
+/// <summary>One path-of-travel start/end pair. Millimetres; Adapter converts.</summary>
+public sealed record PathPairDto(PointMmDto Start, PointMmDto End);
+
+/// <summary>
+/// Outcome of a path-of-travel run. <c>CreatedIds</c> holds only the paths that
+/// were actually created; <c>Failures</c> holds one <c>#index:status</c> entry per
+/// pair that did not solve, so a partial success is never mistaken for a full one.
+/// </summary>
+public sealed record PathOfTravelResultDto(
+    string ViewName,
+    int Requested,
+    int Created,
+    IReadOnlyList<string> CreatedIds,
+    IReadOnlyList<string> Failures,
+    string? Error = null);

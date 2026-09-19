@@ -49,6 +49,14 @@ public interface IRevitQuery
         string category1, string category2, int limit = 20, CancellationToken ct = default);
     Task<ModelHealthDto?> GetModelHealthScoreAsync(CancellationToken ct = default);
     Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default);
+
+    /// <summary>
+    /// Schedule table body cells. <paramref name="rowLimit"/> is clamped Adapter-side
+    /// (default 25, max 40) so the bound holds for any caller. Null when no document is
+    /// open; not-found and failures come back in <see cref="ScheduleDataDto.Error"/>.
+    /// </summary>
+    Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -118,6 +126,43 @@ public interface IRevitViewCommand
 
     Task<CommandResultDto> TagAllInActiveViewAsync(
         string category,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a category schedule. <paramref name="name"/> is a single token:
+    /// "&lt;category&gt;" creates "&lt;category&gt; Schedule", and
+    /// "&lt;category&gt;:&lt;schedule name&gt;" creates the schedule under the given name.
+    /// The category also resolves from the token's leading words, so "Door List" works.
+    /// </summary>
+    Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields,
+        CancellationToken ct = default);
+
+    /// <summary>Create a floor plan on a level. <paramref name="levelIdOrName"/> blank picks the lowest level.</summary>
+    Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name,
+        CancellationToken ct = default);
+
+    /// <summary>Create a 3D view: isometric when <paramref name="isometric"/>, else perspective.</summary>
+    Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a section view. <paramref name="min"/> / <paramref name="max"/> are the section
+    /// line end points in millimetres; <paramref name="viewDirection"/> is an axis token
+    /// (x / -y / z) and, when blank, the direction is derived from the line.
+    /// </summary>
+    Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max,
+        string? viewDirection, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create paths of travel in a floor plan. <paramref name="viewIdOrName"/> blank uses the
+    /// active view; the 5-pair cap is enforced Adapter-side.
+    /// </summary>
+    Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs,
         CancellationToken ct = default);
 }
 
