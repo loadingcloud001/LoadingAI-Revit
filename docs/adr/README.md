@@ -62,3 +62,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0005](0005-port-modeling-tools-onto-bridge.md) | Port modeling-tools onto Bridge | Accepted |
 | [0006](0006-port-export-tools-onto-bridge.md) | Port export-tools onto Bridge | Accepted |
 | [0007](0007-port-view-tools-onto-bridge.md) | Port view-tools onto Bridge | Accepted |
+| [0008](0008-port-structure-cuts-onto-bridge.md) | Port structure-cuts onto Bridge | Accepted |

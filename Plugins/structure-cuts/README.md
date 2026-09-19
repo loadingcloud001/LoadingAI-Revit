@@ -1,6 +1,6 @@
 # Structure Split Tools (2.0.1)
 
-Four L3 tools, all default-off. Hosts are collected inside the plugin (`scope=selection|visible|all`) so chat never has to paste hundreds of ids. Capped runs report `Processed N of M. nextOffset = N.` — pass that as `continueFrom`.
+Four L3 tools, all default-off, Bridge-only. Hosts are collected host-side (`IRevitQuery.CollectHostsAsync`, `scope=selection|visible|all`) so chat never has to paste hundreds of ids. Capped runs report `Processed N of M. nextOffset = N.` — pass that as `continueFrom`. The split algorithms live in `src/LoadingAI/Revit/StructureCuts/`; this folder holds only the handler and `plugin.json`.
 
 | Tool | Hosts | Cutters |
 |---|---|---|
