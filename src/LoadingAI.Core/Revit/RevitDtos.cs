@@ -194,6 +194,9 @@ public sealed record CommandResultDto(
     string? ViewName = null,
     IReadOnlyList<string>? ElementIds = null);
 
+/// <summary>One millimetre-space point at the Bridge boundary. Adapter converts with <c>Metric.MmToFt</c>.</summary>
+public sealed record PointMmDto(double X, double Y, double Z);
+
 public sealed record ParamExportRowDto(
     string Id,
     IReadOnlyList<string> Values);

@@ -59,4 +59,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0002](0002-plugin-shelf-bridge-first.md) | Plugin shelf: Core-only, Bridge-first, never host | Accepted |
 | [0003](0003-fullaccess-exceptions.md) | FullAccess is opt-in and listed | Accepted |
 | [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Accepted |
-| [0005](0005-port-modeling-tools-onto-bridge.md) | Port modeling-tools onto Bridge | Proposed |
+| [0005](0005-port-modeling-tools-onto-bridge.md) | Port modeling-tools onto Bridge | Accepted |

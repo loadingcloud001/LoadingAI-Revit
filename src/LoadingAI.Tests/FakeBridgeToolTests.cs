@@ -1463,4 +1463,169 @@ public class FakeBridgeToolTests
         Assert.Single(bridge.FamilyTypeCalls);
         Assert.Null(bridge.FamilyTypeCalls[0]);
     }
+
+    [Fact]
+    public async Task LoadFamily_MissingPath_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "load_family");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("path is required.", text);
+        Assert.Empty(bridge.LoadFamilyCalls);
+    }
+
+    [Fact]
+    public async Task LoadFamily_MissingFile_DoesNotCallBridge()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests", "missing-family.rfa");
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "load_family");
+
+        var text = await tool.Handler($$"""{"path":{{JsonEncode(missing)}}}""");
+
+        Assert.Equal($"File not found: {missing}", text);
+        Assert.Empty(bridge.LoadFamilyCalls);
+    }
+
+    [Fact]
+    public async Task LoadFamily_NoDocument_AsksToOpenModel()
+    {
+        var path = WriteTempRfa();
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "load_family");
+
+        var text = await tool.Handler($$"""{"path":{{JsonEncode(path)}}}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.LoadFamilyCalls);
+        Assert.Equal(path, bridge.LoadFamilyCalls[0]);
+    }
+
+    [Fact]
+    public async Task LoadFamily_OpenDocument_ReturnsBridgeMessage()
+    {
+        var path = WriteTempRfa();
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "load_family");
+
+        var text = await tool.Handler($$"""{"path":{{JsonEncode(path)}}}""");
+
+        Assert.Contains("Loaded family", text);
+        Assert.Single(bridge.LoadFamilyCalls);
+        Assert.Equal(path, bridge.LoadFamilyCalls[0]);
+    }
+
+    [Fact]
+    public async Task ChangeElementType_MissingId_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "change_element_type");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("elementId is required.", text);
+        Assert.Empty(bridge.ChangeElementTypeCalls);
+    }
+
+    [Fact]
+    public async Task ChangeElementType_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "change_element_type");
+
+        var text = await tool.Handler("""{"elementId":"42","typeName":"Basic Wall"}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.ChangeElementTypeCalls);
+        Assert.Equal("42", bridge.ChangeElementTypeCalls[0].ElementId);
+        Assert.Equal("Basic Wall", bridge.ChangeElementTypeCalls[0].TypeName);
+    }
+
+    [Fact]
+    public async Task ChangeElementType_OpenDocument_ReturnsBridgeMessage()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "change_element_type");
+
+        var text = await tool.Handler("""{"elementId":"42","typeName":"Basic Wall"}""");
+
+        Assert.Contains("Changed element 42 type to \"Basic Wall\"", text);
+        Assert.Single(bridge.ChangeElementTypeCalls);
+    }
+
+    [Fact]
+    public async Task CreateTopography_FewerThanThreePoints_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_topography");
+
+        var text = await tool.Handler("""{"points":[[0,0,0],[1000,0,0]]}""");
+
+        Assert.Equal("Provide at least 3 points [x,y,z] in mm.", text);
+        Assert.Empty(bridge.CreateTopographyCalls);
+    }
+
+    [Fact]
+    public async Task CreateTopography_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_topography");
+
+        var text = await tool.Handler("""{"points":[[0,0,0],[1000,0,0],[0,1000,0]],"levelName":"Level 1"}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CreateTopographyCalls);
+        Assert.Equal(3, bridge.CreateTopographyCalls[0].Points.Count);
+        Assert.Equal(0, bridge.CreateTopographyCalls[0].Points[0].X);
+        Assert.Equal(1000, bridge.CreateTopographyCalls[0].Points[1].X);
+        Assert.Equal("Level 1", bridge.CreateTopographyCalls[0].LevelName);
+    }
+
+    [Fact]
+    public async Task CreateTopography_OpenDocument_PassesMmPointsWithoutConverting()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "create_topography");
+
+        var text = await tool.Handler("""{"points":[[0,0,0],[1000,0,0],[0,1000,50]],"levelName":"Level 1"}""");
+
+        Assert.Equal("Created toposolid 801 from 3 points on Level 1.", text);
+        Assert.Single(bridge.CreateTopographyCalls);
+        Assert.Equal(1000, bridge.CreateTopographyCalls[0].Points[1].X);
+        Assert.Equal(50, bridge.CreateTopographyCalls[0].Points[2].Z);
+    }
+
+    private static string WriteTempRfa()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "family.rfa");
+        File.WriteAllText(path, "rfa");
+        return path;
+    }
+
+    private static string JsonEncode(string value)
+        => System.Text.Json.JsonSerializer.Serialize(value);
 }

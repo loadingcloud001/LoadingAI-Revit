@@ -12,8 +12,11 @@ public class L3CommandContractTests
         var names = typeof(IRevitElementCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("DeleteElementsAsync", names);
         Assert.Contains("MoveElementsAsync", names);
+        Assert.Contains("ChangeElementTypeAsync", names);
         Assert.DoesNotContain("IsolateInViewAsync", names);
         Assert.DoesNotContain("SetParameterAsync", names);
+        Assert.DoesNotContain("LoadFamilyAsync", names);
+        Assert.DoesNotContain("CreateTopographyAsync", names);
     }
 
     [Fact]
@@ -31,7 +34,10 @@ public class L3CommandContractTests
         Assert.Contains("MirrorElementsAsync", names);
         Assert.Contains("SplitWallAsync", names);
         Assert.Contains("JoinGeometryAsync", names);
+        Assert.Contains("CreateTopographyAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("LoadFamilyAsync", names);
+        Assert.DoesNotContain("ChangeElementTypeAsync", names);
         Assert.DoesNotContain("IsolateInViewAsync", names);
         Assert.DoesNotContain("SaveDocumentAsync", names);
         Assert.DoesNotContain("OverrideColorInViewAsync", names);
@@ -65,8 +71,11 @@ public class L3CommandContractTests
         Assert.Contains("SaveDocumentAsync", names);
         Assert.Contains("ReloadLinksAsync", names);
         Assert.Contains("AssignWorksetAsync", names);
+        Assert.Contains("LoadFamilyAsync", names);
         Assert.DoesNotContain("GetWarningsRawAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("ChangeElementTypeAsync", names);
+        Assert.DoesNotContain("CreateTopographyAsync", names);
         Assert.DoesNotContain("CreateWallAsync", names);
         Assert.DoesNotContain("RenameElementsAsync", names);
         Assert.DoesNotContain("ApplyConstructionDatesAsync", names);

@@ -1902,6 +1902,53 @@ public sealed class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
+    public Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            try
+            {
+                var el = doc.GetElement(AllTools.ParseEid(elementId));
+                if (el == null) return new CommandResultDto(false, $"Element {elementId} not found.");
+                var valid = Element.GetValidTypes(doc, new List<ElementId> { el.Id });
+                ElementType? target = null;
+                foreach (var tid in valid)
+                {
+                    var t = doc.GetElement(tid) as ElementType;
+                    if (t == null) continue;
+                    if (!string.IsNullOrWhiteSpace(typeId) && t.Id == AllTools.ParseEid(typeId)) { target = t; break; }
+                    if (!string.IsNullOrWhiteSpace(typeName) && t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase)) { target = t; break; }
+                }
+                if (target == null)
+                {
+                    var names = string.Join(", ", valid.Select(id => (doc.GetElement(id) as ElementType)?.Name).Where(n => n != null));
+                    return new CommandResultDto(false, $"No matching type. Valid types: {names}");
+                }
+                using var tx = new Transaction(doc, "LoadingAI for Revit: change element type");
+                tx.Start();
+                try
+                {
+                    el.ChangeTypeId(target.Id);
+                    tx.Commit();
+                    return new CommandResultDto(true, $"Changed element {el.Id} type to \"{target.Name}\" ({target.Id})", 1);
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new CommandResultDto(false, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
     public Task<CommandResultDto> CreateWallAsync(
         string levelName,
         double x1, double y1, double x2, double y2,
@@ -2456,6 +2503,45 @@ public sealed class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
+    public Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (points == null || points.Count < 3)
+                return new CommandResultDto(false, "Provide at least 3 points [x,y,z] in mm.");
+            try
+            {
+                var level = ResolveLevel(doc, levelId, levelName);
+                if (level == null) return new CommandResultDto(false, "No level found. Pass levelName or levelId.");
+                var typeId = new FilteredElementCollector(doc).OfClass(typeof(ToposolidType)).FirstOrDefault()?.Id;
+                if (typeId == null) return new CommandResultDto(false, "No ToposolidType found in the model.");
+                var pts = points.Select(p => new XYZ(Metric.MmToFt(p.X), Metric.MmToFt(p.Y), Metric.MmToFt(p.Z))).ToList();
+                using var tx = new Transaction(doc, "LoadingAI for Revit: create toposolid");
+                tx.Start();
+                try
+                {
+                    var surface = Toposolid.Create(doc, pts, level.Id, typeId);
+                    tx.Commit();
+                    return new CommandResultDto(true, $"Created toposolid {surface.Id} from {pts.Count} points on {level.Name}.", 1);
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new CommandResultDto(false, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
     public Task<CommandResultDto> SaveDocumentAsync(CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -2570,6 +2656,55 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 return new CommandResultDto(false, $"Failed: {failEx.Message}");
             }
         }, ct);
+    }
+
+    public Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            try
+            {
+                using var tx = new Transaction(doc, "LoadingAI for Revit: load family");
+                tx.Start();
+                try
+                {
+                    if (!doc.LoadFamily(path, out var family))
+                    {
+                        tx.RollBack();
+                        return new CommandResultDto(false, $"LoadFamily returned false for {path}");
+                    }
+                    tx.Commit();
+                    var symbols = family!.GetFamilySymbolIds()
+                        .Select(id => doc.GetElement(id) is FamilySymbol s ? s.Name : id.ToString())
+                        .ToList();
+                    return new CommandResultDto(
+                        true,
+                        $"Loaded family \"{family.Name}\" ({family.Id}) with {symbols.Count} symbol(s): {string.Join(", ", symbols)}",
+                        1);
+                }
+                catch (Exception inner)
+                {
+                    try { tx.RollBack(); } catch { }
+                    return new CommandResultDto(false, $"Failed: {inner.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
+    private static Level? ResolveLevel(Document doc, string? levelId, string? levelName)
+    {
+        if (!string.IsNullOrWhiteSpace(levelId))
+            return doc.GetElement(AllTools.ParseEid(levelId)) as Level;
+        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>();
+        if (!string.IsNullOrWhiteSpace(levelName))
+            return levels.FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
+        return levels.OrderBy(l => l.Elevation).FirstOrDefault();
     }
 
     private static Color ParseColor(string s)

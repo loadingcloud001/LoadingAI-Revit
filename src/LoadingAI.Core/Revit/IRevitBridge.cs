@@ -181,8 +181,8 @@ public interface IRevitParamCommand
 }
 
 /// <summary>
-/// Destructive element mutations (delete / move). Family load and export
-/// stay on <c>IRawRevitAccess</c> until they have DTOs.
+/// Destructive element mutations (delete / move / type change). Export
+/// stays on <c>IRawRevitAccess</c> until it has DTOs.
 /// </summary>
 public interface IRevitElementCommand
 {
@@ -192,11 +192,15 @@ public interface IRevitElementCommand
     Task<CommandResultDto> MoveElementsAsync(
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default);
 }
 
 /// <summary>
 /// Geometry create / transform. Coordinates are millimetres; the adapter
-/// converts to feet for the Revit API. Family load and export stay on
+/// converts to feet for the Revit API. Export stays on
 /// <c>IRawRevitAccess</c>.
 /// </summary>
 public interface IRevitCreateCommand
@@ -266,12 +270,17 @@ public interface IRevitCreateCommand
         string elementId2,
         bool join = true,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default);
 }
 
 /// <summary>
 /// Document-level writes. Do not wrap <c>Save</c> in a Transaction —
-/// Revit rejects that. Family load and export stay on
-/// <c>IRawRevitAccess</c>.
+/// Revit rejects that. <c>LoadFamily</c> does need a Transaction.
+/// Export stays on <c>IRawRevitAccess</c>.
 /// </summary>
 public interface IRevitDocumentCommand
 {
@@ -281,6 +290,7 @@ public interface IRevitDocumentCommand
         IReadOnlyList<string> elementIds,
         string worksetName,
         CancellationToken ct = default);
+    Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default);
 }
 
 /// <summary>

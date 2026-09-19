@@ -9,7 +9,7 @@ public class PluginProjectContractTests
     [InlineData("Plugins/core-tools/CoreToolsPlugin.csproj", false)]
     [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj", true)]
     [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj", true)]
-    [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", true)]
+    [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", false)]
     [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj", true)]
     [InlineData("Plugins/qs-formwork/QsFormworkPlugin.csproj", true)]
     public void ShippedPlugin_DoesNotReferenceHost(string relative, bool requiresRevitUtil)

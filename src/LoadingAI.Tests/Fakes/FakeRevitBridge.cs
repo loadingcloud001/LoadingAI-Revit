@@ -1,3 +1,4 @@
+using System.IO;
 using LoadingAI.Revit;
 
 namespace LoadingAI.Tests.Fakes;
@@ -633,6 +634,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string Id1, string Id2, bool Join)> JoinGeometryCalls { get; } = new();
 
+    public CommandResultDto? NextChangeElementTypeResult { get; set; }
+
+    public List<(string ElementId, string? TypeName, string? TypeId)> ChangeElementTypeCalls { get; } = new();
+
+    public CommandResultDto? NextCreateTopographyResult { get; set; }
+
+    public List<(IReadOnlyList<PointMmDto> Points, string? LevelName, string? LevelId)> CreateTopographyCalls { get; } = new();
+
+    public CommandResultDto? NextLoadFamilyResult { get; set; }
+
+    public List<string> LoadFamilyCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -641,6 +654,19 @@ internal sealed class FakeRevitBridge : IRevitBridge
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
+
+    public Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default)
+    {
+        ChangeElementTypeCalls.Add((elementId, typeName, typeId));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextChangeElementTypeResult != null)
+            return Task.FromResult(NextChangeElementTypeResult);
+        var label = !string.IsNullOrWhiteSpace(typeName) ? typeName : typeId ?? "";
+        return Task.FromResult(new CommandResultDto(true, $"Changed element {elementId} type to \"{label}\" ({typeId ?? "1"})", 1));
+    }
 
     public Task<CommandResultDto> CreateWallAsync(
         string levelName,
@@ -823,6 +849,22 @@ internal sealed class FakeRevitBridge : IRevitBridge
         return Task.FromResult(new CommandResultDto(true, join ? $"Joined {elementId1} and {elementId2}" : $"Unjoined {elementId1} and {elementId2}"));
     }
 
+    public Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default)
+    {
+        CreateTopographyCalls.Add((points, levelName, levelId));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (points == null || points.Count < 3)
+            return Task.FromResult(new CommandResultDto(false, "Provide at least 3 points [x,y,z] in mm."));
+        if (NextCreateTopographyResult != null)
+            return Task.FromResult(NextCreateTopographyResult);
+        var lvl = string.IsNullOrWhiteSpace(levelName) ? "Level 1" : levelName;
+        return Task.FromResult(new CommandResultDto(true, $"Created toposolid 801 from {points.Count} points on {lvl}.", 1));
+    }
+
     public Task<CommandResultDto> SaveDocumentAsync(CancellationToken ct = default)
     {
         SaveDocumentCallCount++;
@@ -865,6 +907,20 @@ internal sealed class FakeRevitBridge : IRevitBridge
             true,
             $"Assigned 0/{elementIds.Count} to workset \"{worksetName}\"",
             0));
+    }
+
+    public Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default)
+    {
+        LoadFamilyCalls.Add(path);
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextLoadFamilyResult != null)
+            return Task.FromResult(NextLoadFamilyResult);
+        var name = Path.GetFileNameWithoutExtension(path);
+        return Task.FromResult(new CommandResultDto(
+            true,
+            $"Loaded family \"{name}\" (901) with 1 symbol(s): {name}",
+            1));
     }
 
     private CommandResultDto FailIfClosed(string emptyMessage, IReadOnlyList<string>? elementIds, string? category)
