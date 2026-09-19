@@ -2529,7 +2529,8 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 tx.Start();
                 try
                 {
-                    var surface = Toposolid.Create(doc, pts, level.Id, typeId);
+                    // Official order is (document, points, topoTypeId, levelId) — both trailing args are ElementId.
+                    var surface = Toposolid.Create(doc, pts, typeId, level.Id);
                     tx.Commit();
                     return new CommandResultDto(true, $"Created toposolid {surface.Id} from {pts.Count} points on {level.Name}.", 1);
                 }
@@ -2859,7 +2860,7 @@ public sealed class AdapterRevitBridge : IRevitBridge
             {
                 return new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>(), $"Failed: {ex.Message}");
             }
-        }, ExportTimeout, ct);
+        }, ct);
     }
 
     private static List<ElementId> ResolvePrintable(Document doc, IReadOnlyList<string>? ids, bool preferSheets)
