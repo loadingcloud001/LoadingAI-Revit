@@ -42,7 +42,7 @@ Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/core-tools/` — Bridge-only query/view/param/geometry/document (L3 off by default)
 - `Plugins/export-tools/` — Bridge-only `export_pdf`, `export_dwg`, `export_ifc` (L1), `purge_unused` (L3)
-- `Plugins/view-tools/` — `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
+- `Plugins/view-tools/` — Bridge-only `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
 - `Plugins/modeling-tools/` — Bridge-only `load_family`, `change_element_type`, `create_topography`
 - `Plugins/structure-cuts/` — `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected inside the plugin via `scope=selection|visible|all` so chat never has to paste hundreds of ids. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
 - `Plugins/qs-formwork/` — `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params`

@@ -8,7 +8,7 @@
 
 ## Context
 
-ADR-0001 made `core-tools` Bridge-only. Other shipped plugins still need Autodesk types the Bridge does not expose: schedules/views, formwork solids, beam/floor cuts. `modeling-tools` moved onto Bridge in [ADR-0005](0005-port-modeling-tools-onto-bridge.md); `export-tools` moved onto Bridge in [ADR-0006](0006-port-export-tools-onto-bridge.md).
+ADR-0001 made `core-tools` Bridge-only. Other shipped plugins still need Autodesk types the Bridge does not expose: schedules/views, formwork solids, beam/floor cuts. `modeling-tools` moved onto Bridge in [ADR-0005](0005-port-modeling-tools-onto-bridge.md); `export-tools` moved onto Bridge in [ADR-0006](0006-port-export-tools-onto-bridge.md); `view-tools` moved onto Bridge in [ADR-0007](0007-port-view-tools-onto-bridge.md).
 
 `IRevitFullAccess` is an **empty marker**. The host (`PluginLoader`) sets `requestFull = typeof(IRevitFullAccess).IsAssignableFrom(pt)` and only then supplies `IPluginContext.FullAccess` (`IRawRevitAccess`). `FakePluginContext.FullAccess` is always null, so FullAccess handlers cannot run in hosted CI.
 
@@ -36,7 +36,6 @@ flowchart LR
 
 | Plugin id | Why FullAccess |
 |---|---|
-| `view-tools` | schedules, floor/3d/section views, path of travel |
 | `qs-formwork` | formwork solids / panels |
 | `structure-cuts` | beam/floor/level/grid splits |
 
@@ -50,7 +49,7 @@ flowchart LR
 
 **Not FullAccess**
 
-- `core-tools`, `example.hello`, `modeling-tools`, `export-tools`, and any new plugin that can be expressed with existing Bridge slices.
+- `core-tools`, `example.hello`, `modeling-tools`, `export-tools`, `view-tools`, and any new plugin that can be expressed with existing Bridge slices.
 - PluginLoader `requestFull` stays. Do not delete the marker to “simplify” core-tools.
 
 Moving a row in the table onto Bridge is a **new ADR** (0004+), one plugin (or one DTO slice) at a time, with FakeBridge tests before deleting the marker.
@@ -58,7 +57,7 @@ Moving a row in the table onto Bridge is a **new ADR** (0004+), one plugin (or o
 ## Consequences
 
 - `NonFullAccessPlugins_DoNotMentionAutodeskRevit` skips a folder only if some `.cs` contains `IRevitFullAccess`. Removing the marker from a listed plugin without a Bridge port **fails CI**.
-- `ShippedPlugin_DoesNotReferenceHost(..., requiresRevitUtil: true)` locks RevitUtil on the three listed plugins.
+- `ShippedPlugin_DoesNotReferenceHost(..., requiresRevitUtil: true)` locks RevitUtil on the two listed plugins.
 - Fake tests must not call FullAccess factories; `FullAccess` is null.
 
 ## Do not
