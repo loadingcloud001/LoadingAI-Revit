@@ -23,7 +23,12 @@ internal static class BeamSplit
 {
     private const double MinFraction = CurveMemberSplit.MinFraction;
 
-    public static string Run(UIApplication uiApp, IReadOnlyList<string> beamIds, IReadOnlyList<string> columnIds, SplitOptions options)
+    public static string Run(
+        UIApplication uiApp,
+        IReadOnlyList<string> beamIds,
+        IReadOnlyList<string> columnIds,
+        SplitOptions options,
+        SplitOutcome? outcome = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -134,6 +139,8 @@ internal static class BeamSplit
             message += $" Left alone: {skippedUnchanged}.";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+
+        outcome?.Record(created, 0, skippedNoCurve + skippedNoCrossing + skippedUnchanged + skippedFailed);
 
         SplitElements.Select(uidoc, created);
         return message;

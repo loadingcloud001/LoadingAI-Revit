@@ -10,8 +10,10 @@ using NUnit.Framework;
 namespace LoadingAI.RevitTests;
 
 /// <summary>
-/// Kind B FullAccess coverage for structure-cuts. Hosted L0 cannot prove handlers
-/// (FakePluginContext has no FullAccess). Construct tools with CreateTools —
+/// Kind B bridge-only coverage for structure-cuts. The plugin owns no Revit types any
+/// more — every algorithm lives host-side behind <see cref="IRevitBridge"/> — so these
+/// tests drive the real Adapter through the plugin's handlers and assert on the prose
+/// the tools return. Construct tools with CreateTools —
 /// do not PluginLoader.Discover this plugin here (Discover wraps core L2 with TaskDialog).
 /// </summary>
 [TestFixture]

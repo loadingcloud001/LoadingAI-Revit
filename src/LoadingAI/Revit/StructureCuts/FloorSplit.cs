@@ -27,7 +27,8 @@ internal static class FloorSplit
         IReadOnlyList<string> floorIds,
         IReadOnlyList<string> beamIds,
         IReadOnlyList<string> columnIds,
-        SplitOptions options)
+        SplitOptions options,
+        SplitOutcome? outcome = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -102,7 +103,6 @@ internal static class FloorSplit
 
         if (plans.Count == 0)
             return "Nothing to split." + notes;
-
         var created = new List<ElementId>();
         var splitFloors = 0;
         var piecesMade = 0;
@@ -163,6 +163,8 @@ internal static class FloorSplit
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+
+        outcome?.Record(created, openingsMade, skips.Total);
 
         SplitElements.Select(uidoc, created);
         return message;
@@ -501,6 +503,10 @@ internal static class FloorSplit
         public int Partial { get; set; }
 
         public int DeleteFailed { get; set; }
+
+        /// <summary>Every host this run left alone, whichever reason it was.</summary>
+        public int Total => NotASlab + ShapeEdited + NoPlanarFace + SlopedMismatch
+            + NoLevel + NoRegions + Unchanged + Partial + DeleteFailed;
 
         public string Note()
         {

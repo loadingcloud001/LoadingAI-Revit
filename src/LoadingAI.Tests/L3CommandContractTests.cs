@@ -21,6 +21,11 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SetParameterAsync", names);
         Assert.DoesNotContain("LoadFamilyAsync", names);
         Assert.DoesNotContain("CreateTopographyAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
     [Fact]
@@ -39,6 +44,11 @@ public class L3CommandContractTests
         Assert.Contains("SplitWallAsync", names);
         Assert.Contains("JoinGeometryAsync", names);
         Assert.Contains("CreateTopographyAsync", names);
+        Assert.Contains("SplitBeamsByColumnsAsync", names);
+        Assert.Contains("SplitFloorsByBeamsAsync", names);
+        Assert.Contains("SplitByLevelsAsync", names);
+        Assert.Contains("SplitByGridsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
         Assert.DoesNotContain("LoadFamilyAsync", names);
         Assert.DoesNotContain("ChangeElementTypeAsync", names);
@@ -101,6 +111,11 @@ public class L3CommandContractTests
         Assert.DoesNotContain("CreateSectionViewAsync", names);
         Assert.DoesNotContain("CreatePathOfTravelAsync", names);
         Assert.DoesNotContain("GetScheduleDataAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
     [Fact]
@@ -118,6 +133,11 @@ public class L3CommandContractTests
         Assert.DoesNotContain("DeleteElementsAsync", names);
         Assert.DoesNotContain("SetParameterAsync", names);
         Assert.DoesNotContain("PurgeUnusedAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
     [Fact]
@@ -125,6 +145,11 @@ public class L3CommandContractTests
     {
         var names = typeof(IRevitQuery).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("GetScheduleDataAsync", names);
+        Assert.Contains("CollectHostsAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
         Assert.DoesNotContain("CreateScheduleAsync", names);
         Assert.DoesNotContain("CreateFloorPlanAsync", names);
         Assert.DoesNotContain("Create3DViewAsync", names);

@@ -29,5 +29,8 @@
     <ProjectReference Include="..\..\Plugins\view-tools\ViewToolsPlugin.csproj">
       <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>

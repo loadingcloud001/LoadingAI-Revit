@@ -3,6 +3,7 @@ using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
+using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Revit;
@@ -3121,9 +3122,120 @@ public sealed class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
+    /// <summary>
+    /// One page of host elements for the structure-cuts algorithms. The page is capped
+    /// Adapter-side so the bound holds for every caller, and <c>Total</c> is the size of
+    /// the whole collection so a caller can ask for the next page without re-collecting.
+    /// </summary>
+    public Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            if (uidoc == null || doc == null)
+                return new ElementIdListDto(Array.Empty<string>(), offset, 0, "Please open a model first.");
+
+            var cats = categories ?? Array.Empty<string>();
+            var cap = Math.Max(1, limit);
+            var start = Math.Max(0, offset);
+            var wanted = SplitElements.HostsIn(cats);
+            var collected = SplitScope.ByScope(doc, uidoc, wanted, scope);
+
+            if (start > collected.Count)
+                start = collected.Count;
+
+            var ids = collected
+                .Skip(start)
+                .Take(cap)
+                .Select(element => SplitElements.Fmt(element.Id))
+                .ToList();
+            return new ElementIdListDto(ids, start, collected.Count);
+        }, ct);
+    }
+
+    public Task<SplitResultDto?> SplitBeamsByColumnsAsync(SplitRequestDto request, CancellationToken ct = default)
+        => RunSplit(request, ct, (uiApp, options, outcome) => BeamSplit.Run(
+            uiApp,
+            request.HostIds ?? Array.Empty<string>(),
+            request.Cutters ?? Array.Empty<string>(),
+            options,
+            outcome));
+
+    public Task<SplitResultDto?> SplitFloorsByBeamsAsync(SplitRequestDto request, CancellationToken ct = default)
+        => RunSplit(request, ct, (uiApp, options, outcome) =>
+        {
+            // The floor cut takes beams and columns as two lists while the DTO carries one
+            // Cutters list. SplitElements.Resolve filters by category, so handing the same
+            // list to both parameters separates them without inventing an encoding.
+            var cutters = request.Cutters ?? Array.Empty<string>();
+            return FloorSplit.Run(
+                uiApp,
+                request.HostIds ?? Array.Empty<string>(),
+                cutters,
+                cutters,
+                options,
+                outcome);
+        });
+
+    public Task<SplitResultDto?> SplitByLevelsAsync(SplitRequestDto request, CancellationToken ct = default)
+        => RunSplit(request, ct, (uiApp, options, outcome) => LevelSplit.Run(
+            uiApp,
+            request.HostIds ?? Array.Empty<string>(),
+            request.Cutters ?? Array.Empty<string>(),
+            request.Categories ?? Array.Empty<string>(),
+            options,
+            outcome));
+
+    public Task<SplitResultDto?> SplitByGridsAsync(SplitRequestDto request, CancellationToken ct = default)
+        => RunSplit(request, ct, (uiApp, options, outcome) => GridSplit.Run(
+            uiApp,
+            request.HostIds ?? Array.Empty<string>(),
+            request.Cutters ?? Array.Empty<string>(),
+            request.Categories ?? Array.Empty<string>(),
+            options,
+            outcome));
+
+    /// <summary>
+    /// Shared shape of the four cuts: one transaction per call, the algorithms' own prose in
+    /// <c>Report</c>, and the counters captured out of band so a partial run stays legible.
+    /// </summary>
+    private Task<SplitResultDto?> RunSplit(
+        SplitRequestDto request,
+        CancellationToken ct,
+        Func<UIApplication, SplitOptions, SplitOutcome, string> run)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null)
+                return new SplitResultDto("Please open a model first.", 0, 0, 0, Array.Empty<string>());
+
+            var options = new SplitOptions
+            {
+                Limit = request.Limit,
+                DryRun = request.DryRun,
+                UniqueMark = request.UniqueMark,
+                CopyParams = request.CopyParams,
+                Scope = request.Scope,
+                ContinueFrom = request.ContinueFrom,
+            };
+            var outcome = new SplitOutcome();
+            try
+            {
+                var report = run(uiApp, options, outcome);
+                return new SplitResultDto(report, outcome.Created, outcome.Openings, outcome.Skipped, outcome.NewIds);
+            }
+            catch (Exception ex)
+            {
+                return new SplitResultDto($"Failed: {ex.Message}", 0, 0, 0, Array.Empty<string>());
+            }
+        }, ct);
+    }
+
     /// <summary>Body rows shown when a caller passes no usable <c>rowLimit</c>.</summary>
     private const int DefaultScheduleRows = 25;
-
     /// <summary>Hard ceiling on schedule body rows returned in one call.</summary>
     private const int MaxScheduleRows = 40;
 

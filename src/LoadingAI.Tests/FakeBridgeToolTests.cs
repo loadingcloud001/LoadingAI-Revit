@@ -1,6 +1,7 @@
 using System.IO;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
+using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tests.Fakes;
 using LoadingAI.Tools;
 
@@ -2212,9 +2213,140 @@ public class FakeBridgeToolTests
         Assert.Equal(ToolTier.L3, tools["path_of_travel"]);
     }
 
+    [Fact]
+    public async Task StructureCuts_DeclareFrozenNamesAndTiers()
+    {
+        var tools = StructureCutsPlugin().CreateTools(new FakePluginContext(new FakeRevitBridge()))
+            .Select(t => (t.Definition.Function.Name, t.Tier))
+            .ToDictionary(x => x.Name, x => x.Tier);
+
+        Assert.Equal(4, tools.Count);
+        Assert.Equal(ToolTier.L3, tools["split_beams_by_columns"]);
+        Assert.Equal(ToolTier.L3, tools["split_floors_by_beams"]);
+        Assert.Equal(ToolTier.L3, tools["split_by_levels"]);
+        Assert.Equal(ToolTier.L3, tools["split_by_grids"]);
+    }
+
+    [Fact]
+    public async Task SplitBeams_ForwardsBothIdListsAndSharedOptions()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = StructureCutsTool(bridge, "split_beams_by_columns");
+
+        var text = await tool.Handler(
+            """{"beamIds":["101"],"columnIds":["202"],"scope":"visible","limit":7,"uniqueMark":true,"copyParams":false}""");
+
+        Assert.Equal("Split 2 beams into 5 pieces.", text);
+        var call = Assert.Single(bridge.SplitBeamsCalls);
+        Assert.Equal(new[] { "101" }, call.HostIds);
+        Assert.Equal(new[] { "202" }, call.Cutters);
+        Assert.Null(call.Categories);
+        Assert.Equal("visible", call.Scope);
+        Assert.Equal(7, call.Limit);
+        Assert.True(call.UniqueMark);
+        Assert.False(call.CopyParams);
+        Assert.False(call.DryRun);
+    }
+
+    [Fact]
+    public async Task SplitBeams_OmittedIdLists_AreForwardedAsNullNotEmpty()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = StructureCutsTool(bridge, "split_beams_by_columns");
+
+        await tool.Handler("{}");
+
+        var call = Assert.Single(bridge.SplitBeamsCalls);
+        Assert.Null(call.HostIds);
+        Assert.Null(call.Cutters);
+        Assert.Equal(SplitOptions.DefaultLimit, call.Limit);
+        Assert.Equal(SplitOptions.DefaultScope, call.Scope);
+        Assert.False(call.DryRun);
+        Assert.False(call.UniqueMark);
+        Assert.True(call.CopyParams);
+    }
+
+    [Fact]
+    public async Task SplitFloors_MergesBeamAndColumnIdsIntoCutterList()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = StructureCutsTool(bridge, "split_floors_by_beams");
+
+        var text = await tool.Handler("""{"floorIds":["301"],"beamIds":["101"],"columnIds":["202"]}""");
+
+        Assert.Equal("Split 1 floors into 3 pieces. Openings: 2.", text);
+        var call = Assert.Single(bridge.SplitFloorsCalls);
+        Assert.Equal(new[] { "301" }, call.HostIds);
+        Assert.Equal(new[] { "101", "202" }, call.Cutters);
+    }
+
+    [Fact]
+    public async Task SplitByLevels_ForwardsElementLevelAndCategoryFilters()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = StructureCutsTool(bridge, "split_by_levels");
+
+        var text = await tool.Handler(
+            """{"elementIds":["401"],"levelIds":["501"],"categories":["walls"]}""");
+
+        Assert.Equal("Split 3 elements into 7 pieces.", text);
+        var call = Assert.Single(bridge.SplitByLevelsCalls);
+        Assert.Equal(new[] { "401" }, call.HostIds);
+        Assert.Equal(new[] { "501" }, call.Cutters);
+        Assert.Equal(new[] { "walls" }, call.Categories);
+    }
+
+    [Fact]
+    public async Task SplitByGrids_DryRun_IsReadThroughTheSharedHelper()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = StructureCutsTool(bridge, "split_by_grids");
+
+        var text = await tool.Handler("""{"elementIds":["401"],"gridIds":["601"],"dryRun":true}""");
+
+        Assert.Equal("Split 4 elements into 9 pieces.", text);
+        var call = Assert.Single(bridge.SplitByGridsCalls);
+        Assert.True(call.DryRun);
+        Assert.Equal(new[] { "601" }, call.Cutters);
+    }
+
+    [Fact]
+    public async Task StructureCuts_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = StructureCutsTool(bridge, "split_beams_by_columns");
+
+        var text = await tool.Handler("""{"beamIds":["101"]}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.SplitBeamsCalls);
+    }
+
+    [Fact]
+    public async Task StructureCuts_BridgeError_WinsOverReport()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextSplitBeamsResult = new SplitResultDto(
+                "Split 0 beams into 0 pieces.", 0, 0, 0, Array.Empty<string>(), "No beams found.")
+        };
+        var tool = StructureCutsTool(bridge, "split_beams_by_columns");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("No beams found.", text);
+    }
+
+    private static ToolEntry StructureCutsTool(FakeRevitBridge bridge, string name)
+        => StructureCutsPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == name);
+
     private static LoadingAI.Plugins.ExportTools.ExportToolsPlugin ExportPlugin() => new();
 
     private static LoadingAI.Plugins.ViewTools.ViewToolsPlugin ViewPlugin() => new();
+
+    private static LoadingAI.Plugins.StructureCuts.StructureCutsPlugin StructureCutsPlugin() => new();
 
     private static string WriteTempRfa()
     {

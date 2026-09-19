@@ -17,7 +17,8 @@ internal static class LevelSplit
         IReadOnlyList<string> elementIds,
         IReadOnlyList<string> levelIds,
         IReadOnlyList<string> categories,
-        SplitOptions options)
+        SplitOptions options,
+        SplitOutcome? outcome = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -158,6 +159,8 @@ internal static class LevelSplit
         }
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+
+        outcome?.Record(created, openings, skips.Total);
 
         SplitElements.Select(uidoc, created);
         return message;
@@ -341,6 +344,10 @@ internal static class LevelSplit
         public int NoRegions { get; set; }
         public int Unchanged { get; set; }
         public int Failed { get; set; }
+
+        /// <summary>Every host this run left alone, whichever reason it was.</summary>
+        public int Total => NoCurve + NoHit + Stacked + Curtain + ShapeEdited
+            + NoPlanarFace + NoLevel + NoRegions + Unchanged + Failed;
 
         public string Note()
         {

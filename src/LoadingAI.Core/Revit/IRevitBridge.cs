@@ -57,6 +57,14 @@ public interface IRevitQuery
     /// </summary>
     Task<ScheduleDataDto?> GetScheduleDataAsync(
         string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of host elements for the structure-cuts algorithms, selected by
+    /// <paramref name="scope"/> (<c>selection</c> / <c>visible</c> / <c>all</c>).
+    /// <paramref name="categories"/> empty falls back to every splittable host category.
+    /// </summary>
+    Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -326,6 +334,25 @@ public interface IRevitCreateCommand
         IReadOnlyList<PointMmDto> points,
         string? levelName = null, string? levelId = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Split structural framing at the columns that cross it. <c>HostIds</c> null means
+    /// every beam in <c>Scope</c>; <c>Cutters</c> null means the current selection.
+    /// </summary>
+    Task<SplitResultDto?> SplitBeamsByColumnsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Split floors along the beams and columns that cross them, cutting an opening
+    /// where a column passes through. <c>Cutters</c> holds beams and columns together
+    /// and is separated by category Adapter-side.
+    /// </summary>
+    Task<SplitResultDto?> SplitFloorsByBeamsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the levels that cross them.</summary>
+    Task<SplitResultDto?> SplitByLevelsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the grids that cross them.</summary>
+    Task<SplitResultDto?> SplitByGridsAsync(SplitRequestDto request, CancellationToken ct = default);
 }
 
 /// <summary>

@@ -281,3 +281,47 @@ public sealed record PathOfTravelResultDto(
     IReadOnlyList<string> CreatedIds,
     IReadOnlyList<string> Failures,
     string? Error = null);
+
+/// <summary>
+/// One page of host element ids, in the order the host collected them.
+/// <c>Offset</c> echoes the requested window and <c>Total</c> is the size of the
+/// whole collection, so a caller can page without re-collecting.
+/// </summary>
+public sealed record ElementIdListDto(
+    IReadOnlyList<string> Ids,
+    int Offset,
+    int Total,
+    string? Error = null);
+
+/// <summary>
+/// Input for one structure-cuts run. <c>HostIds</c> and <c>Cutters</c> are the two
+/// id filters the algorithms take; <b>null means every element</b>, while an empty
+/// list is honoured as-is, so a caller holding an empty list must pass null to ask
+/// for the default. <c>Categories</c> follows the same rule, and <c>Scope</c> is
+/// only consulted when <c>HostIds</c> is null. <c>DryRun</c> short-circuits before
+/// any transaction, which is why a dry run always reports zero writes.
+/// </summary>
+public sealed record SplitRequestDto(
+    IReadOnlyList<string>? HostIds,
+    IReadOnlyList<string>? Cutters,
+    IReadOnlyList<string>? Categories,
+    string Scope,
+    int ContinueFrom,
+    int Limit,
+    bool DryRun,
+    bool UniqueMark,
+    bool CopyParams);
+
+/// <summary>
+/// Outcome of one structure-cuts run. <c>Report</c> is the algorithms' own prose,
+/// verbatim; the counters are kept separate from it so a partial run cannot read as
+/// a whole one. <c>Created</c> counts hosts replaced by more than one piece and
+/// <c>Skipped</c> counts hosts left alone for any reason.
+/// </summary>
+public sealed record SplitResultDto(
+    string Report,
+    int Created,
+    int Openings,
+    int Skipped,
+    IReadOnlyList<string> NewIds,
+    string? Error = null);

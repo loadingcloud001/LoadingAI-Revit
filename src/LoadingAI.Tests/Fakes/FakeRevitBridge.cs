@@ -704,6 +704,26 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string ViewIdOrName, IReadOnlyList<PathPairDto> Pairs)> CreatePathOfTravelCalls { get; } = new();
 
+    public ElementIdListDto? NextCollectHostsResult { get; set; }
+
+    public List<(string Scope, IReadOnlyList<string>? Categories, int Limit, int Offset)> CollectHostsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitBeamsResult { get; set; }
+
+    public List<SplitRequestDto> SplitBeamsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitFloorsResult { get; set; }
+
+    public List<SplitRequestDto> SplitFloorsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitByLevelsResult { get; set; }
+
+    public List<SplitRequestDto> SplitByLevelsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitByGridsResult { get; set; }
+
+    public List<SplitRequestDto> SplitByGridsCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -1114,6 +1134,85 @@ internal sealed class FakeRevitBridge : IRevitBridge
         return Task.FromResult<PathOfTravelResultDto?>(new PathOfTravelResultDto(
             string.IsNullOrWhiteSpace(viewIdOrName) ? "Level 1" : viewIdOrName,
             ids.Count, ids.Count, ids, Array.Empty<string>()));
+    }
+
+    /// <summary>
+    /// Read-shaped, so it guards before recording: a closed model returns the DTO with the
+    /// no-document error and records no call, matching the other read fakes.
+    /// </summary>
+    public Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default)
+    {
+        if (!HasActiveDocument)
+            return Task.FromResult<ElementIdListDto?>(
+                new ElementIdListDto(Array.Empty<string>(), offset, 0, "Please open a model first."));
+
+        CollectHostsCalls.Add((scope, categories, limit, offset));
+        if (NextCollectHostsResult != null)
+            return Task.FromResult<ElementIdListDto?>(NextCollectHostsResult);
+
+        var total = Math.Max(0, limit) + Math.Max(0, offset);
+        var ids = Enumerable.Range(Math.Max(0, offset), Math.Max(0, limit))
+            .Select(i => (20000 + i).ToString())
+            .ToList();
+        return Task.FromResult<ElementIdListDto?>(new ElementIdListDto(ids, Math.Max(0, offset), total));
+    }
+
+    public Task<SplitResultDto?> SplitBeamsByColumnsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitBeamsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitBeamsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitBeamsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 2 beams into 5 pieces."));
+    }
+
+    public Task<SplitResultDto?> SplitFloorsByBeamsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitFloorsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitFloorsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitFloorsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 1 floors into 3 pieces. Openings: 2."));
+    }
+
+    public Task<SplitResultDto?> SplitByLevelsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitByLevelsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitByLevelsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitByLevelsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 3 elements into 7 pieces."));
+    }
+
+    public Task<SplitResultDto?> SplitByGridsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitByGridsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitByGridsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitByGridsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 4 elements into 9 pieces."));
+    }
+
+    private static SplitResultDto ClosedSplit()
+        => new("Please open a model first.", 0, 0, 0, Array.Empty<string>());
+
+    /// <summary>A dry run reports no writes, so the counters stay at zero.</summary>
+    private static SplitResultDto Split(SplitRequestDto request, string report)
+    {
+        if (request.DryRun)
+            return new SplitResultDto(report, 0, 0, 0, Array.Empty<string>());
+
+        var created = Enumerable.Range(1, 3).Select(i => (7000 + i).ToString()).ToList();
+        return new SplitResultDto(report, created.Count, 0, 0, created);
     }
 
     private CommandResultDto FailIfClosed(string emptyMessage, IReadOnlyList<string>? elementIds, string? category)
