@@ -5,7 +5,7 @@ using Autodesk.Revit.UI;
 
 using LoadingAI.Geometry;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Splits structural framing members where they pass through structural columns. Cutting where the

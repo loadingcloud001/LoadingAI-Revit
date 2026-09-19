@@ -2,7 +2,7 @@ using Autodesk.Revit.DB;
 
 using LoadingAI.Geometry;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Location curve for walls, beams and slanted columns, or a vertical line synthesised from a

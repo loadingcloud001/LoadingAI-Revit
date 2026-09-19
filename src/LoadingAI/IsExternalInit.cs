@@ -1,7 +1,9 @@
-// Polyfill for C# `init` accessors / records on .NET Framework (net48).
-// The compiler requires System.Runtime.CompilerServices.IsExternalInit to
-// exist in the target assembly; net48 does not ship it.
+// Polyfill for net48 (Revit 2024), which lacks the compiler's "init" accessor support
+// type (System.Runtime.CompilerServices.IsExternalInit). net8.0/net10.0 supply it in
+// the BCL, so the guard keeps this assembly from declaring a duplicate type there.
+#if NETFRAMEWORK
 namespace System.Runtime.CompilerServices
 {
     internal static class IsExternalInit { }
 }
+#endif

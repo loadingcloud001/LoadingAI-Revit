@@ -6,7 +6,7 @@ using Autodesk.Revit.DB;
 using LoadingAI.Geometry;
 using LoadingAI.Revit;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// The bridge between the Revit API and the unit tested geometry in LoadingAI.Geometry: projecting

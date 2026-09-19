@@ -54,36 +54,54 @@ public class StructureCutsContractTests
     }
 
     [Fact]
-    public void PluginShipsIsExternalInitPolyfill_ForNet48InitAccessors()
+    public void HostShipsIsExternalInitPolyfill_ForNet48InitAccessors()
     {
         var root = RepoRoot();
-        var polyfillPath = Path.Combine(root, "Plugins", "structure-cuts", "IsExternalInit.cs");
-        Assert.True(File.Exists(polyfillPath), "structure-cuts must ship its own IsExternalInit polyfill for Revit 2024 (net48).");
+        var polyfillPath = Path.Combine(root, "src", "LoadingAI", "IsExternalInit.cs");
+        Assert.True(File.Exists(polyfillPath), "src/LoadingAI must ship its own IsExternalInit polyfill for Revit 2024 (net48).");
 
         var polyfill = File.ReadAllText(polyfillPath);
         Assert.Contains("#if NETFRAMEWORK", polyfill, StringComparison.Ordinal);
         Assert.Contains("namespace System.Runtime.CompilerServices", polyfill, StringComparison.Ordinal);
         Assert.Contains("class IsExternalInit", polyfill, StringComparison.Ordinal);
 
-        var paramCopy = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs"));
+        // The relocated algorithms declare the init accessors now, so they carry the polyfill. The
+        // plugin only consumes those properties through an object initializer, which needs none.
+        Assert.False(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "IsExternalInit.cs")));
+
+        var paramCopy = File.ReadAllText(Path.Combine(HostDir(root), "ParamCopy.cs"));
         Assert.Contains("get; init;", paramCopy, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SourceLivesUnderPlugins_NotHostTools()
+    public void AlgorithmsLiveHostSide_NotUnderPlugins()
     {
         var root = RepoRoot();
+        var hostDir = HostDir(root);
+        foreach (var algorithm in new[]
+        {
+            "BeamSplit.cs",
+            "CurveMemberSplit.cs",
+            "FloorSplit.cs",
+            "GeometryRevit.cs",
+            "GridSplit.cs",
+            "HostCurve.cs",
+            "LevelSplit.cs",
+            "ParamCopy.cs",
+            "SplitElements.cs",
+            "SplitScope.cs"
+        })
+        {
+            Assert.True(File.Exists(Path.Combine(hostDir, algorithm)), $"{algorithm} must live host-side.");
+        }
+
+        // Only the handler is left under Plugins, which is what lets the plugin drop the Revit API.
+        var pluginSources = Directory.GetFiles(Path.Combine(root, "Plugins", "structure-cuts"), "*.cs")
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.Ordinal);
+        Assert.Equal(new[] { "StructureCutsPlugin.cs" }, pluginSources);
+
         Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "StructureCutsPlugin.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "BeamSplit.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitOptions.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GeometryRevit.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "SplitScope.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "CurveMemberSplit.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "HostCurve.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "LevelSplit.cs")));
-        Assert.True(File.Exists(Path.Combine(root, "Plugins", "structure-cuts", "GridSplit.cs")));
         Assert.True(File.Exists(Path.Combine(root, "src", "LoadingAI.RevitTests", "StructureCutsInRevitTests.cs")));
         var revitTests = File.ReadAllText(Path.Combine(root, "src", "LoadingAI.RevitTests", "LoadingAI.RevitTests.csproj"));
         Assert.Contains("Plugins\\structure-cuts\\StructureCutsPlugin.csproj", revitTests);
@@ -96,10 +114,11 @@ public class StructureCutsContractTests
     public void SplitPaths_CallParamCopy_AndSkipExtension()
     {
         var root = RepoRoot();
-        var helper = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "ParamCopy.cs"));
+        var hostDir = HostDir(root);
+        var helper = File.ReadAllText(Path.Combine(hostDir, "ParamCopy.cs"));
         Assert.Contains("Extension", helper, StringComparison.Ordinal);
-        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "CurveMemberSplit.cs")));
-        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "FloorSplit.cs")));
+        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(hostDir, "CurveMemberSplit.cs")));
+        Assert.Contains("ParamCopy.", File.ReadAllText(Path.Combine(hostDir, "FloorSplit.cs")));
     }
 
     [Fact]
@@ -107,6 +126,7 @@ public class StructureCutsContractTests
     {
         var root = RepoRoot();
         var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var hostDir = HostDir(root);
         var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
 
         Assert.Contains("Kind = PresetFieldKind.PickElements", src, StringComparison.Ordinal);
@@ -133,7 +153,11 @@ public class StructureCutsContractTests
             Assert.Contains(expected, src, StringComparison.Ordinal);
         }
 
-        foreach (var file in Directory.GetFiles(pluginDir, "*.cs"))
+        // The algorithms moved host-side, so the sweep has to cover both trees: plugin-only would
+        // still pass after the move while proving nothing about the code that actually picks.
+        // 10 algorithms plus the two helper types lifted out of SplitOptions.cs.
+        Assert.Equal(12, Directory.GetFiles(hostDir, "*.cs").Length);
+        foreach (var file in SweptSources(root))
         {
             var text = File.ReadAllText(file);
             Assert.DoesNotContain("PickObjects", text, StringComparison.Ordinal);
@@ -155,6 +179,7 @@ public class StructureCutsContractTests
     {
         var root = RepoRoot();
         var pluginDir = Path.Combine(root, "Plugins", "structure-cuts");
+        var hostDir = HostDir(root);
         var src = File.ReadAllText(Path.Combine(pluginDir, "StructureCutsPlugin.cs"));
 
         // Same helper the host gates the L3 confirm with, so both sides agree. The plugin reads it once,
@@ -162,10 +187,10 @@ public class StructureCutsContractTests
         Assert.Equal(1, CountOccurrences(src, "ToolPresets.IsDryRun(json)"));
         Assert.Contains("DryRun = ToolPresets.IsDryRun(json)", src, StringComparison.Ordinal);
 
-        var beam = File.ReadAllText(Path.Combine(pluginDir, "BeamSplit.cs"));
-        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
-        var levels = File.ReadAllText(Path.Combine(pluginDir, "LevelSplit.cs"));
-        var grids = File.ReadAllText(Path.Combine(pluginDir, "GridSplit.cs"));
+        var beam = File.ReadAllText(Path.Combine(hostDir, "BeamSplit.cs"));
+        var floor = File.ReadAllText(Path.Combine(hostDir, "FloorSplit.cs"));
+        var levels = File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs"));
+        var grids = File.ReadAllText(Path.Combine(hostDir, "GridSplit.cs"));
 
         Assert.Contains("Dry-run. ", beam, StringComparison.Ordinal);
         Assert.Contains("Dry-run. ", floor, StringComparison.Ordinal);
@@ -183,9 +208,9 @@ public class StructureCutsContractTests
         AssertOrdered("GridSplit.cs", grids,
             "if (options.DryRun)", "SplitElements.WriteTx(", "SplitAtCuts(doc,");
 
-        // The only Transaction constructor in this plugin is WriteTx. Tools must not open their own.
-        Assert.Contains("new Transaction(", File.ReadAllText(Path.Combine(pluginDir, "SplitElements.cs")), StringComparison.Ordinal);
-        foreach (var file in Directory.GetFiles(pluginDir, "*.cs"))
+        // The only Transaction constructor in the split code is WriteTx. Tools must not open their own.
+        Assert.Contains("new Transaction(", File.ReadAllText(Path.Combine(hostDir, "SplitElements.cs")), StringComparison.Ordinal);
+        foreach (var file in SweptSources(root))
         {
             if (string.Equals(Path.GetFileName(file), "SplitElements.cs", StringComparison.Ordinal))
                 continue;
@@ -211,7 +236,7 @@ public class StructureCutsContractTests
 
         // A slab that cannot be rebuilt exactly is left alone and named by reason, never guessed at,
         // and a member Revit can split itself is split rather than re-created.
-        var floor = File.ReadAllText(Path.Combine(pluginDir, "FloorSplit.cs"));
+        var floor = File.ReadAllText(Path.Combine(HostDir(root), "FloorSplit.cs"));
         Assert.Contains("GeometryRevit.TrySlabRegion", floor, StringComparison.Ordinal);
         Assert.Contains("SlopeArrowFor", floor, StringComparison.Ordinal);
         Assert.Contains("Floor.Create(doc,", floor, StringComparison.Ordinal);
@@ -235,7 +260,8 @@ public class StructureCutsContractTests
     [Fact]
     public void BeamSplit_UsesRevitNativeSplitBeforeRecreatingPieces()
     {
-        var beam = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "CurveMemberSplit.cs"));
+        var hostDir = HostDir(RepoRoot());
+        var beam = File.ReadAllText(Path.Combine(hostDir, "CurveMemberSplit.cs"));
 
         // Revit's own split keeps the member, its host and its parameters, so it runs before the
         // fallback, which re-creates pieces and has to copy parameters across by hand. Native Split
@@ -254,7 +280,7 @@ public class StructureCutsContractTests
         Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
         Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
         Assert.Contains("originalStart = live.GetEndPoint(0)", beam, StringComparison.Ordinal);
-        Assert.Contains("WriteTx", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "SplitElements.cs")), StringComparison.Ordinal);
+        Assert.Contains("WriteTx", File.ReadAllText(Path.Combine(hostDir, "SplitElements.cs")), StringComparison.Ordinal);
         AssertOrdered("CurveMemberSplit.cs", beam,
             "TryNativeSplit(doc, plan, options, out var ids)",
             "Recreate(doc, plan, options)");
@@ -272,24 +298,25 @@ public class StructureCutsContractTests
 
         // Cut clustering lives in one place so Beam/Level/Grid cannot drift.
         Assert.Contains("public static List<double> DistinctCuts(", beam, StringComparison.Ordinal);
-        Assert.DoesNotContain("private static List<double> DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs")), StringComparison.Ordinal);
-        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "BeamSplit.cs")), StringComparison.Ordinal);
-        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "LevelSplit.cs")), StringComparison.Ordinal);
-        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "GridSplit.cs")), StringComparison.Ordinal);
+        Assert.DoesNotContain("private static List<double> DistinctCuts(", File.ReadAllText(Path.Combine(hostDir, "BeamSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(hostDir, "BeamSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs")), StringComparison.Ordinal);
+        Assert.Contains("CurveMemberSplit.DistinctCuts(", File.ReadAllText(Path.Combine(hostDir, "GridSplit.cs")), StringComparison.Ordinal);
     }
 
     [Fact]
     public void PointHostedColumns_AreSkippedAtPlanTime_NotWritten()
     {
         var root = RepoRoot();
-        var hostCurve = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "HostCurve.cs"));
+        var hostDir = HostDir(root);
+        var hostCurve = File.ReadAllText(Path.Combine(hostDir, "HostCurve.cs"));
         Assert.Contains("public static bool CanWrite(Element host)", hostCurve, StringComparison.Ordinal);
         Assert.Contains("LocationCurveOf(host) != null", hostCurve, StringComparison.Ordinal);
 
         // A synthesised vertical is only for sampling LocationPoint columns; write still needs a
         // LocationCurve, so level/grid plan must skip those hosts instead of over-promising.
-        var levels = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "LevelSplit.cs"));
-        var grids = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "GridSplit.cs"));
+        var levels = File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs"));
+        var grids = File.ReadAllText(Path.Combine(hostDir, "GridSplit.cs"));
         Assert.Contains("HostCurve.CanWrite(host)", levels, StringComparison.Ordinal);
         Assert.Contains("HostCurve.CanWrite(host)", grids, StringComparison.Ordinal);
         AssertOrdered("LevelSplit.cs", levels, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
@@ -308,6 +335,14 @@ public class StructureCutsContractTests
             Assert.Contains("count only", desc, StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    /// <summary>Where the split algorithms live after the Bridge port.</summary>
+    private static string HostDir(string root) => Path.Combine(root, "src", "LoadingAI", "Revit", "StructureCuts");
+
+    /// <summary>Every source file that can hold split code: the thin plugin plus the host algorithms.</summary>
+    private static IEnumerable<string> SweptSources(string root) =>
+        Directory.GetFiles(Path.Combine(root, "Plugins", "structure-cuts"), "*.cs")
+            .Concat(Directory.GetFiles(HostDir(root), "*.cs"));
 
     private static void AssertOrdered(string file, string text, params string[] needles)
     {

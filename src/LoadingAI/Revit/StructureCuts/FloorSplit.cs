@@ -4,7 +4,7 @@ using Autodesk.Revit.UI;
 using LoadingAI.Geometry;
 using LoadingAI.Revit;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Splits slabs along the beams that run through them. The slab's real outline is read back as a region,
