@@ -502,6 +502,36 @@ public class StructureCutsInRevitTests
                     // the fixture, rather than passed over: the guard's rise test stays reviewable.
                     TestContext.WriteLine("Slanted wall not asserted in this host: " + slantResidual);
                 }
+
+                // The storey stack deletes the wall it replaces, and Revit deletes what hangs off that
+                // wall with it. Before this slice the same wall was never split at all, so this is the
+                // first path that can take a hosted door with it — silently, since the write is one
+                // undo step but the report said nothing about what it took with the host. The report
+                // has to name the count, the way the curve path already does. The probe runs last so
+                // that a host which cannot host anything costs only this probe, and it gates on the
+                // prerequisite (a dependent really hangs off the wall, read through the same API the
+                // tool reads, before anything is split) rather than on the observation it is here to
+                // make, so a wall with nothing to lose is never asserted on.
+                var hostedWall = TryCreateSideWall(doc, baseLevel, 400, StackHeightFeet);
+                if (hostedWall == null)
+                    Assert.Ignore("No wall type available to host an element on a probe wall.");
+
+                if (!TryHostDependent(doc, hostedWall, out var unhosted))
+                    Assert.Ignore(unhosted);
+
+                var hostedId = hostedWall.Id;
+                var hostedText = Run("split_by_levels", "{\"dryRun\":false,\"scope\":\"selection\",\"elementIds\":[\""
+                    + hostedId.Value + "\"]}");
+
+                Assert.That(
+                    hostedText,
+                    Does.Contain("Split 1 elements into " + (interior.Count + 1) + " pieces."),
+                    hostedText);
+                Assert.That(
+                    hostedText,
+                    Does.Contain("Dependent elements to re-check:"),
+                    "the wall carried a hosted element, so the split has to report it: " + hostedText);
+                Assert.That(DependentCount(hostedText), Is.GreaterThanOrEqualTo(1), hostedText);
             }
             finally
             {
@@ -624,6 +654,157 @@ public class StructureCutsInRevitTests
                 tx.RollBack();
             return null;
         }
+    }
+
+    /// <summary>
+    /// Hangs a real dependent on the probe wall and reports success only once the live wall shows one:
+    /// a door or window type when the model holds one, otherwise a plain wall opening, which any metric
+    /// project accepts. The check reads the same API the tool reads, so the caller can assert on the
+    /// report only when the wall genuinely had something to lose. Returns false with a reason the
+    /// caller records verbatim when the host cannot host anything on this wall.
+    /// </summary>
+    private static bool TryHostDependent(Document doc, Wall wall, out string reason)
+    {
+        var level = doc.GetElement(wall.LevelId) as Level;
+        var familySymbols = new List<FamilySymbol>();
+        foreach (var symbol in new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>())
+        {
+            var category = symbol.Category;
+            if (category == null)
+                continue;
+
+            var categoryId = category.Id.Value;
+            if (categoryId == (long)BuiltInCategory.OST_Doors
+                || categoryId == (long)BuiltInCategory.OST_Windows)
+            {
+                familySymbols.Add(symbol);
+            }
+        }
+
+        var placed = false;
+        reason = "the host holds no door or window type, and refused a wall opening";
+
+        using var tx = new Transaction(doc, "LoadingAI.RevitTests host an element on the probe wall");
+        tx.Start();
+        try
+        {
+            if (level != null)
+            {
+                foreach (var symbol in familySymbols)
+                {
+                    try
+                    {
+                        if (!symbol.IsActive)
+                            symbol.Activate();
+                        doc.Create.NewFamilyInstance(
+                            PointInWall(wall, 0.5, 5.0), symbol, wall, level,
+                            Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                        placed = true;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        reason = "the host refused a door or window on the probe wall: " + ex.Message;
+                    }
+                }
+            }
+
+            if (!placed)
+            {
+                try
+                {
+                    // An opening's corners live in the plane of the wall, so they are taken on the face
+                    // rather than on the location curve: a centreline point is not in that plane.
+                    doc.Create.NewOpening(
+                        wall,
+                        OnWallFace(wall, PointInWall(wall, 0.3, 5.0)),
+                        OnWallFace(wall, PointInWall(wall, 0.7, 9.0)));
+                    placed = true;
+                }
+                catch (Exception ex)
+                {
+                    reason = "the host refused a wall opening on the probe wall: " + ex.Message;
+                }
+            }
+
+            if (placed)
+                tx.Commit();
+            else
+                tx.RollBack();
+        }
+        catch (Exception ex)
+        {
+            if (tx.GetStatus() == TransactionStatus.Started)
+                tx.RollBack();
+            reason = "hosting an element on the probe wall failed: " + ex.Message;
+            return false;
+        }
+
+        if (!placed)
+            return false;
+
+        if (DependentCountOf(wall) > 0)
+            return true;
+
+        // The count is read from the live wall, before anything is split, through the same API the tool
+        // reads. When it is zero here the tool would also read zero and the report would rightly have no
+        // dependent line, so the probe has nothing to prove and says so instead of asserting.
+        reason = familySymbols.Count == 0
+            ? "the model holds no door or window type to host, and a wall opening is not reported as a dependent of its host"
+            : "the host does not report the door or window it accepted as a dependent of the probe wall";
+        return false;
+    }
+
+    /// <summary>A point on the wall's own line, the given fraction along it, at a height above its base.</summary>
+    private static XYZ PointInWall(Wall wall, double along, double aboveBaseFeet)
+    {
+        var location = wall.Location as LocationCurve;
+        if (location == null)
+            return XYZ.Zero;
+
+        var at = location.Curve.Evaluate(along, true);
+        return new XYZ(at.X, at.Y, BaseZ(wall) + aboveBaseFeet);
+    }
+
+    /// <summary>The same point moved onto the wall's face, where a wall opening's corners live.</summary>
+    private static XYZ OnWallFace(Wall wall, XYZ point)
+    {
+        try
+        {
+            return point + wall.Orientation * (wall.Width / 2.0);
+        }
+        catch
+        {
+            return point;
+        }
+    }
+
+    /// <summary>The live dependent count for an element, read through the same API the tool reads.</summary>
+    private static int DependentCountOf(Element element)
+    {
+        try
+        {
+            return element.GetDependentElements(null)?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>Reads the dependent count back out of a split report, or 0 when the line is absent.</summary>
+    private static int DependentCount(string report)
+    {
+        const string marker = "Dependent elements to re-check: ";
+        var at = report.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            return 0;
+
+        var digits = string.Empty;
+        for (var i = at + marker.Length; i < report.Length && char.IsDigit(report[i]); i++)
+            digits += report[i];
+
+        return int.TryParse(digits, out var count) ? count : 0;
     }
 
     /// <summary>

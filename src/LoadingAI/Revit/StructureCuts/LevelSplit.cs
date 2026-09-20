@@ -144,7 +144,7 @@ internal static class LevelSplit
 
             foreach (var stack in stackPlans)
             {
-                var (ids, skipped, rollback) = CurveMemberSplit.SplitWallStack(doc, stack, options);
+                var (ids, skipped, lost, rollback) = CurveMemberSplit.SplitWallStack(doc, stack, options);
                 paramSkipped += skipped;
                 if (rollback)
                 {
@@ -158,6 +158,11 @@ internal static class LevelSplit
                     piecesMade += ids.Count;
                     created.AddRange(ids);
                     recreated++;
+                    // The storey stack deletes the wall it replaces, so anything hanging off that host goes
+                    // with it. Like the curve path, the report counts that rather than re-hosting it: the
+                    // write stays undoable as one step, but the report may not stay silent about what it
+                    // took with the host.
+                    dependents += lost;
                 }
                 else
                 {

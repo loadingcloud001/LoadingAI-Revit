@@ -442,20 +442,24 @@ internal static class CurveMemberSplit
     /// One wall in, one wall per storey out: piece 0 on the wall's own storey with the wall's own base
     /// offset, then one piece per storey up to the wall top. The last piece's storey is the highest
     /// storey strictly below the top, and its height is what remains up to the top.
+    /// <para>
+    /// Like the curve path, the storey stack deletes the host it replaces and does not re-host its
+    /// dependents; the count comes back to the caller, which reports it.
+    /// </para>
     /// </summary>
-    public static (List<ElementId> Ids, int ParamSkipped, bool Rollback) SplitWallStack(
+    public static (List<ElementId> Ids, int ParamSkipped, int Dependent, bool Rollback) SplitWallStack(
         Document doc,
         Stack stack,
         SplitOptions options)
     {
         var empty = new List<ElementId>();
         if (stack.Pieces.Count < 2)
-            return (empty, 0, true);
+            return (empty, 0, 0, true);
 
         var wall = stack.Wall;
         var typeId = wall.GetTypeId();
         if (typeId == null || typeId == ElementId.InvalidElementId)
-            return (empty, 0, true);
+            return (empty, 0, 0, true);
 
         var structural = wall.StructuralUsage != StructuralWallUsage.NonBearing;
 
@@ -463,6 +467,10 @@ internal static class CurveMemberSplit
         var snapshot = options.CopyParams ? ParamCopy.Take(wall) : null;
         var created = new List<ElementId>();
         var paramSkipped = 0;
+
+        // Counted before the sub-transaction, as RecreateWall does: once the host is deleted its
+        // dependents are gone with it and there is nothing left to count.
+        var dependent = SplitElements.Dependent(wall);
 
         using (var sub = new SubTransaction(doc))
         {
@@ -495,7 +503,7 @@ internal static class CurveMemberSplit
                     if (made == null)
                     {
                         sub.RollBack();
-                        return (empty, paramSkipped, true);
+                        return (empty, paramSkipped, 0, true);
                     }
 
                     var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
@@ -509,7 +517,7 @@ internal static class CurveMemberSplit
                     if (!PinStorey(made, piece.Offset, piece.Height))
                     {
                         sub.RollBack();
-                        return (empty, paramSkipped, true);
+                        return (empty, paramSkipped, 0, true);
                     }
 
                     created.Add(made.Id);
@@ -518,17 +526,17 @@ internal static class CurveMemberSplit
                 if (created.Count < 2)
                 {
                     sub.RollBack();
-                    return (empty, paramSkipped, true);
+                    return (empty, paramSkipped, 0, true);
                 }
 
                 doc.Delete(wall.Id);
                 sub.Commit();
-                return (created, paramSkipped, false);
+                return (created, paramSkipped, dependent, false);
             }
             catch
             {
                 try { sub.RollBack(); } catch { }
-                return (empty, paramSkipped, true);
+                return (empty, paramSkipped, 0, true);
             }
         }
     }
