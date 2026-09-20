@@ -28,7 +28,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "load_family",
-                Description = "Load a .rfa family file into the model (Document.LoadFamily). Params: path (absolute .rfa path).",
+                Description = "Load a .rfa family file into the model (Document.LoadFamily). Params: path (under %AppData%\\LoadingAI\\families).",
                 Parameters = new
                 {
                     type = "object",
@@ -41,6 +41,10 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
         {
             var path = Args.Parse(json).Str("path");
             if (string.IsNullOrWhiteSpace(path)) return "path is required.";
+            try { path = FamilyPaths.ResolveRead(path); }
+            catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            if (!path.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                return "Failed: path must be a .rfa file.";
             if (!File.Exists(path)) return $"File not found: {path}";
             var result = await context.Bridge.LoadFamilyAsync(path);
             return result.Message;
