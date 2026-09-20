@@ -48,6 +48,10 @@ public static class PluginLoader
     public static string DevPluginsDir =>
         Path.Combine(Path.GetDirectoryName(typeof(PluginLoader).Assembly.Location)!, "Plugins", "dev");
 
+    /// <summary>Settings hint for a refused DLL; names the absolute folder <see cref="Discover"/> scans.</summary>
+    public static string AllowlistRefusalHint =>
+        $@"put the plugin in {DevPluginsDir}, or record the SHA-256 (stage 2 will add a trust dialog)";
+
     private static string LogPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "plugins.log");
 
@@ -207,9 +211,8 @@ public static class PluginLoader
 
         if (!PluginAllowlist.Current.IsAllowed(dll, out _, out var why))
         {
-            const string hint = @"put the plugin in Plugins\dev, or record the SHA-256 (stage 2 will add a trust dialog)";
             Log($"{folder} DLL not on allowlist: {why}");
-            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "DLL not on allowlist", why, hint);
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "DLL not on allowlist", why, AllowlistRefusalHint);
             return null;
         }
 
