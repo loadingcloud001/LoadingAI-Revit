@@ -358,7 +358,19 @@ internal sealed class ChatSession
                             try { _onUi(() => _web.Post(new FromHostMessage.Todo(todos))); } catch { }
                         },
                         snap => progress.Report(snap),
+                        reasoning =>
+                        {
+                            if (string.IsNullOrEmpty(reasoning)) return;
+                            try { _onUi(() => _web.Post(new FromHostMessage.Reasoning(reasoning, IsStreaming: true))); } catch { }
+                        },
                         ct);
+
+                    var finalStrip = ThinkTagStripper.Strip(result);
+                    if (!string.IsNullOrEmpty(finalStrip.Reasoning))
+                    {
+                        try { _onUi(() => _web.Post(new FromHostMessage.Reasoning(finalStrip.Reasoning))); } catch { }
+                    }
+                    result = finalStrip.Visible;
 
                     await FinishTurnGroupAsync(ShouldAssimilateTurn(result));
 
@@ -426,7 +438,7 @@ internal sealed class ChatSession
             return hint;
         }
 
-        if (ToolPresets.HasPresets(entry))
+        if (ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson))
         {
             var preset = await _approvals.AwaitPresetAsync(entry, name, argsJson);
             if (!preset.approved)

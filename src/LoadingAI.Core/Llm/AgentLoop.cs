@@ -112,6 +112,19 @@ public sealed class AgentLoop
         Action<IReadOnlyList<TodoItem>>? onTodo,
         Action<ProgressSnapshot>? onProgress,
         CancellationToken ct = default)
+        => await RunAsync(provider, userMsg, mode, toolExecutor, onTrace, onDelta, onTodo, onProgress, null, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        Action<IReadOnlyList<TodoItem>>? onTodo,
+        Action<ProgressSnapshot>? onProgress,
+        Action<string>? onReasoning,
+        CancellationToken ct = default)
     {
         lock (_historyLock)
         {
@@ -158,7 +171,7 @@ public sealed class AgentLoop
             ChatCompletionResponse resp;
             try
             {
-                resp = await _client.ChatAsync(provider, snapshot, tools, onDelta, ct);
+                resp = await _client.ChatAsync(provider, snapshot, tools, onDelta, onReasoning, ct);
             }
             catch (OperationCanceledException)
             {
@@ -210,6 +223,11 @@ public sealed class AgentLoop
                 }
             }
 
+            var strippedContent = ThinkTagStripper.Strip(LlmJson.GetContentString(msgOut.Content));
+            msgOut.Content = strippedContent.Visible;
+            if (!string.IsNullOrEmpty(strippedContent.Reasoning))
+                try { onReasoning?.Invoke(strippedContent.Reasoning); } catch { }
+
             lock (_historyLock)
             {
                 _history.Add(new ChatMessage
@@ -222,7 +240,7 @@ public sealed class AgentLoop
 
             if (msgOut.ToolCalls == null || msgOut.ToolCalls.Count == 0)
             {
-                var text = LlmJson.GetContentString(msgOut.Content);
+                var text = strippedContent.Visible;
                 if (string.IsNullOrWhiteSpace(text) && choice?.FinishReason == "tool_calls")
                     text = "";
                 // if plan mode, try to create todos from text
