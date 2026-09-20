@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using LoadingAI.Plugins.Core;
@@ -288,7 +289,9 @@ public class StructureCutsInRevitTests
                     "each piece must be based on its own storey");
 
                 Assert.That(BaseZ(pieces[0]), Is.EqualTo(baseZ).Within(StoreyTolFt));
-                Assert.That(BaseZ(pieces[^1]) + Height(pieces[^1]), Is.EqualTo(topZ).Within(StoreyTolFt));
+                // Index-from-end would need System.Index, which the 2024 (net48) leg has no reference for.
+                var lastPiece = pieces[pieces.Count - 1];
+                Assert.That(BaseZ(lastPiece) + Height(lastPiece), Is.EqualTo(topZ).Within(StoreyTolFt));
                 Assert.That(
                     pieces.Sum(Height),
                     Is.EqualTo(topZ - baseZ).Within(StoreyTolFt),
@@ -863,14 +866,13 @@ public class StructureCutsInRevitTests
         tx.Start();
         try
         {
-            if (!Wall.IsValidTargetAttachment(doc, target.Id))
+            if (!TryAttachWallTop(doc, created, target.Id, out var why))
             {
                 tx.RollBack();
-                reason = "the host refuses " + target.GetType().Name + " as a wall attachment target";
+                reason = why;
                 return false;
             }
 
-            created.AddAttachment(target.Id, AttachmentLocation.Top);
             tx.Commit();
         }
         catch (Exception ex)
@@ -897,6 +899,74 @@ public class StructureCutsInRevitTests
         wall = created;
         return true;
     }
+
+    /// <summary>
+    /// Attaches the wall's top to <paramref name="targetId"/> through the host's own attachment API.
+    /// Wall.AddAttachment / Wall.IsValidTargetAttachment / AttachmentLocation only exist from the
+    /// Revit 2025 reference assemblies on, so they are reached reflectively: the 2024 (net48) leg still
+    /// compiles this fixture, and a host without the API reports the gap as the reason rather than
+    /// failing the build. The reason is surfaced, never swallowed — the caller records it as a residual.
+    /// </summary>
+    private static bool TryAttachWallTop(Document doc, Wall wall, ElementId targetId, out string why)
+    {
+        var api = typeof(Wall).Assembly;
+        var locationType = api.GetType("Autodesk.Revit.DB.AttachmentLocation");
+        if (locationType == null)
+        {
+            why = "this host has no wall attachment API (Revit 2025+ only): "
+                + api.GetName().Name + " " + api.GetName().Version;
+            return false;
+        }
+
+        var valid = FindApiMethod(typeof(Wall), "IsValidTargetAttachment", typeof(Document), typeof(ElementId));
+        var attach = FindApiMethod(typeof(Wall), "AddAttachment", typeof(ElementId), locationType);
+        if (valid == null || attach == null)
+        {
+            why = "this host has no wall attachment API (Revit 2025+ only)";
+            return false;
+        }
+
+        if (!(bool)(InvokeApi(valid, wall, doc, targetId) ?? false))
+        {
+            why = "the host refuses this element as a wall attachment target";
+            return false;
+        }
+
+        InvokeApi(attach, wall, targetId, Enum.Parse(locationType, "Top"));
+        why = string.Empty;
+        return true;
+    }
+
+    private static MethodInfo? FindApiMethod(Type type, string name, params Type[] args)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance))
+        {
+            if (method.Name != name)
+                continue;
+
+            var parameters = method.GetParameters();
+            if (parameters.Length != args.Length)
+                continue;
+
+            var match = true;
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].ParameterType != args[i])
+                {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match)
+                return method;
+        }
+
+        return null;
+    }
+
+    private static object? InvokeApi(MethodInfo method, object? instance, params object[] args)
+        => method.Invoke(method.IsStatic ? null : instance, args);
 
     /// <summary>
     /// Puts a slab in the model whose top sits at <paramref name="z"/>, so a wall top has something to
