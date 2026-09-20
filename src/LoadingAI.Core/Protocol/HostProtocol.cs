@@ -28,6 +28,7 @@ public static class ToHostKind
     public const string SaveToolSettings = "saveToolSettings";
     public const string RemovePlugin = "removePlugin";
     public const string ReloadPlugins = "reloadPlugins";
+    public const string TrustPlugin = "trustPlugin";
     public const string ListCheckpoints = "listCheckpoints";
     public const string ResumeCheckpoint = "resumeCheckpoint";
 
@@ -35,7 +36,7 @@ public static class ToHostKind
     {
         Send, Clear, Cancel, SaveSettings, RequestSettings, GetCatalog, TestProvider, ListModels,
         ListPlugins, ApproveTool, SubmitPreset, PresetPick, SetPluginEnabled, SetPluginGroupEnabled,
-        SetPluginTierEnabled, SaveToolSettings, RemovePlugin, ReloadPlugins, ListCheckpoints, ResumeCheckpoint
+        SetPluginTierEnabled, SaveToolSettings, RemovePlugin, ReloadPlugins, TrustPlugin, ListCheckpoints, ResumeCheckpoint
     };
 }
 
@@ -114,6 +115,12 @@ public abstract record ToHostMessage(string Kind)
     public sealed record SaveToolSettings() : ToHostMessage(ToHostKind.SaveToolSettings);
     public sealed record RemovePlugin(string PluginId) : ToHostMessage(ToHostKind.RemovePlugin);
     public sealed record ReloadPlugins() : ToHostMessage(ToHostKind.ReloadPlugins);
+
+    /// <summary>
+    /// Stage 2 trust click. Carries the plugin identifier only — never a hash: the host re-hashes
+    /// the DLL and compares it to the hash recorded by the scan that refused it.
+    /// </summary>
+    public sealed record TrustPlugin(string Folder, string Assembly) : ToHostMessage(ToHostKind.TrustPlugin);
     public sealed record ListCheckpoints() : ToHostMessage(ToHostKind.ListCheckpoints);
     public sealed record ResumeCheckpoint(string Id) : ToHostMessage(ToHostKind.ResumeCheckpoint);
 
@@ -185,6 +192,9 @@ public abstract record ToHostMessage(string Kind)
                     return true;
                 case ToHostKind.ReloadPlugins:
                     message = new ReloadPlugins();
+                    return true;
+                case ToHostKind.TrustPlugin:
+                    message = new TrustPlugin(ReadString(root, "folder") ?? "", ReadString(root, "assembly") ?? "");
                     return true;
                 case ToHostKind.ListCheckpoints:
                     message = new ListCheckpoints();

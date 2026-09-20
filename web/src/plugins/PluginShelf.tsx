@@ -2,6 +2,8 @@ import { PluginInfo, PluginLoadIssue, postToHost } from '../bridge';
 
 const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
 const btn = 'px-2 py-1 border bg-white text-[11px]';
+// PluginLoader records this summary when a DLL is off the allowlist; only those rows can be trusted.
+const allowlistRefusal = 'DLL not on allowlist';
 
 function tierStats(plugins: PluginInfo[], tier: string) {
   const tools = plugins.flatMap(p => p.tools).filter(t => t.tier === tier);
@@ -49,6 +51,15 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
             <div key={`${issue.pluginId || issue.folder}-${i}`} className="mb-1 last:mb-0">
               <div className="font-semibold">{issue.pluginId || issue.folder} failed to load</div>
               <div>{issue.summary}{issue.hint ? ` — ${issue.hint}` : ''}</div>
+              {issue.summary === allowlistRefusal && (
+                <button
+                  type="button"
+                  className={`${btn} mt-1`}
+                  onClick={() => postToHost({ type: 'trustPlugin', folder: issue.folder, assembly: issue.assembly })}
+                >
+                  Trust this plugin…
+                </button>
+              )}
             </div>
           ))}
         </div>
