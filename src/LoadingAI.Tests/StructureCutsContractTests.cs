@@ -282,6 +282,9 @@ public class StructureCutsContractTests
         // Join-status throw must count as joined so native Split is never called on an unknown member.
         Assert.Contains("Unknown join status is treated as joined", beam, StringComparison.Ordinal);
         // Joined members unjoin first; Split runs only after joins are actually gone.
+        // Framing joins that meet columns live in get_ElementsAtJoin; UnjoinGeometry is not enough.
+        Assert.Contains("StructuralFramingUtils.DisallowJoinAtEnd", beam, StringComparison.Ordinal);
+        Assert.Contains("JoinGeometryUtils.AreElementsJoined", beam, StringComparison.Ordinal);
         Assert.Contains("JoinGeometryUtils.UnjoinGeometry", beam, StringComparison.Ordinal);
         Assert.Contains("TryUnjoinEnds", beam, StringComparison.Ordinal);
         Assert.Contains("requireUnjoined: false", beam, StringComparison.Ordinal);

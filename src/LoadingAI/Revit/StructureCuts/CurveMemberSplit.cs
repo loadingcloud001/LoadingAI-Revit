@@ -449,6 +449,9 @@ internal static class CurveMemberSplit
 
     private static void UnjoinEnd(Document doc, FamilyInstance instance, LocationCurve location, int end)
     {
+        try { StructuralFramingUtils.DisallowJoinAtEnd(instance, end); }
+        catch { }
+
         ElementArray? partners;
         try
         {
@@ -471,7 +474,11 @@ internal static class CurveMemberSplit
 
         foreach (var partner in copy)
         {
-            try { JoinGeometryUtils.UnjoinGeometry(doc, instance, partner); }
+            try
+            {
+                if (JoinGeometryUtils.AreElementsJoined(doc, instance, partner))
+                    JoinGeometryUtils.UnjoinGeometry(doc, instance, partner);
+            }
             catch { }
         }
     }
