@@ -60,7 +60,7 @@ public sealed record PointMmDto(double X, double Y, double Z);
 ```
 
 - Adapter owns nested `Transaction` (`LoadFamily` / `ChangeTypeId` / `Toposolid.Create`), type/level resolve, and mm→ft. Do not start a second turn `TransactionGroup`.
-- Handler owns `File.Exists` for `load_family`. Adapter does not read the filesystem except `Document.LoadFamily(path)`.
+- Handler owns the `load_family` path gate via `FamilyPaths.ResolveRead` before Bridge. Root is `%AppData%\LoadingAI\families`. Only `.rfa` under that root is loaded. Paths outside the root (Autodesk libraries, project dir, `ExportPaths.Root`) fail in the handler. Adapter `LoadFamilyAsync` still has no extra filesystem policy — it does not re-check. Adapter does not read the filesystem except `Document.LoadFamily(path)`.
 - Host still owns L3 gates (ADR-0004: web then native; presets skip web; dry-run skips both) and the turn group. Plugin stays `ToolTier.L3`, `enabledByDefault: false`. No `new TaskDialog`.
 - Update the three slice comments: family load is on `IRevitDocumentCommand`; export stays on `IRawRevitAccess`.
 - **Order when code lands:** implement the three methods on `AdapterRevitBridge` **and** `FakeRevitBridge`, lock names in `L3CommandContractTests`, then delete the marker, drop RevitUtil + Nice3point from `ModelingToolsPlugin.csproj`, flip `ShippedPlugin_DoesNotReferenceHost(..., requiresRevitUtil: false)` for `modeling-tools`. Do not delete the marker first.

@@ -19,6 +19,7 @@ Sources now live in `Plugins/core-tools/` (shipped Bridge-only plugin). This fol
 - **export-tools** (plugin): export_pdf, export_dwg, export_ifc, purge_unused — `Plugins/export-tools/`
 - **view-tools** (plugin): create_schedule, get_schedule_data, create_floor_plan, create_3d_view, create_section_view, path_of_travel — `Plugins/view-tools/`
 - **modeling-tools** (plugin): load_family, change_element_type, create_topography — `Plugins/modeling-tools/`
+- **load_family** is sandboxed: only `.rfa` under `%AppData%\LoadingAI\families`. Paths outside that root fail before Bridge.
 - **structure-cuts** (plugin): split_beams_by_columns, split_floors_by_beams, split_by_levels, split_by_grids — `Plugins/structure-cuts/`
 - **qs-formwork** (plugin): formwork_setup, create_formwork_panels, cleanup_formwork, copy_formwork_parent_params — `Plugins/qs-formwork/`
 
