@@ -2068,7 +2068,7 @@ public class FakeBridgeToolTests
 
         var text = await tool.Handler("""{"x1":0,"y1":0}""");
 
-        Assert.Equal("Pass elementId or x1,y1,x2,y2.", text);
+        Assert.Equal("Pass x1,y1,x2,y2 (mm).", text);
         Assert.Empty(bridge.CreateSectionViewCalls);
     }
 

@@ -200,7 +200,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             if (!string.IsNullOrWhiteSpace(eid))
                 return $"elementId sections need explicit coordinates: pass x1,y1,x2,y2 (mm) instead of {eid}.";
             if (!(args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2")))
-                return "Pass elementId or x1,y1,x2,y2.";
+                return "Pass x1,y1,x2,y2 (mm).";
             var z = args.Dbl("z", 0);
             var a = new PointMmDto(args.Dbl("x1", 0), args.Dbl("y1", 0), z);
             var b = new PointMmDto(args.Dbl("x2", 0), args.Dbl("y2", 0), z);
