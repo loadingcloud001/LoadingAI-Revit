@@ -43,6 +43,9 @@ public class PluginLoadIssueTests
         Assert.Contains("plugin produced no tools", src);
         Assert.Contains("RecordIssue(folder, meta.Id, Path.GetFileName(dll), summary", src);
         Assert.Contains("loose manifest failed", src);
+        Assert.Contains("DLL not on allowlist", src);
+        Assert.Contains("record the SHA-256", src);
+        Assert.Contains("Plugins\\dev", src);
     }
 
     [Fact]

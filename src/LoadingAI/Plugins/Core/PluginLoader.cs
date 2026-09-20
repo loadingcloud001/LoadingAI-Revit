@@ -205,6 +205,14 @@ public static class PluginLoader
         meta.FolderPath = folder;
         if (string.IsNullOrWhiteSpace(meta.EntryAssembly)) meta.EntryAssembly = Path.GetFileName(dll);
 
+        if (!PluginAllowlist.Current.IsAllowed(dll, out _, out var why))
+        {
+            const string hint = @"put the plugin in Plugins\dev, or record the SHA-256 (stage 2 will add a trust dialog)";
+            Log($"{folder} DLL not on allowlist: {why}");
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "DLL not on allowlist", why, hint);
+            return null;
+        }
+
         Assembly asm;
 #if NETFRAMEWORK
         // .NET Framework (Revit 2024): no collectible ALC — load directly.

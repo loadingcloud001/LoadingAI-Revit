@@ -26,6 +26,8 @@ public class ScriptContractTests
         Assert.Contains("modeling-tools", ps1);
         Assert.Contains("structure-cuts", ps1);
         Assert.Contains("qs-formwork", ps1);
+        Assert.Contains("plugin-shipped-hashes.json", ps1);
+        Assert.Contains("record-shipped-plugin-hashes.ps1", ps1);
     }
 
     [Fact]
