@@ -3,9 +3,9 @@
 This folder documents the runtime plugin directory, not the repo source.
 
 Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll` — hash-gated, see **Load gate** below.
-Dev location: `Plugins\dev` next to the installed `LoadingAI.dll` (`%AppData%\Autodesk\Revit\Addins\<year>\Plugins\dev`), authored from `src/LoadingAI/Plugins/dev/<pluginId>/` — no hash gate.
+Dev location: `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Not hash-gated. Create the folder and copy the plugin into it by hand; no build step does that, and a plugin put anywhere else under `Addins\<year>\` is never scanned.
 
-Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach Confirm L3. Put the plugin in `Plugins\dev`, or record its SHA-256 in the AppData allowlist. A trust-prompt flow for drop-ins is stage 2 and is not implemented yet.
+Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach Confirm L3. Put the plugin in `LoadingAI\Plugins\dev` beside the installed `LoadingAI.dll`, or record its SHA-256 in the AppData allowlist. A trust-prompt flow for drop-ins is stage 2 and is not implemented yet.
 
 Each plugin folder example:
 

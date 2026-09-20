@@ -49,7 +49,7 @@ Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Propos
 
 ## Local dev without PR
 
-Put `<PluginId>/plugin.json + *.dll` in `Plugins\dev` next to the installed `LoadingAI.dll` (`%AppData%\Autodesk\Revit\Addins\<year>\Plugins\dev`; authored from `src/LoadingAI/Plugins/dev/`), which is not hash-gated. To load from the normal runtime folder `%AppData%\LoadingAI\Plugins\` instead, record the DLL's SHA-256 in `%AppData%\LoadingAI\plugin-allowlist.json`. Restart Revit. **Settings** shows a local plugin as **Unverified** — works locally, not distributed.
+Copy `<PluginId>/plugin.json + *.dll` into `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Create that folder and copy the plugin in by hand; the build does not do it, and nothing else under `Addins\<year>\` is scanned. This folder is not hash-gated. To load from the normal runtime folder `%AppData%\LoadingAI\Plugins\` instead, record the DLL's SHA-256 in `%AppData%\LoadingAI\plugin-allowlist.json`. Restart Revit. **Settings** shows a local plugin as **Unverified** — works locally, not distributed.
 
 An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused **before** the assembly loads (ADR-0010 stage 1): the plugin shows a **Settings** load issue and none of its tools register, so it cannot reach Confirm L3. `"verified": true` does not override that. A drop-in trust prompt is stage 2 and is not implemented yet.
 
