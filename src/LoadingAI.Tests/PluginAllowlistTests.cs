@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using LoadingAI.Plugins.Core;
 using Xunit;
 
@@ -163,6 +164,29 @@ public class PluginAllowlistTests
 
         Assert.False(ok);
         Assert.False(string.IsNullOrWhiteSpace(error));
+        Assert.Contains("refusing to overwrite", error);
+        Assert.Contains(t.AllowlistPath, error);
+        Assert.Equal(before, File.ReadAllText(t.AllowlistPath));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.AllowlistPath)!, "*.tmp"));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_WriteFails_PrefixesTheAbortMessage()
+    {
+        using var t = new TempAllowlist();
+        var prior = new string('c', 64);
+        File.WriteAllText(t.AllowlistPath, $"[\"{prior}\"]");
+        var before = File.ReadAllText(t.AllowlistPath);
+
+        // Share-reading lets the writer's own read through, but denies the replace/rename it needs,
+        // so this lands in the write catch rather than the read abort.
+        using var hold = new FileStream(t.AllowlistPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var ok = t.Allowlist.TryAddTrustedHash(new string('d', 64), out var error);
+
+        Assert.False(ok);
+        Assert.Contains("refusing to overwrite", error);
+        Assert.Contains(t.AllowlistPath, error);
         Assert.Equal(before, File.ReadAllText(t.AllowlistPath));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.AllowlistPath)!, "*.tmp"));
     }
@@ -261,6 +285,42 @@ public class PluginAllowlistTests
         {
             PluginAllowlist.Current = previous;
         }
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_ParallelDistinctWrites_AllSurvive()
+    {
+        using var t = new TempAllowlist();
+        const int n = 20;
+        var hashes = Enumerable.Range(0, n).Select(i => i.ToString("x2").PadLeft(64, '0')).ToArray();
+        var ok = new bool[n];
+        var errors = new string[n];
+
+        // Real threads released together, so the read-modify-write windows actually overlap.
+        using var start = new ManualResetEventSlim(false);
+        var threads = new Thread[n];
+        for (var i = 0; i < n; i++)
+        {
+            var idx = i;
+            threads[idx] = new Thread(() =>
+            {
+                start.Wait();
+                ok[idx] = t.Allowlist.TryAddTrustedHash(hashes[idx], out errors[idx]);
+            })
+            { IsBackground = true };
+            threads[idx].Start();
+        }
+        start.Set();
+        foreach (var thread in threads) Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "a writer thread did not finish");
+
+        Assert.All(errors, e => Assert.True(string.IsNullOrEmpty(e), e));
+        Assert.All(ok, o => Assert.True(o));
+
+        var written = JsonSerializer.Deserialize<string[]>(File.ReadAllText(t.AllowlistPath));
+        Assert.NotNull(written);
+        Assert.Equal(n, written!.Length);
+        foreach (var hash in hashes) Assert.Contains(hash, written);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.AllowlistPath)!, "*.tmp"));
     }
 
     [Fact]

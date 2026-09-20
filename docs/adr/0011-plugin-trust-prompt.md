@@ -47,6 +47,7 @@ sequenceDiagram
 - **File**: the one existing `%AppData%\LoadingAI\plugin-allowlist.json` — a plain JSON `string[]` of 64-hex SHA-256 values, indented. No wrapper object, no second file.
 - **Write is union + de-dup**: read existing entries, keep them (hand edits included), append the new hash, write. A repeat click is a no-op. Order is preserved and new hashes append.
 - **Atomic replace**: write a temp file in the same directory, then `File.Replace` when the destination exists, else `File.Move`. (`File.Move(src, dst, overwrite: true)` does not exist on .NET Framework 4.8 — Revit 2024 builds `net48`.) A crash cannot truncate the list into an empty fail.
+- **Writes are serialised**: the writer holds a dedicated static lock across the whole read-modify-write, so concurrent clicks cannot lose an append.
 - **Unreadable existing file aborts**: if the file exists but cannot be parsed, the write fails with an error and the bytes are left alone. Never overwrite a file the gate would then read as empty.
 - **Only the parent directory of `AllowlistPath` may be created** (`%AppData%\LoadingAI`). The writer never calls `CreateDirectory(DevPluginsDir)`.
 - **64-hex validation before write**, so a malformed string never reaches the file the gate parses.
