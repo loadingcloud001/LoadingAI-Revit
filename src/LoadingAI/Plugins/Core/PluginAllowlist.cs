@@ -11,6 +11,7 @@ namespace LoadingAI.Plugins.Core;
 /// host-owned AppData allowlist, or the hash is in the shipped set recorded at host build.
 /// Empty/missing files are empty sets — they must not lock out shipped plugins.
 /// <see cref="PluginMeta.Verified"/> is display-only and is not consulted.
+/// <see cref="TryAddTrustedHash"/> is the stage 2 host-owned writer (ADR-0011) for the AppData list.
 /// </summary>
 public sealed class PluginAllowlist
 {
@@ -18,6 +19,7 @@ public sealed class PluginAllowlist
     public const string AllowlistFileName = "plugin-allowlist.json";
 
     private static readonly object Gate = new();
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
     private static PluginAllowlist? _current;
 
     public string AllowlistPath { get; }
@@ -81,6 +83,61 @@ public sealed class PluginAllowlist
         return false;
     }
 
+    /// <summary>
+    /// Stage 2 host-owned writer (ADR-0011). Union-appends <paramref name="sha256"/> to
+    /// <see cref="AllowlistPath"/> — one plain JSON <c>string[]</c>, the same file the gate reads.
+    /// Existing entries survive (hand edits included), a repeat is a no-op, output is indented.
+    /// An existing file that cannot be parsed aborts the write: <see cref="LoadHashes"/> reports an
+    /// empty set for such a file, so overwriting it would silently un-trust every other plugin on it.
+    /// Only the parent directory of <see cref="AllowlistPath"/> may be created — never <see cref="DevPluginsDir"/>.
+    /// </summary>
+    public bool TryAddTrustedHash(string sha256, out string error)
+    {
+        error = "";
+        var hash = (sha256 ?? "").Trim().ToLowerInvariant();
+        if (!IsSha256Hex(hash))
+        {
+            error = "expected 64 hex characters (SHA-256)";
+            return false;
+        }
+
+        List<string> entries;
+        try
+        {
+            entries = ReadEntriesForWrite(AllowlistPath);
+        }
+        catch (Exception ex)
+        {
+            error = $"refusing to overwrite unreadable {AllowlistPath}: {ex.Message}";
+            return false;
+        }
+
+        if (entries.Contains(hash, StringComparer.OrdinalIgnoreCase)) return true;
+
+        entries.Add(hash);
+        var dir = Path.GetDirectoryName(Path.GetFullPath(AllowlistPath)) ?? ".";
+        var temp = Path.Combine(dir, $".{Path.GetFileName(AllowlistPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(temp, JsonSerializer.Serialize(entries, IndentedJson) + Environment.NewLine);
+            // File.Move(source, destination, overwrite) is Core-only; Revit 2024 builds net48.
+            if (File.Exists(AllowlistPath)) File.Replace(temp, AllowlistPath, null);
+            else File.Move(temp, AllowlistPath);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+        }
+
+        return true;
+    }
+
     public static string HashFile(string path)
     {
         var bytes = File.ReadAllBytes(path);
@@ -117,6 +174,40 @@ public sealed class PluginAllowlist
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
         return set;
+    }
+
+    internal static bool IsSha256Hex(string value)
+    {
+        if (value.Length != 64) return false;
+        foreach (var c in value)
+        {
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) continue;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Read for the writer only. Missing or empty file means "no entries yet"; a file that exists
+    /// but cannot be parsed throws, so the caller aborts instead of replacing it with a short list.
+    /// </summary>
+    private static List<string> ReadEntriesForWrite(string path)
+    {
+        var entries = new List<string>();
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return entries;
+
+        var json = File.ReadAllText(path);
+        if (string.IsNullOrWhiteSpace(json)) return entries;
+
+        var items = JsonSerializer.Deserialize<string[]>(json)
+                    ?? throw new InvalidDataException("expected a JSON array of SHA-256 strings");
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item)) continue;
+            var value = item.Trim();
+            if (!entries.Contains(value, StringComparer.OrdinalIgnoreCase)) entries.Add(value);
+        }
+        return entries;
     }
 
     private static string ToHex(byte[] hash)
