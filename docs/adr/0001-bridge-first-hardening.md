@@ -36,7 +36,7 @@ Close `IRevitCreateCommand`:
 
 Units: tools pass millimetres. Adapter converts with `Metric.MmToFt`. Nested `Transaction` inside Adapter (same as delete/move). Host already `EnsureTurnGroupAsync` on the first L2/L3 write — do not start a second group.
 
-GeometryCreate (floor / roof / grid / array / rotate / mirror / split / join) is closed on `IRevitCreateCommand`; tools live in `GeometryTools.Create` and pass millimetres. Adapter converts. `split_wall` stays not-implemented at the Adapter.
+GeometryCreate (floor / roof / grid / array / rotate / mirror / split / join) is closed on `IRevitCreateCommand`; tools live in `GeometryTools.Create` and pass millimetres. Adapter converts. `split_wall` stays not-implemented at the Adapter and is not registered as a catalog tool.
 
 `save_document` is closed on `IRevitDocumentCommand.SaveDocumentAsync`. Tool lives in `DocumentTools.Create` (Bridge-only Core). Adapter calls `doc.Save()` **without** a Transaction. Unsaved documents (empty `PathName`) fail with the original message.
 
