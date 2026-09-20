@@ -3089,12 +3089,22 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 {
                     var paths = PathOfTravel.CreateMultiple(view, starts, ends, out IList<PathOfTravelCalculationStatus> statuses);
                     tx.Commit();
+                    // CreateMultiple returns null — and can carry null slots — when no path was found
+                    // (points too close, crop box exclusion, no route). Walk the request, not the
+                    // result, so every unsuccessful pair is reported instead of throwing.
                     var ids = new List<string>();
                     var failures = new List<string>();
-                    for (var i = 0; i < paths.Count; i++)
+                    for (var i = 0; i < starts.Count; i++)
                     {
-                        if (paths[i] != null) ids.Add(paths[i]!.Id.ToString());
-                        else if (i < statuses.Count) failures.Add($"#{i}:{statuses[i]}");
+                        var path = paths != null && i < paths.Count ? paths[i] : null;
+                        if (path != null)
+                        {
+                            ids.Add(path.Id.ToString());
+                            continue;
+                        }
+                        failures.Add(statuses != null && i < statuses.Count
+                            ? $"#{i}:{statuses[i]}"
+                            : $"#{i}:No path found");
                     }
                     return new PathOfTravelResultDto(view.Name, starts.Count, ids.Count, ids, failures);
                 }
