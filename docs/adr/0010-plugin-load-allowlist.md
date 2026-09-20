@@ -40,16 +40,16 @@ sequenceDiagram
 - Gate lives in `PluginLoader.LoadOne`, before `Assembly.LoadFrom` / `PluginLoadContext`. Plugins stay `IRevitBridge`-only. The adapter does not re-check. This is not a FamilyPaths/ExportPaths sandbox root.
 - Mechanism: SHA-256 of **DLL bytes**. Allow if **any** of: folder under **DevPluginsDir**; hash in host-owned `%AppData%\LoadingAI\plugin-allowlist.json`; hash in the **shipped set** next to `LoadingAI.dll` (`plugin-shipped-hashes.json`), recorded when the host runs `BuildShippedPlugins`.
 - Empty or missing allowlist must **not** fail-closed on shipped plugins (fresh install still loads core-tools and the other five). Unknown hash must **not** fail-open.
-- Refuse: `RecordIssue` + return null. Hint: put the plugin in `Plugins\dev`, or record the SHA-256 (stage 2 will add a trust dialog). No `new TaskDialog` in the loader.
+- Refuse: `RecordIssue` + return null. Hint names the **absolute** `DevPluginsDir` (`...\Addins\<year>\LoadingAI\Plugins\dev`) — the folder `Discover` scans, which may not exist yet (no auto-create) — or instructs recording the SHA-256 (stage 2 will add a trust dialog). No `new TaskDialog` in the loader.
 - Host `RecordShippedHashes` after `BuildShippedPlugins` writes `$(TargetDir)plugin-shipped-hashes.json`. `CopyAddin` copies it next to the host. `pack-addin.ps1` writes the same file from the staged plugin DLLs so a zip install is not fail-closed. Rebuild the **host** after a plugin binary change so the shipped set refreshes. `SkipHostPluginBuild` skips the host target (CI injects temp paths; tests never `Discover()` live AppData).
 - `PluginMeta.Verified` is **not** a gate.
 
 ## Consequences
 
-- CONTRIBUTING “AppData drop, unverified, still works” **stops** for unknown hashes until stage 2. Milo updates README/CONTRIBUTING in a follow-up.
-- Unsigned `plugin.json` + DLL in `%AppData%\LoadingAI\Plugins\evil\` → Settings load issue, tools absent, cannot reach Confirm L3. Same DLL under add-in `Plugins\dev` still loads; next L3 still Confirm default No.
+- CONTRIBUTING “AppData drop, unverified, still works” **stops** for unknown hashes until stage 2.
+- Unsigned `plugin.json` + DLL in `%AppData%\LoadingAI\Plugins\evil\` → Settings load issue, tools absent, cannot reach Confirm L3. Same DLL under the absolute add-in `DevPluginsDir` (`...\Addins\<year>\LoadingAI\Plugins\dev`) still loads; next L3 still Confirm default No.
 - `"verified": true` with an unknown hash does **not** load.
-- Tests: `PluginAllowlistTests` (unknown Runtime refused; Dev allowed; listed hash allowed; empty allowlist + shipped hash allowed). Source-lock: gate before `LoadFrom`.
+- Tests: `PluginAllowlistTests` (unknown Runtime refused; Dev allowed; listed hash allowed; empty allowlist + shipped hash allowed). Source-lock: gate before `LoadFrom`; refusal hint embeds the absolute `DevPluginsDir`.
 
 ## Do not
 

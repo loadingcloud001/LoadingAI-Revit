@@ -45,7 +45,19 @@ public class PluginLoadIssueTests
         Assert.Contains("loose manifest failed", src);
         Assert.Contains("DLL not on allowlist", src);
         Assert.Contains("record the SHA-256", src);
-        Assert.Contains("Plugins\\dev", src);
+        Assert.Contains("put the plugin in {DevPluginsDir}", src);
+        Assert.DoesNotContain(@"put the plugin in Plugins\dev", src);
+        Assert.DoesNotContain("Directory.CreateDirectory(DevPluginsDir)", src);
+    }
+
+    [Fact]
+    public void AllowlistRefusalHint_NamesAbsoluteDevPluginsDir()
+    {
+        var hint = PluginLoader.AllowlistRefusalHint;
+        Assert.True(Path.IsPathRooted(PluginLoader.DevPluginsDir));
+        Assert.EndsWith(Path.Combine("Plugins", "dev"), PluginLoader.DevPluginsDir);
+        Assert.Contains(PluginLoader.DevPluginsDir, hint);
+        Assert.Contains("record the SHA-256", hint);
     }
 
     [Fact]
