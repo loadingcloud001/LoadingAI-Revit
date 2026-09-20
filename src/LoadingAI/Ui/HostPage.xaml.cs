@@ -266,6 +266,21 @@ public partial class HostPage : Page
                 case ToHostMessage.SetPluginTierEnabled { Tier: var tier, Enabled: var enabled }:
                     if (!string.IsNullOrWhiteSpace(tier))
                     {
+                        if (enabled && string.Equals(tier, "L3", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var td = new TaskDialog("LoadingAI for Revit")
+                            {
+                                MainInstruction = "Enable all L3 tools?",
+                                MainContent = "Turns on delete, move, create, and save for chat. Each L3 action still asks Confirm L3 (default No). This does not write the model yet.",
+                                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                                DefaultButton = TaskDialogResult.No
+                            };
+                            if (td.Show() != TaskDialogResult.Yes)
+                            {
+                                PostToWeb(new FromHostMessage.Status("L3 all on cancelled."));
+                                break;
+                            }
+                        }
                         var n = _session.SetTierEnabled(tier, enabled);
                         ProviderSettings.Save(_session.Settings);
                         _session.RebuildRegistry();
