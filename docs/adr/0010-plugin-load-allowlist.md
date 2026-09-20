@@ -46,7 +46,7 @@ sequenceDiagram
 
 ## Consequences
 
-- CONTRIBUTING “AppData drop, unverified, still works” **stops** for unknown hashes until stage 2. Milo updates README/CONTRIBUTING in a follow-up.
+- CONTRIBUTING “AppData drop, unverified, still works” **stops** for unknown hashes until stage 2.
 - Unsigned `plugin.json` + DLL in `%AppData%\LoadingAI\Plugins\evil\` → Settings load issue, tools absent, cannot reach Confirm L3. Same DLL under the absolute add-in `DevPluginsDir` (`...\Addins\<year>\LoadingAI\Plugins\dev`) still loads; next L3 still Confirm default No.
 - `"verified": true` with an unknown hash does **not** load.
 - Tests: `PluginAllowlistTests` (unknown Runtime refused; Dev allowed; listed hash allowed; empty allowlist + shipped hash allowed). Source-lock: gate before `LoadFrom`; refusal hint embeds the absolute `DevPluginsDir`.
