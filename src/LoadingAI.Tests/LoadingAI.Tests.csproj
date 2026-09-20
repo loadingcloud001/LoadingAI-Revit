@@ -32,5 +32,8 @@
     <ProjectReference Include="..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj">
       <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\qs-formwork\QsFormworkPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>

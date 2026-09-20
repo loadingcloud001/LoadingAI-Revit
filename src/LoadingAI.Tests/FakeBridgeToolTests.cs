@@ -2320,6 +2320,241 @@ public class FakeBridgeToolTests
         Assert.Equal("No beams found.", text);
     }
 
+    [Fact]
+    public void Formwork_DeclareFrozenNamesAndTiers()
+    {
+        var tools = FormworkPlugin().CreateTools(new FakePluginContext(new FakeRevitBridge()))
+            .ToDictionary(t => t.Definition.Function.Name, t => t);
+
+        Assert.Equal(4, tools.Count);
+        Assert.Equal(ToolTier.L3, tools["formwork_setup"].Tier);
+        Assert.Equal(ToolTier.L3, tools["create_formwork_panels"].Tier);
+        Assert.Equal(ToolTier.L3, tools["cleanup_formwork"].Tier);
+        Assert.Equal(ToolTier.L3, tools["copy_formwork_parent_params"].Tier);
+
+        Assert.False(tools["formwork_setup"].RequiresWriteConfirm);
+        Assert.True(tools["create_formwork_panels"].RequiresWriteConfirm);
+        Assert.True(tools["cleanup_formwork"].RequiresWriteConfirm);
+        Assert.False(tools["copy_formwork_parent_params"].RequiresWriteConfirm);
+    }
+
+    [Fact]
+    public async Task FormworkSetup_Success_ForwardsEmptyRequest()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "formwork_setup");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal(
+            "Formwork setup complete. Linked models: 2. Parameters bound: 12, failed: 0 (none). Existing panels: 3.",
+            text);
+        Assert.Single(bridge.FormworkSetupCalls);
+    }
+
+    /// <summary>Setup is write-shaped, so a closed model still reaches the Bridge and shows up in the call list.</summary>
+    [Fact]
+    public async Task FormworkSetup_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = FormworkTool(bridge, "formwork_setup");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.FormworkSetupCalls);
+    }
+
+    [Fact]
+    public async Task FormworkSetup_BridgeError_WinsOverReport()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextFormworkSetupResult = new FormworkSetupResultDto(
+                "Formwork setup complete.", "Linked model is not loaded.")
+        };
+        var tool = FormworkTool(bridge, "formwork_setup");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Linked model is not loaded.", text);
+    }
+
+    [Fact]
+    public async Task CreateFormworkPanels_ForwardsIdsAndDefaults()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "create_formwork_panels");
+
+        var text = await tool.Handler("""{"elementIds":["101"]}""");
+
+        Assert.Equal(
+            "Formwork panels: selected 1, candidates 4, created 4, updated 0, duplicates 0, "
+            + "coverage skipped 1, panel overlap skipped 0, trimmed 0, obsolete deleted 0, failed 0.",
+            text);
+        var call = Assert.Single(bridge.FormworkPanelsCalls);
+        Assert.Equal(new[] { "101" }, call.Ids);
+        // Pinned as a literal: the tool description advertises 18 mm, so a silent change
+        // to FormworkDefaults.SheetThicknessMmDefault should fail here.
+        Assert.Equal(18.0, call.ThicknessMm);
+        Assert.True(call.Collision);
+        Assert.False(call.DeleteExisting);
+        Assert.False(call.IncludeUnselectedLinks);
+    }
+
+    [Fact]
+    public async Task CreateFormworkPanels_EmptyIds_UsesSelection()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            Selection = new SelectionSummaryDto(1, new[] { "Structural Framing" }, new[] { "202" })
+        };
+        var tool = FormworkTool(bridge, "create_formwork_panels");
+
+        var text = await tool.Handler("{}");
+
+        Assert.StartsWith("Formwork panels: selected 1,", text);
+        var call = Assert.Single(bridge.FormworkPanelsCalls);
+        Assert.Equal(new[] { "202" }, call.Ids);
+    }
+
+    [Fact]
+    public async Task CreateFormworkPanels_EmptyIdsAndEmptySelection_DoesNotCallBridge()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "create_formwork_panels");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please select elements first.", text);
+        Assert.Empty(bridge.FormworkPanelsCalls);
+    }
+
+    [Fact]
+    public async Task CreateFormworkPanels_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = FormworkTool(bridge, "create_formwork_panels");
+
+        var text = await tool.Handler("""{"elementIds":["101"]}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.FormworkPanelsCalls);
+    }
+
+    [Fact]
+    public async Task CleanupFormwork_ForwardsNormalisedActionAndFaceType()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "cleanup_formwork");
+
+        var text = await tool.Handler("""{"action":"Delete_By_Type","faceType":"wall"}""");
+
+        Assert.Equal("Deleted 2 formwork panel(s) (delete_by_type).", text);
+        var call = Assert.Single(bridge.CleanupFormworkCalls);
+        Assert.Equal("delete_by_type", call.Action);
+        Assert.Equal("wall", call.FaceType);
+    }
+
+    [Fact]
+    public async Task CleanupFormwork_OmittedAction_DefaultsToReadOnlyStats()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "cleanup_formwork");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Formwork panels: 3 total. By type: wall=2, beam=1.", text);
+        var call = Assert.Single(bridge.CleanupFormworkCalls);
+        Assert.Equal("stats", call.Action);
+        Assert.Null(call.FaceType);
+    }
+
+    [Fact]
+    public async Task CleanupFormwork_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = FormworkTool(bridge, "cleanup_formwork");
+
+        var text = await tool.Handler("""{"action":"delete_all"}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CleanupFormworkCalls);
+    }
+
+    [Fact]
+    public async Task CopyFormworkParentParams_OmittedNames_ReturnsCatalogue()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "copy_formwork_parent_params");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Copyable parent parameters: FW_ConcreteGrade, FW_Thickness.", text);
+        var call = Assert.Single(bridge.CopyFormworkParentParamsCalls);
+        // Args.Strings returns an empty list rather than null, so the catalogue branch is
+        // reached by count, not by a null check.
+        Assert.NotNull(call.Names);
+        Assert.Empty(call.Names!);
+    }
+
+    [Fact]
+    public async Task CopyFormworkParentParams_EmptyIds_UsesSelection()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            Selection = new SelectionSummaryDto(1, new[] { "Walls" }, new[] { "301" })
+        };
+        var tool = FormworkTool(bridge, "copy_formwork_parent_params");
+
+        var text = await tool.Handler("""{"paramNames":["FW_ConcreteGrade"]}""");
+
+        Assert.Equal(
+            "Copied 1 parent parameter value(s) onto 3 panel(s). Empty skipped 0, "
+            + "type mismatch 0, unresolved parent 0, unloaded link 0.",
+            text);
+        var call = Assert.Single(bridge.CopyFormworkParentParamsCalls);
+        Assert.Equal(new[] { "301" }, call.Ids);
+        Assert.Equal(new[] { "FW_ConcreteGrade" }, call.Names);
+    }
+
+    [Fact]
+    public async Task CopyFormworkParentParams_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = FormworkTool(bridge, "copy_formwork_parent_params");
+
+        var text = await tool.Handler("""{"paramNames":["FW_Thickness"]}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CopyFormworkParentParamsCalls);
+    }
+
+    [Fact]
+    public async Task CopyFormworkParentParams_BridgeError_WinsOverReport()
+    {
+        var bridge = new FakeRevitBridge
+        {
+            HasActiveDocument = true,
+            NextCopyFormworkParentParamsResult = new CopyParamsResultDto(
+                "Copied 0 parent parameter value(s).", "No formwork panels found.")
+        };
+        var tool = FormworkTool(bridge, "copy_formwork_parent_params");
+
+        var text = await tool.Handler("""{"paramNames":["FW_Thickness"]}""");
+
+        Assert.Equal("No formwork panels found.", text);
+    }
+
+    private static ToolEntry FormworkTool(FakeRevitBridge bridge, string name)
+        => FormworkPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == name);
+
+    private static LoadingAI.Plugins.QsFormwork.QsFormworkPlugin FormworkPlugin() => new();
+
     private static ToolEntry StructureCutsTool(FakeRevitBridge bridge, string name)
         => StructureCutsPlugin().CreateTools(new FakePluginContext(bridge))
             .Single(t => t.Definition.Function.Name == name);
