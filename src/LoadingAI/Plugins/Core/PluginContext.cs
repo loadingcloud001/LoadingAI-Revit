@@ -1,8 +1,6 @@
 using System;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
-using Autodesk.Revit.UI;
 using LoadingAI.Plugins;
 using LoadingAI.Progress;
 using LoadingAI.Revit;
@@ -11,23 +9,21 @@ namespace LoadingAI.Plugins.Core;
 
 /// <summary>
 /// App-side implementation of the revit-free plugin context. Wraps the raw
-/// <see cref="RevitBridge"/> and exposes the safe <see cref="IRevitBridge"/>
-/// contract by default; raw access is opt-in via <see cref="FullAccess"/>.
+/// <see cref="RevitBridge"/> and exposes only the safe <see cref="IRevitBridge"/>
+/// contract — the host owns every Revit call.
 /// </summary>
-public sealed class PluginContext : IPluginContext, IRawRevitAccess
+public sealed class PluginContext : IPluginContext
 {
     private readonly RevitBridge _raw;
     private readonly IRevitBridge _bridge;
     private readonly string _pluginDir;
-    private readonly bool _fullAccessGranted;
     private readonly CancellationTokenSource _shutdown;
 
-    public PluginContext(RevitBridge raw, string pluginDir, bool fullAccessGranted)
+    public PluginContext(RevitBridge raw, string pluginDir)
     {
         _raw = raw;
         _bridge = new AdapterRevitBridge(_raw);
         _pluginDir = pluginDir;
-        _fullAccessGranted = fullAccessGranted;
         _shutdown = new CancellationTokenSource();
     }
 
@@ -52,15 +48,6 @@ public sealed class PluginContext : IPluginContext, IRawRevitAccess
 
     public CancellationToken ShutdownToken => _shutdown.Token;
 
-    public IRawRevitAccess? FullAccess => _fullAccessGranted ? this : null;
-
     /// <summary>Signals this plugin to wind down before unload (cooperative reload gate).</summary>
     internal void BeginShutdown() => _shutdown.Cancel();
-
-    // IRawRevitAccess
-    public Task<T> RunRevitAsync<T>(Func<FullAccessSession, T> func, TimeSpan? timeout = null, CancellationToken ct = default)
-        => _raw.RunAsync(
-            app => func(new FullAccessSession(app)),
-            timeout ?? RevitBridge.DefaultTimeout,
-            ct);
 }

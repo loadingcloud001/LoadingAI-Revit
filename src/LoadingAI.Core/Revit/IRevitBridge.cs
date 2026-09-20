@@ -49,6 +49,22 @@ public interface IRevitQuery
         string category1, string category2, int limit = 20, CancellationToken ct = default);
     Task<ModelHealthDto?> GetModelHealthScoreAsync(CancellationToken ct = default);
     Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default);
+
+    /// <summary>
+    /// Schedule table body cells. <paramref name="rowLimit"/> is clamped Adapter-side
+    /// (default 25, max 40) so the bound holds for any caller. Null when no document is
+    /// open; not-found and failures come back in <see cref="ScheduleDataDto.Error"/>.
+    /// </summary>
+    Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of host elements for the structure-cuts algorithms, selected by
+    /// <paramref name="scope"/> (<c>selection</c> / <c>visible</c> / <c>all</c>).
+    /// <paramref name="categories"/> empty falls back to every splittable host category.
+    /// </summary>
+    Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -119,6 +135,43 @@ public interface IRevitViewCommand
     Task<CommandResultDto> TagAllInActiveViewAsync(
         string category,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a category schedule. <paramref name="name"/> is a single token:
+    /// "&lt;category&gt;" creates "&lt;category&gt; Schedule", and
+    /// "&lt;category&gt;:&lt;schedule name&gt;" creates the schedule under the given name.
+    /// The category also resolves from the token's leading words, so "Door List" works.
+    /// </summary>
+    Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields,
+        CancellationToken ct = default);
+
+    /// <summary>Create a floor plan on a level. <paramref name="levelIdOrName"/> blank picks the lowest level.</summary>
+    Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name,
+        CancellationToken ct = default);
+
+    /// <summary>Create a 3D view: isometric when <paramref name="isometric"/>, else perspective.</summary>
+    Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a section view. <paramref name="min"/> / <paramref name="max"/> are the section
+    /// line end points in millimetres; <paramref name="viewDirection"/> is an axis token
+    /// (x / -y / z) and, when blank, the direction is derived from the line.
+    /// </summary>
+    Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max,
+        string? viewDirection, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create paths of travel in a floor plan. <paramref name="viewIdOrName"/> blank uses the
+    /// active view; the 5-pair cap is enforced Adapter-side.
+    /// </summary>
+    Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs,
+        CancellationToken ct = default);
 }
 
 /// <summary>Instance parameter writes, rename, bulk dates, and ParamExcel collect/set.</summary>
@@ -181,8 +234,7 @@ public interface IRevitParamCommand
 }
 
 /// <summary>
-/// Destructive element mutations (delete / move). Family load and export
-/// stay on <c>IRawRevitAccess</c> until they have DTOs.
+/// Destructive element mutations (delete / move / type change / purge).
 /// </summary>
 public interface IRevitElementCommand
 {
@@ -192,12 +244,23 @@ public interface IRevitElementCommand
     Task<CommandResultDto> MoveElementsAsync(
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// <c>Document.GetUnusedElements</c>. When <paramref name="preview"/> is true
+    /// nothing is deleted and <see cref="PurgeUnusedResultDto.Sample"/> describes
+    /// the first few candidates.
+    /// </summary>
+    Task<PurgeUnusedResultDto> PurgeUnusedAsync(
+        bool preview = true, CancellationToken ct = default);
 }
 
 /// <summary>
 /// Geometry create / transform. Coordinates are millimetres; the adapter
-/// converts to feet for the Revit API. Family load and export stay on
-/// <c>IRawRevitAccess</c>.
+/// converts to feet for the Revit API.
 /// </summary>
 public interface IRevitCreateCommand
 {
@@ -266,12 +329,59 @@ public interface IRevitCreateCommand
         string elementId2,
         bool join = true,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Split structural framing at the columns that cross it. <c>HostIds</c> null means
+    /// every beam in <c>Scope</c>; <c>Cutters</c> null means the current selection.
+    /// </summary>
+    Task<SplitResultDto?> SplitBeamsByColumnsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Split floors along the beams and columns that cross them, cutting an opening
+    /// where a column passes through. <c>Cutters</c> holds beams and columns together
+    /// and is separated by category Adapter-side.
+    /// </summary>
+    Task<SplitResultDto?> SplitFloorsByBeamsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the levels that cross them.</summary>
+    Task<SplitResultDto?> SplitByLevelsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the grids that cross them.</summary>
+    Task<SplitResultDto?> SplitByGridsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Bind the formwork shared parameters and create the panel schema. Run once per
+    /// project before generating panels.
+    /// </summary>
+    Task<FormworkSetupResultDto?> FormworkSetupAsync(FormworkSetupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create DirectShape formwork panels from the linked (or host) structural elements
+    /// in <c>Ids</c>, or from the current selection when <c>Ids</c> is null.
+    /// </summary>
+    Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(FormworkPanelsRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Report or delete formwork panels by <c>Action</c>.</summary>
+    Task<CleanupResultDto?> CleanupFormworkAsync(CleanupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Copy named parameters from each panel's parent host onto the matching <c>FW_*</c>
+    /// instance parameters. An empty <c>Names</c> lists the catalogue instead.
+    /// </summary>
+    Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(CopyParamsRequestDto request, CancellationToken ct = default);
 }
 
 /// <summary>
 /// Document-level writes. Do not wrap <c>Save</c> in a Transaction —
-/// Revit rejects that. Family load and export stay on
-/// <c>IRawRevitAccess</c>.
+/// Revit rejects that. <c>LoadFamily</c> does need a Transaction.
+/// Exports are not Transactions either. <c>directory</c> is always an
+/// absolute path already validated by the caller against
+/// <c>ExportPaths</c>; the adapter never touches the file system itself.
 /// </summary>
 public interface IRevitDocumentCommand
 {
@@ -280,6 +390,32 @@ public interface IRevitDocumentCommand
     Task<CommandResultDto> AssignWorksetAsync(
         IReadOnlyList<string> elementIds,
         string worksetName,
+        CancellationToken ct = default);
+    Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sheets (or the given views) to a combined/split PDF. <paramref name="fileName"/>
+    /// is sanitised against the model title when omitted.
+    /// </summary>
+    Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default);
+
+    /// <summary>Views (or the active view) to DWG, AutoCAD 2018 format.</summary>
+    Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default);
+
+    /// <summary>Whole model to IFC. <paramref name="version"/> is an <c>IFCVersion</c> name, ignored when unknown.</summary>
+    Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
         CancellationToken ct = default);
 }
 

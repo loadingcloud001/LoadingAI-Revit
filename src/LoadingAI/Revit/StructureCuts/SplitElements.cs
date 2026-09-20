@@ -5,7 +5,7 @@ using Autodesk.Revit.UI;
 
 using LoadingAI.Tools;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Shared Revit lookups for both split tools: resolving ids, reading the current selection, and the

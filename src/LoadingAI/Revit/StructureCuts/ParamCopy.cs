@@ -1,6 +1,6 @@
 using Autodesk.Revit.DB;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 internal static class ParamCopy
 {

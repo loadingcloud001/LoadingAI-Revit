@@ -3,7 +3,7 @@ using Autodesk.Revit.DB.Structure;
 
 using LoadingAI.Geometry;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Native <see cref="FamilyInstance.Split"/> then location-curve re-creation for walls, columns and

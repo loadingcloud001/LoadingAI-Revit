@@ -1,12 +1,13 @@
 using System.Text.Json;
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
+using LoadingAI.Revit;
+using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Plugins.StructureCuts;
 
-public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
+public sealed class StructureCutsPlugin : IRevitToolPlugin
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
@@ -55,11 +56,9 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             var args = Args.Parse(json);
             var options = Options(args, json);
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uiApp = session.As<UIApplication>();
-                return BeamSplit.Run(uiApp, args.Strings("beamIds"), args.Strings("columnIds"), options);
-            });
+            var result = await context.Bridge.SplitBeamsByColumnsAsync(
+                Request(options, Filter(args.Strings("beamIds")), Filter(args.Strings("columnIds")), null));
+            return result?.Error ?? result?.Report ?? "Please open a model first.";
         }
     };
 
@@ -100,11 +99,12 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             var args = Args.Parse(json);
             var options = Options(args, json);
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uiApp = session.As<UIApplication>();
-                return FloorSplit.Run(uiApp, args.Strings("floorIds"), args.Strings("beamIds"), args.Strings("columnIds"), options);
-            });
+            var cutters = new List<string>();
+            cutters.AddRange(args.Strings("beamIds"));
+            cutters.AddRange(args.Strings("columnIds"));
+            var result = await context.Bridge.SplitFloorsByBeamsAsync(
+                Request(options, Filter(args.Strings("floorIds")), Filter(cutters), null));
+            return result?.Error ?? result?.Report ?? "Please open a model first.";
         }
     };
 
@@ -145,11 +145,9 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             var args = Args.Parse(json);
             var options = Options(args, json);
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uiApp = session.As<UIApplication>();
-                return LevelSplit.Run(uiApp, args.Strings("elementIds"), args.Strings("levelIds"), args.Strings("categories"), options);
-            });
+            var result = await context.Bridge.SplitByLevelsAsync(
+                Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("levelIds")), Filter(args.Strings("categories"))));
+            return result?.Error ?? result?.Report ?? "Please open a model first.";
         }
     };
 
@@ -190,11 +188,9 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         {
             var args = Args.Parse(json);
             var options = Options(args, json);
-            return await context.FullAccess!.RunRevitAsync(session =>
-            {
-                var uiApp = session.As<UIApplication>();
-                return GridSplit.Run(uiApp, args.Strings("elementIds"), args.Strings("gridIds"), args.Strings("categories"), options);
-            });
+            var result = await context.Bridge.SplitByGridsAsync(
+                Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("gridIds")), Filter(args.Strings("categories"))));
+            return result?.Error ?? result?.Report ?? "Please open a model first.";
         }
     };
 
@@ -211,6 +207,18 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin, IRevitFullAccess
         Scope = args.Scope(),
         ContinueFrom = args.ContinueFrom()
     };
+
+    /// <summary>
+    /// Packs the shared options plus the two per-tool id filters into one request. <b>An empty list is
+    /// not null</b>: the host reads null as "use the scope", so a filter the caller left out must be
+    /// normalised to null here rather than forwarded as an empty list.
+    /// </summary>
+    private static SplitRequestDto Request(
+        SplitOptions options, IReadOnlyList<string>? hosts, IReadOnlyList<string>? cutters, IReadOnlyList<string>? categories)
+        => new(hosts, cutters, categories, options.Scope, options.ContinueFrom, options.Limit,
+            options.DryRun, options.UniqueMark, options.CopyParams);
+
+    private static IReadOnlyList<string>? Filter(List<string> ids) => ids.Count == 0 ? null : ids;
 
     private static IReadOnlyList<PresetField> SharedKnobs() => new[]
     {

@@ -12,8 +12,24 @@ public class L3CommandContractTests
         var names = typeof(IRevitElementCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("DeleteElementsAsync", names);
         Assert.Contains("MoveElementsAsync", names);
+        Assert.Contains("ChangeElementTypeAsync", names);
+        Assert.Contains("PurgeUnusedAsync", names);
+        Assert.DoesNotContain("ExportPdfAsync", names);
+        Assert.DoesNotContain("ExportDwgAsync", names);
+        Assert.DoesNotContain("ExportIfcAsync", names);
         Assert.DoesNotContain("IsolateInViewAsync", names);
         Assert.DoesNotContain("SetParameterAsync", names);
+        Assert.DoesNotContain("LoadFamilyAsync", names);
+        Assert.DoesNotContain("CreateTopographyAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
     [Fact]
@@ -31,7 +47,19 @@ public class L3CommandContractTests
         Assert.Contains("MirrorElementsAsync", names);
         Assert.Contains("SplitWallAsync", names);
         Assert.Contains("JoinGeometryAsync", names);
+        Assert.Contains("CreateTopographyAsync", names);
+        Assert.Contains("SplitBeamsByColumnsAsync", names);
+        Assert.Contains("SplitFloorsByBeamsAsync", names);
+        Assert.Contains("SplitByLevelsAsync", names);
+        Assert.Contains("SplitByGridsAsync", names);
+        Assert.Contains("FormworkSetupAsync", names);
+        Assert.Contains("CreateFormworkPanelsAsync", names);
+        Assert.Contains("CleanupFormworkAsync", names);
+        Assert.Contains("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("LoadFamilyAsync", names);
+        Assert.DoesNotContain("ChangeElementTypeAsync", names);
         Assert.DoesNotContain("IsolateInViewAsync", names);
         Assert.DoesNotContain("SaveDocumentAsync", names);
         Assert.DoesNotContain("OverrideColorInViewAsync", names);
@@ -65,8 +93,15 @@ public class L3CommandContractTests
         Assert.Contains("SaveDocumentAsync", names);
         Assert.Contains("ReloadLinksAsync", names);
         Assert.Contains("AssignWorksetAsync", names);
+        Assert.Contains("LoadFamilyAsync", names);
+        Assert.Contains("ExportPdfAsync", names);
+        Assert.Contains("ExportDwgAsync", names);
+        Assert.Contains("ExportIfcAsync", names);
+        Assert.DoesNotContain("PurgeUnusedAsync", names);
         Assert.DoesNotContain("GetWarningsRawAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("ChangeElementTypeAsync", names);
+        Assert.DoesNotContain("CreateTopographyAsync", names);
         Assert.DoesNotContain("CreateWallAsync", names);
         Assert.DoesNotContain("RenameElementsAsync", names);
         Assert.DoesNotContain("ApplyConstructionDatesAsync", names);
@@ -78,5 +113,69 @@ public class L3CommandContractTests
         Assert.DoesNotContain("PlaceViewOnSheetAsync", names);
         Assert.DoesNotContain("TagAllInActiveViewAsync", names);
         Assert.DoesNotContain("GetQuantityTakeoffAsync", names);
+        Assert.DoesNotContain("CreateScheduleAsync", names);
+        Assert.DoesNotContain("CreateFloorPlanAsync", names);
+        Assert.DoesNotContain("Create3DViewAsync", names);
+        Assert.DoesNotContain("CreateSectionViewAsync", names);
+        Assert.DoesNotContain("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("GetScheduleDataAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
+    }
+
+    [Fact]
+    public void IRevitViewCommand_DeclaresScheduleAndViewCreateMethods()
+    {
+        var names = typeof(IRevitViewCommand).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("CreateScheduleAsync", names);
+        Assert.Contains("CreateFloorPlanAsync", names);
+        Assert.Contains("Create3DViewAsync", names);
+        Assert.Contains("CreateSectionViewAsync", names);
+        Assert.Contains("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("GetScheduleDataAsync", names);
+        Assert.DoesNotContain("CreateWallAsync", names);
+        Assert.DoesNotContain("SaveDocumentAsync", names);
+        Assert.DoesNotContain("DeleteElementsAsync", names);
+        Assert.DoesNotContain("SetParameterAsync", names);
+        Assert.DoesNotContain("PurgeUnusedAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("CollectHostsAsync", names);
+    }
+
+    [Fact]
+    public void IRevitQuery_DeclaresScheduleReadMethod()
+    {
+        var names = typeof(IRevitQuery).GetMethods().Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("GetScheduleDataAsync", names);
+        Assert.Contains("CollectHostsAsync", names);
+        Assert.DoesNotContain("SplitBeamsByColumnsAsync", names);
+        Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
+        Assert.DoesNotContain("SplitByLevelsAsync", names);
+        Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("FormworkSetupAsync", names);
+        Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
+        Assert.DoesNotContain("CleanupFormworkAsync", names);
+        Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("CreateScheduleAsync", names);
+        Assert.DoesNotContain("CreateFloorPlanAsync", names);
+        Assert.DoesNotContain("Create3DViewAsync", names);
+        Assert.DoesNotContain("CreateSectionViewAsync", names);
+        Assert.DoesNotContain("CreatePathOfTravelAsync", names);
+        Assert.DoesNotContain("ExportPdfAsync", names);
+        Assert.DoesNotContain("DeleteElementsAsync", names);
     }
 }

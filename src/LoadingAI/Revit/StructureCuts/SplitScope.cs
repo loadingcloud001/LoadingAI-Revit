@@ -1,7 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// One capped page of hosts: the subset this run will touch, plus how far through the collected set
@@ -89,8 +89,12 @@ internal static class SplitScope
         return selected.Count > 0 ? selected : AllInModel(doc, wanted);
     }
 
-    /// <summary>Empty / unknown scope falls back to selection, matching the host Select default.</summary>
-    private static List<Element> ByScope(Document doc, UIDocument uidoc, Func<Element, bool> wanted, string scope)
+    /// <summary>
+    /// Empty / unknown scope falls back to selection, matching the host Select default.
+    /// Public because <c>CollectHostsAsync</c> pages the same three scopes without the
+    /// per-call options the split runs carry.
+    /// </summary>
+    public static List<Element> ByScope(Document doc, UIDocument uidoc, Func<Element, bool> wanted, string scope)
     {
         if (string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
             return AllInModel(doc, wanted);

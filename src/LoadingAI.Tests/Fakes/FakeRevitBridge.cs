@@ -1,3 +1,4 @@
+using System.IO;
 using LoadingAI.Revit;
 
 namespace LoadingAI.Tests.Fakes;
@@ -147,6 +148,10 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<string> QuantityTakeoffCalls { get; } = new();
 
+    public ScheduleDataDto? NextScheduleData { get; set; }
+
+    public List<(string? ScheduleId, string? ScheduleName, int RowLimit)> GetScheduleDataCalls { get; } = new();
+
     public Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default)
     {
         if (!HasActiveDocument)
@@ -156,6 +161,24 @@ internal sealed class FakeRevitBridge : IRevitBridge
             return Task.FromResult<QuantityTakeoffDto?>(NextQuantityTakeoff);
         return Task.FromResult<QuantityTakeoffDto?>(
             new QuantityTakeoffDto(category, 0, 0, 0, 0, Array.Empty<QuantityTakeoffRowDto>()));
+    }
+
+    public Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default)
+    {
+        if (!HasActiveDocument)
+            return Task.FromResult<ScheduleDataDto?>(new ScheduleDataDto(
+                string.Empty, string.Empty, 0, 0, 0, Array.Empty<IReadOnlyList<string>>(),
+                "Please open a model first."));
+        GetScheduleDataCalls.Add((scheduleId, scheduleName, rowLimit));
+        if (NextScheduleData != null)
+            return Task.FromResult<ScheduleDataDto?>(NextScheduleData);
+        var rows = new List<IReadOnlyList<string>>();
+        var shown = Math.Min(3, rowLimit);
+        for (var r = 0; r < shown; r++)
+            rows.Add(new[] { "W-1", "200" });
+        return Task.FromResult<ScheduleDataDto?>(new ScheduleDataDto(
+            "1001", scheduleName ?? "Wall Schedule", 3, 2, shown, rows));
     }
 
     public Task<CommandResultDto> IsolateInViewAsync(
@@ -633,6 +656,90 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string Id1, string Id2, bool Join)> JoinGeometryCalls { get; } = new();
 
+    public CommandResultDto? NextChangeElementTypeResult { get; set; }
+
+    public List<(string ElementId, string? TypeName, string? TypeId)> ChangeElementTypeCalls { get; } = new();
+
+    public CommandResultDto? NextCreateTopographyResult { get; set; }
+
+    public List<(IReadOnlyList<PointMmDto> Points, string? LevelName, string? LevelId)> CreateTopographyCalls { get; } = new();
+
+    public CommandResultDto? NextLoadFamilyResult { get; set; }
+
+    public List<string> LoadFamilyCalls { get; } = new();
+
+    public CommandResultDto? NextExportPdfResult { get; set; }
+
+    public List<(string Directory, IReadOnlyList<string>? SheetIds, string? FileName, bool Combine)> ExportPdfCalls { get; } = new();
+
+    public CommandResultDto? NextExportDwgResult { get; set; }
+
+    public List<(string Directory, IReadOnlyList<string>? ViewIds, string? FileName)> ExportDwgCalls { get; } = new();
+
+    public CommandResultDto? NextExportIfcResult { get; set; }
+
+    public List<(string Directory, string? FileName, string? Version)> ExportIfcCalls { get; } = new();
+
+    public PurgeUnusedResultDto? NextPurgeUnusedResult { get; set; }
+
+    public List<bool> PurgeUnusedCalls { get; } = new();
+
+    public ViewRefDto? NextCreateScheduleResult { get; set; }
+
+    public List<(string Name, IReadOnlyList<string> Fields)> CreateScheduleCalls { get; } = new();
+
+    public ViewRefDto? NextCreateFloorPlanResult { get; set; }
+
+    public List<(string LevelIdOrName, string Name)> CreateFloorPlanCalls { get; } = new();
+
+    public ViewRefDto? NextCreate3DViewResult { get; set; }
+
+    public List<(string Name, bool Isometric)> Create3DViewCalls { get; } = new();
+
+    public ViewRefDto? NextCreateSectionViewResult { get; set; }
+
+    public List<(string Name, PointMmDto Min, PointMmDto Max, string? ViewDirection)> CreateSectionViewCalls { get; } = new();
+
+    public PathOfTravelResultDto? NextCreatePathOfTravelResult { get; set; }
+
+    public List<(string ViewIdOrName, IReadOnlyList<PathPairDto> Pairs)> CreatePathOfTravelCalls { get; } = new();
+
+    public ElementIdListDto? NextCollectHostsResult { get; set; }
+
+    public List<(string Scope, IReadOnlyList<string>? Categories, int Limit, int Offset)> CollectHostsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitBeamsResult { get; set; }
+
+    public List<SplitRequestDto> SplitBeamsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitFloorsResult { get; set; }
+
+    public List<SplitRequestDto> SplitFloorsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitByLevelsResult { get; set; }
+
+    public List<SplitRequestDto> SplitByLevelsCalls { get; } = new();
+
+    public SplitResultDto? NextSplitByGridsResult { get; set; }
+
+    public List<SplitRequestDto> SplitByGridsCalls { get; } = new();
+
+    public FormworkSetupResultDto? NextFormworkSetupResult { get; set; }
+
+    public List<FormworkSetupRequestDto> FormworkSetupCalls { get; } = new();
+
+    public FormworkPanelsResultDto? NextFormworkPanelsResult { get; set; }
+
+    public List<FormworkPanelsRequestDto> FormworkPanelsCalls { get; } = new();
+
+    public CleanupResultDto? NextCleanupFormworkResult { get; set; }
+
+    public List<CleanupRequestDto> CleanupFormworkCalls { get; } = new();
+
+    public CopyParamsResultDto? NextCopyFormworkParentParamsResult { get; set; }
+
+    public List<CopyParamsRequestDto> CopyFormworkParentParamsCalls { get; } = new();
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -641,6 +748,19 @@ internal sealed class FakeRevitBridge : IRevitBridge
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
+
+    public Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default)
+    {
+        ChangeElementTypeCalls.Add((elementId, typeName, typeId));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextChangeElementTypeResult != null)
+            return Task.FromResult(NextChangeElementTypeResult);
+        var label = !string.IsNullOrWhiteSpace(typeName) ? typeName : typeId ?? "";
+        return Task.FromResult(new CommandResultDto(true, $"Changed element {elementId} type to \"{label}\" ({typeId ?? "1"})", 1));
+    }
 
     public Task<CommandResultDto> CreateWallAsync(
         string levelName,
@@ -823,6 +943,22 @@ internal sealed class FakeRevitBridge : IRevitBridge
         return Task.FromResult(new CommandResultDto(true, join ? $"Joined {elementId1} and {elementId2}" : $"Unjoined {elementId1} and {elementId2}"));
     }
 
+    public Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default)
+    {
+        CreateTopographyCalls.Add((points, levelName, levelId));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (points == null || points.Count < 3)
+            return Task.FromResult(new CommandResultDto(false, "Provide at least 3 points [x,y,z] in mm."));
+        if (NextCreateTopographyResult != null)
+            return Task.FromResult(NextCreateTopographyResult);
+        var lvl = string.IsNullOrWhiteSpace(levelName) ? "Level 1" : levelName;
+        return Task.FromResult(new CommandResultDto(true, $"Created toposolid 801 from {points.Count} points on {lvl}.", 1));
+    }
+
     public Task<CommandResultDto> SaveDocumentAsync(CancellationToken ct = default)
     {
         SaveDocumentCallCount++;
@@ -865,6 +1001,303 @@ internal sealed class FakeRevitBridge : IRevitBridge
             true,
             $"Assigned 0/{elementIds.Count} to workset \"{worksetName}\"",
             0));
+    }
+
+    public Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default)
+    {
+        LoadFamilyCalls.Add(path);
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextLoadFamilyResult != null)
+            return Task.FromResult(NextLoadFamilyResult);
+        var name = Path.GetFileNameWithoutExtension(path);
+        return Task.FromResult(new CommandResultDto(
+            true,
+            $"Loaded family \"{name}\" (901) with 1 symbol(s): {name}",
+            1));
+    }
+
+    public Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default)
+    {
+        ExportPdfCalls.Add((directory, sheetIds, fileName, combine));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportPdfResult != null)
+            return Task.FromResult(NextExportPdfResult);
+        var views = sheetIds?.Count ?? 1;
+        var dest = combine ? Path.Combine(directory, (fileName ?? "export") + ".pdf") : directory;
+        return Task.FromResult(new CommandResultDto(
+            true, $"Exported {views} sheet(s)/view(s) to PDF: {dest}", views));
+    }
+
+    public Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default)
+    {
+        ExportDwgCalls.Add((directory, viewIds, fileName));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportDwgResult != null)
+            return Task.FromResult(NextExportDwgResult);
+        var views = viewIds?.Count ?? 1;
+        return Task.FromResult(new CommandResultDto(
+            true,
+            $"Exported {views} view(s) to DWG in {directory} (prefix \"{fileName ?? "export"}\")",
+            views));
+    }
+
+    public Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
+        CancellationToken ct = default)
+    {
+        ExportIfcCalls.Add((directory, fileName, version));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (NextExportIfcResult != null)
+            return Task.FromResult(NextExportIfcResult);
+        var fname = fileName ?? "export";
+        return Task.FromResult(new CommandResultDto(
+            true, $"Exported IFC: {Path.Combine(directory, fname + ".ifc")}", 1));
+    }
+
+    public Task<PurgeUnusedResultDto> PurgeUnusedAsync(bool preview = true, CancellationToken ct = default)
+    {
+        PurgeUnusedCalls.Add(preview);
+        if (!HasActiveDocument)
+            return Task.FromResult(new PurgeUnusedResultDto(
+                preview, 0, 0, 0, Array.Empty<string>(), "Please open a model first."));
+        if (NextPurgeUnusedResult != null)
+            return Task.FromResult(NextPurgeUnusedResult);
+        return Task.FromResult(new PurgeUnusedResultDto(preview, 0, 0, 0, Array.Empty<string>()));
+    }
+
+    public Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        CreateScheduleCalls.Add((name, fields));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateScheduleResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateScheduleResult);
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5001", $"{name.Trim()} Schedule",
+            $"Created schedule 5001 \"{name.Trim()} Schedule\" with {fields?.Count ?? 0} field(s)."));
+    }
+
+    public Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name, CancellationToken ct = default)
+    {
+        CreateFloorPlanCalls.Add((levelIdOrName, name));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateFloorPlanResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateFloorPlanResult);
+        var level = string.IsNullOrWhiteSpace(levelIdOrName) ? "Level 1" : levelIdOrName;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5002", string.IsNullOrWhiteSpace(name) ? level : name,
+            $"Created floor plan 5002 \"{(string.IsNullOrWhiteSpace(name) ? level : name)}\" on {level}"));
+    }
+
+    public Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric, CancellationToken ct = default)
+    {
+        Create3DViewCalls.Add((name, isometric));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreate3DViewResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreate3DViewResult);
+        var viewName = string.IsNullOrWhiteSpace(name) ? "3D View 1" : name;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5003", viewName, $"Created 3D view 5003 \"{viewName}\""));
+    }
+
+    public Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max, string? viewDirection, CancellationToken ct = default)
+    {
+        CreateSectionViewCalls.Add((name, min, max, viewDirection));
+        if (!HasActiveDocument)
+            return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+                string.Empty, string.Empty, string.Empty, "Please open a model first."));
+        if (NextCreateSectionViewResult != null)
+            return Task.FromResult<ViewRefDto?>(NextCreateSectionViewResult);
+        var viewName = string.IsNullOrWhiteSpace(name) ? "Section 1" : name;
+        return Task.FromResult<ViewRefDto?>(new ViewRefDto(
+            "5004", viewName, $"Created section 5004 \"{viewName}\""));
+    }
+
+    public Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs, CancellationToken ct = default)
+    {
+        CreatePathOfTravelCalls.Add((viewIdOrName, pairs));
+        if (!HasActiveDocument)
+            return Task.FromResult<PathOfTravelResultDto?>(new PathOfTravelResultDto(
+                string.Empty, 0, 0, Array.Empty<string>(), Array.Empty<string>(), "Please open a model first."));
+        if (NextCreatePathOfTravelResult != null)
+            return Task.FromResult<PathOfTravelResultDto?>(NextCreatePathOfTravelResult);
+        var ids = Enumerable.Range(1, pairs?.Count ?? 0).Select(i => (9000 + i).ToString()).ToList();
+        return Task.FromResult<PathOfTravelResultDto?>(new PathOfTravelResultDto(
+            string.IsNullOrWhiteSpace(viewIdOrName) ? "Level 1" : viewIdOrName,
+            ids.Count, ids.Count, ids, Array.Empty<string>()));
+    }
+
+    /// <summary>
+    /// Read-shaped, so it guards before recording: a closed model returns the DTO with the
+    /// no-document error and records no call, matching the other read fakes.
+    /// </summary>
+    public Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default)
+    {
+        if (!HasActiveDocument)
+            return Task.FromResult<ElementIdListDto?>(
+                new ElementIdListDto(Array.Empty<string>(), offset, 0, "Please open a model first."));
+
+        CollectHostsCalls.Add((scope, categories, limit, offset));
+        if (NextCollectHostsResult != null)
+            return Task.FromResult<ElementIdListDto?>(NextCollectHostsResult);
+
+        var total = Math.Max(0, limit) + Math.Max(0, offset);
+        var ids = Enumerable.Range(Math.Max(0, offset), Math.Max(0, limit))
+            .Select(i => (20000 + i).ToString())
+            .ToList();
+        return Task.FromResult<ElementIdListDto?>(new ElementIdListDto(ids, Math.Max(0, offset), total));
+    }
+
+    public Task<SplitResultDto?> SplitBeamsByColumnsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitBeamsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitBeamsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitBeamsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 2 beams into 5 pieces."));
+    }
+
+    public Task<SplitResultDto?> SplitFloorsByBeamsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitFloorsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitFloorsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitFloorsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 1 floors into 3 pieces. Openings: 2."));
+    }
+
+    public Task<SplitResultDto?> SplitByLevelsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitByLevelsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitByLevelsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitByLevelsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 3 elements into 7 pieces."));
+    }
+
+    public Task<SplitResultDto?> SplitByGridsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitByGridsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitByGridsResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitByGridsResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 4 elements into 9 pieces."));
+    }
+
+    private static SplitResultDto ClosedSplit()
+        => new("Please open a model first.", 0, 0, 0, Array.Empty<string>());
+
+    /// <summary>
+    /// Write-shaped, so it records before guarding: a closed model still shows up in the
+    /// call list, matching the other write fakes.
+    /// </summary>
+    public Task<FormworkSetupResultDto?> FormworkSetupAsync(
+        FormworkSetupRequestDto request, CancellationToken ct = default)
+    {
+        FormworkSetupCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<FormworkSetupResultDto?>(ClosedFormworkSetup());
+        if (NextFormworkSetupResult != null)
+            return Task.FromResult<FormworkSetupResultDto?>(NextFormworkSetupResult);
+        return Task.FromResult<FormworkSetupResultDto?>(new FormworkSetupResultDto(
+            "Formwork setup complete. Linked models: 2. Parameters bound: 12, failed: 0 (none). Existing panels: 3."));
+    }
+
+    public Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(
+        FormworkPanelsRequestDto request, CancellationToken ct = default)
+    {
+        FormworkPanelsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<FormworkPanelsResultDto?>(ClosedFormworkPanels());
+        if (NextFormworkPanelsResult != null)
+            return Task.FromResult<FormworkPanelsResultDto?>(NextFormworkPanelsResult);
+        return Task.FromResult<FormworkPanelsResultDto?>(new FormworkPanelsResultDto(
+            $"Formwork panels: selected {request.Ids?.Count ?? 0}, candidates 4, created 4, updated 0, duplicates 0, "
+            + "coverage skipped 1, panel overlap skipped 0, trimmed 0, obsolete deleted 0, failed 0."));
+    }
+
+    public Task<CleanupResultDto?> CleanupFormworkAsync(
+        CleanupRequestDto request, CancellationToken ct = default)
+    {
+        CleanupFormworkCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<CleanupResultDto?>(ClosedCleanupFormwork());
+        if (NextCleanupFormworkResult != null)
+            return Task.FromResult<CleanupResultDto?>(NextCleanupFormworkResult);
+        return Task.FromResult<CleanupResultDto?>(new CleanupResultDto(
+            request.Action is "stats" or ""
+                ? "Formwork panels: 3 total. By type: wall=2, beam=1."
+                : $"Deleted 2 formwork panel(s) ({request.Action})."));
+    }
+
+    public Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(
+        CopyParamsRequestDto request, CancellationToken ct = default)
+    {
+        CopyFormworkParentParamsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<CopyParamsResultDto?>(ClosedCopyFormworkParentParams());
+        if (NextCopyFormworkParentParamsResult != null)
+            return Task.FromResult<CopyParamsResultDto?>(NextCopyFormworkParentParamsResult);
+        return Task.FromResult<CopyParamsResultDto?>(new CopyParamsResultDto(
+            request.Names == null || request.Names.Count == 0
+                ? "Copyable parent parameters: FW_ConcreteGrade, FW_Thickness."
+                : $"Copied {request.Names.Count} parent parameter value(s) onto 3 panel(s). Empty skipped 0, type mismatch 0, unresolved parent 0, unloaded link 0."));
+    }
+
+    private static FormworkSetupResultDto ClosedFormworkSetup()
+        => new("Please open a model first.");
+
+    private static FormworkPanelsResultDto ClosedFormworkPanels()
+        => new("Please open a model first.");
+
+    private static CleanupResultDto ClosedCleanupFormwork()
+        => new("Please open a model first.");
+
+    private static CopyParamsResultDto ClosedCopyFormworkParentParams()
+        => new("Please open a model first.");
+
+    /// <summary>A dry run reports no writes, so the counters stay at zero.</summary>
+    private static SplitResultDto Split(SplitRequestDto request, string report)
+    {
+        if (request.DryRun)
+            return new SplitResultDto(report, 0, 0, 0, Array.Empty<string>());
+
+        var created = Enumerable.Range(1, 3).Select(i => (7000 + i).ToString()).ToList();
+        return new SplitResultDto(report, created.Count, 0, 0, created);
     }
 
     private CommandResultDto FailIfClosed(string emptyMessage, IReadOnlyList<string>? elementIds, string? category)

@@ -1,6 +1,6 @@
 # ADR-0005 — Port modeling-tools onto Bridge
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-19
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0003](0003-fullaccess-exceptions.md)

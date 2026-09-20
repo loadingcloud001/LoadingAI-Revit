@@ -3,20 +3,22 @@ using Autodesk.Revit.UI;
 
 using LoadingAI.Geometry;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
-/// Splits walls, columns, beams and floors at grids. Curve members use a vertical plane through the
-/// grid line; floors reuse the 1.5 region pipeline with those lines as 2D cutters.
+/// Splits walls, columns, beams and floors at storey elevations. Curve members use
+/// <see cref="CurveCut.AtElevation"/> then native split or location-curve recreate. Horizontal
+/// floors skip with no-level-hit; a leaning slab is cut along the plane intersection.
 /// </summary>
-internal static class GridSplit
+internal static class LevelSplit
 {
     public static string Run(
         UIApplication uiApp,
         IReadOnlyList<string> elementIds,
-        IReadOnlyList<string> gridIds,
+        IReadOnlyList<string> levelIds,
         IReadOnlyList<string> categories,
-        SplitOptions options)
+        SplitOptions options,
+        SplitOutcome? outcome = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -27,25 +29,13 @@ internal static class GridSplit
         if (batch.Items.Count == 0 && batch.Total == 0)
             return SplitElements.EmptyHostMessage(options);
 
-        var grids = SplitScope.Cutters(doc, uidoc, gridIds, SplitElements.IsGrid)
-            .OfType<Grid>()
+        var levels = SplitScope.Cutters(doc, uidoc, levelIds, SplitElements.IsLevel)
+            .OfType<Level>()
             .ToList();
-        if (grids.Count == 0)
-            return "No grids found.";
+        if (levels.Count == 0)
+            return "No levels found.";
 
-        var planes = new List<Plane2D>();
-        var edges = new List<IReadOnlyList<Point2>>();
-        foreach (var grid in grids)
-        {
-            if (!TryPlane(grid, out var plane, out var edge))
-                continue;
-            planes.Add(plane);
-            edges.Add(edge);
-        }
-
-        if (planes.Count == 0)
-            return "No grids found.";
-
+        var elevations = levels.Select(level => level.Elevation).Distinct().OrderBy(z => z).ToList();
         var skips = new Skips();
         var curvePlans = new List<CurveMemberSplit.Plan>();
         var floorPlans = new List<FloorSplit.Plan>();
@@ -66,7 +56,7 @@ internal static class GridSplit
 
             if (host is Floor floor)
             {
-                PlanFloor(doc, floor, edges, skips, floorPlans);
+                PlanFloor(doc, floor, elevations, skips, floorPlans);
                 continue;
             }
 
@@ -76,7 +66,7 @@ internal static class GridSplit
                 continue;
             }
 
-            PlanCurve(host, planes, skips, curvePlans);
+            PlanCurve(host, elevations, skips, curvePlans);
         }
 
         var notes = skips.Note() + SplitReport.Progress(batch);
@@ -101,7 +91,7 @@ internal static class GridSplit
         var dependents = 0;
         var openings = 0;
 
-        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split by grids"))
+        using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split by levels"))
         {
             tx.Start();
             foreach (var plan in curvePlans)
@@ -170,13 +160,15 @@ internal static class GridSplit
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
 
+        outcome?.Record(created, openings, skips.Total);
+
         SplitElements.Select(uidoc, created);
         return message;
     }
 
     private static void PlanCurve(
         Element host,
-        IReadOnlyList<Plane2D> planes,
+        IReadOnlyList<double> elevations,
         Skips skips,
         List<CurveMemberSplit.Plan> plans)
     {
@@ -189,8 +181,8 @@ internal static class GridSplit
         }
 
         var cuts = new List<double>();
-        foreach (var plane in planes)
-            cuts.AddRange(CurveCut.AtPlane(samples, plane, CurveMemberSplit.MinFraction, CurveMemberSplit.MinGapFraction));
+        foreach (var elevation in elevations)
+            cuts.AddRange(CurveCut.AtElevation(samples, elevation, CurveMemberSplit.MinFraction, CurveMemberSplit.MinGapFraction));
 
         cuts = CurveMemberSplit.DistinctCuts(cuts);
         if (cuts.Count == 0)
@@ -205,10 +197,36 @@ internal static class GridSplit
     private static void PlanFloor(
         Document doc,
         Floor floor,
-        IReadOnlyList<IReadOnlyList<Point2>> edges,
+        IReadOnlyList<double> elevations,
         Skips skips,
         List<FloorSplit.Plan> plans)
     {
+        if (!GeometryRevit.TrySlabRegion(floor, out var plane, out var tilt, out var slab) || slab == null)
+        {
+            skips.NoPlanarFace++;
+            return;
+        }
+
+        if (tilt.IsHorizontal(GeometryRevit.HorizontalZTol))
+        {
+            skips.NoHit++;
+            return;
+        }
+
+        var edges = new List<IReadOnlyList<Point2>>();
+        foreach (var elevation in elevations)
+        {
+            var edge = LevelEdge(plane, tilt, slab, elevation);
+            if (edge != null)
+                edges.Add(edge);
+        }
+
+        if (edges.Count == 0)
+        {
+            skips.NoHit++;
+            return;
+        }
+
         var (plan, error) = FloorSplit.PrepareAlong(doc, floor, edges);
         switch (error)
         {
@@ -237,41 +255,81 @@ internal static class GridSplit
         }
     }
 
-    private static bool TryPlane(Grid grid, out Plane2D plane, out List<Point2> edge)
+    /// <summary>
+    /// Horizontal intersection of the storey plane with a leaning slab, projected into the slab's
+    /// 2D region so FloorSplit can cut along it.
+    /// </summary>
+    private static List<Point2>? LevelEdge(Plane2D plane, PlanarTilt tilt, Region2D slab, double elevation)
     {
-        plane = new Plane2D(new Vec3(0, 0, 0), new Vec3(0, 0, 1));
-        edge = new List<Point2>();
+        var bounds = Bounds(slab.Outer);
+        if (bounds == null)
+            return null;
 
-        var curve = grid.Curve;
-        if (curve == null)
-            return false;
+        var (minX, minY, maxX, maxY) = bounds.Value;
+        var points = new List<Point2>();
+        TryAdd(points, IntersectX(tilt, elevation, minX, minY, maxY), plane);
+        TryAdd(points, IntersectX(tilt, elevation, maxX, minY, maxY), plane);
+        TryAdd(points, IntersectY(tilt, elevation, minY, minX, maxX), plane);
+        TryAdd(points, IntersectY(tilt, elevation, maxY, minX, maxX), plane);
 
-        XYZ start;
-        XYZ end;
-        try
+        if (points.Count < 2)
+            return null;
+
+        return new List<Point2> { points[0], points[points.Count - 1] };
+    }
+
+    private static (double minX, double minY, double maxX, double maxY)? Bounds(IReadOnlyList<Point2> ring)
+    {
+        if (ring.Count == 0)
+            return null;
+
+        var minX = ring[0].X;
+        var minY = ring[0].Y;
+        var maxX = ring[0].X;
+        var maxY = ring[0].Y;
+        foreach (var point in ring)
         {
-            start = curve.GetEndPoint(0);
-            end = curve.GetEndPoint(1);
-        }
-        catch
-        {
-            return false;
+            minX = Math.Min(minX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxX = Math.Max(maxX, point.X);
+            maxY = Math.Max(maxY, point.Y);
         }
 
-        var along = GeometryRevit.ToVec3(end - start);
-        along = new Vec3(along.X, along.Y, 0);
-        if (along.Length <= 1e-9)
-            return false;
+        return (minX, minY, maxX, maxY);
+    }
 
-        var origin = GeometryRevit.ToVec3(start);
-        var normal = Vec3.Cross(along, new Vec3(0, 0, 1));
-        if (normal.Length <= 1e-9)
-            return false;
+    private static Vec3? IntersectX(PlanarTilt tilt, double elevation, double x, double minY, double maxY)
+    {
+        if (Math.Abs(tilt.Normal.Y) <= 1e-9)
+            return null;
 
-        plane = new Plane2D(origin, normal);
-        var horizontal = GeometryRevit.HorizontalPlane(start);
-        edge = GeometryRevit.ProjectAll(horizontal, GeometryRevit.Tessellate(curve));
-        return edge.Count >= 2;
+        var y = tilt.Through.Y - ((tilt.Normal.X * (x - tilt.Through.X) + tilt.Normal.Z * (elevation - tilt.Through.Z)) / tilt.Normal.Y);
+        if (y < minY - GeometryRevit.Tol || y > maxY + GeometryRevit.Tol)
+            return null;
+
+        return new Vec3(x, y, elevation);
+    }
+
+    private static Vec3? IntersectY(PlanarTilt tilt, double elevation, double y, double minX, double maxX)
+    {
+        if (Math.Abs(tilt.Normal.X) <= 1e-9)
+            return null;
+
+        var x = tilt.Through.X - ((tilt.Normal.Y * (y - tilt.Through.Y) + tilt.Normal.Z * (elevation - tilt.Through.Z)) / tilt.Normal.X);
+        if (x < minX - GeometryRevit.Tol || x > maxX + GeometryRevit.Tol)
+            return null;
+
+        return new Vec3(x, y, elevation);
+    }
+
+    private static void TryAdd(List<Point2> points, Vec3? point, Plane2D plane)
+    {
+        if (point == null)
+            return;
+
+        var projected = plane.Project(point.Value);
+        if (points.Count == 0 || points[points.Count - 1].DistanceTo(projected) > Polygon2D.VertexTolerance)
+            points.Add(projected);
     }
 
     private sealed class Skips
@@ -287,11 +345,15 @@ internal static class GridSplit
         public int Unchanged { get; set; }
         public int Failed { get; set; }
 
+        /// <summary>Every host this run left alone, whichever reason it was.</summary>
+        public int Total => NoCurve + NoHit + Stacked + Curtain + ShapeEdited
+            + NoPlanarFace + NoLevel + NoRegions + Unchanged + Failed;
+
         public string Note()
         {
             var parts = new List<string>();
             SplitElements.AddSkip(parts, NoCurve, "no curve");
-            SplitElements.AddSkip(parts, NoHit, "no grid hit");
+            SplitElements.AddSkip(parts, NoHit, "no level hit");
             SplitElements.AddSkip(parts, Stacked, "stacked");
             SplitElements.AddSkip(parts, Curtain, "curtain");
             SplitElements.AddSkip(parts, ShapeEdited, "shape edited");

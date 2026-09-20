@@ -4,7 +4,7 @@ namespace LoadingAI
     /// Small net48 / netstandard2.0 compatibility helpers. net48 lacks Math.Clamp
     /// and StringSplitOptions.TrimEntries. Kept unconditional so all builds compile
     /// identically; on modern TFMs members simply delegate to the BCL.
-    /// Public so FullAccess plugins (core-tools) can clamp limits without referencing the host.
+    /// Public so plugins can clamp limits without referencing the host.
     /// </summary>
     public static class Polyfills
     {

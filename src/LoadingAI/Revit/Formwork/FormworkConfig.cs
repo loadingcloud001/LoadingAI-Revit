@@ -1,7 +1,7 @@
 using Autodesk.Revit.DB;
 using LoadingAI.Revit;
 
-namespace LoadingAI.Plugins.QsFormwork;
+namespace LoadingAI.Revit.Formwork;
 
 internal static class FormworkConfig
 {
@@ -12,7 +12,6 @@ internal static class FormworkConfig
     public const string SharedParamGroup = "Formwork QS Parameters";
     public const string SharedParamFile = "RevitAI_Formwork_SharedParameters.txt";
 
-    public const double SheetThicknessMmDefault = 18.0;
     public const double FaceAreaMinSqFt = 0.1;
     public const double CoverRatioDelete = 0.90;
     public const int MaxTrimOperations = 500;
@@ -159,7 +158,7 @@ internal sealed class PanelCandidate
 
 internal sealed class GenerateOptions
 {
-    public double ThicknessMm { get; init; } = FormworkConfig.SheetThicknessMmDefault;
+    public double ThicknessMm { get; init; } = FormworkDefaults.SheetThicknessMmDefault;
     public HashSet<string> FaceTypes { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public bool Collision { get; init; } = true;
     public bool DeleteExisting { get; init; }

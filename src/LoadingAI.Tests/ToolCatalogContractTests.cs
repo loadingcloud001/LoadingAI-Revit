@@ -14,6 +14,9 @@ public class ToolCatalogContractTests
         Assert.DoesNotContain("Name = \"list_phases\"", src);
         Assert.Contains("Name = \"load_family\"", src);
         Assert.Contains("Name = \"change_element_type\"", src);
+        Assert.Contains("Name = \"create_topography\"", src);
+        Assert.DoesNotContain("IRevitFullAccess", src);
+        Assert.DoesNotContain("Autodesk.Revit", src);
     }
 
     [Fact]

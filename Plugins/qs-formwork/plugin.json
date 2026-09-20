@@ -1,7 +1,7 @@
 {
   "id": "qs-formwork",
   "name": "Formwork QS Tools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.QsFormwork.dll",

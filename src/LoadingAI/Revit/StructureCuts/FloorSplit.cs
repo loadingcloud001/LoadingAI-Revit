@@ -4,7 +4,7 @@ using Autodesk.Revit.UI;
 using LoadingAI.Geometry;
 using LoadingAI.Revit;
 
-namespace LoadingAI.Plugins.StructureCuts;
+namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
 /// Splits slabs along the beams that run through them. The slab's real outline is read back as a region,
@@ -27,7 +27,8 @@ internal static class FloorSplit
         IReadOnlyList<string> floorIds,
         IReadOnlyList<string> beamIds,
         IReadOnlyList<string> columnIds,
-        SplitOptions options)
+        SplitOptions options,
+        SplitOutcome? outcome = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -163,6 +164,8 @@ internal static class FloorSplit
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+
+        outcome?.Record(created, openingsMade, skips.Total);
 
         SplitElements.Select(uidoc, created);
         return message;
@@ -501,6 +504,10 @@ internal static class FloorSplit
         public int Partial { get; set; }
 
         public int DeleteFailed { get; set; }
+
+        /// <summary>Every host this run left alone, whichever reason it was.</summary>
+        public int Total => NotASlab + ShapeEdited + NoPlanarFace + SlopedMismatch
+            + NoLevel + NoRegions + Unchanged + Partial + DeleteFailed;
 
         public string Note()
         {

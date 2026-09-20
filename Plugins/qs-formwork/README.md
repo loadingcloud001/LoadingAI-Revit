@@ -1,6 +1,6 @@
 # qs-formwork — Formwork QS Tools
 
-Chat tools for formwork quantity takeoff. Port of pyRevit Formwork (v1.8.82) as a FullAccess C# plugin. Enable each L3 tool in Settings.
+Chat tools for formwork quantity takeoff. Port of pyRevit Formwork (v1.8.82) as a **Bridge-only** C# plugin (ADR-0009): the panel algorithms live host-side in `src/LoadingAI/Revit/Formwork/`, and this plugin only builds DTOs. Enable each L3 tool in Settings.
 
 ## Tools
 

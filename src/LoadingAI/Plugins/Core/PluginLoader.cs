@@ -241,8 +241,7 @@ public static class PluginLoader
             try
             {
                 var inst = (IRevitToolPlugin)Activator.CreateInstance(pt)!;
-                var requestFull = typeof(IRevitFullAccess).IsAssignableFrom(pt);
-                var ctx = factory.Create(folder, requestFull);
+                var ctx = factory.Create(folder);
                 var ts = OverlayTags(ToolGuards.ApplyAll(inst.CreateTools(ctx), bridge), meta.Tools).ToList();
                 tools.AddRange(ts);
                 if (meta.Tools.Count == 0)

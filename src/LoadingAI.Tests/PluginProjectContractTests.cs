@@ -7,11 +7,11 @@ public class PluginProjectContractTests
 {
     [Theory]
     [InlineData("Plugins/core-tools/CoreToolsPlugin.csproj", false)]
-    [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj", true)]
-    [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj", true)]
-    [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", true)]
-    [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj", true)]
-    [InlineData("Plugins/qs-formwork/QsFormworkPlugin.csproj", true)]
+    [InlineData("Plugins/export-tools/ExportToolsPlugin.csproj", false)]
+    [InlineData("Plugins/view-tools/ViewToolsPlugin.csproj", false)]
+    [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", false)]
+    [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj", false)]
+    [InlineData("Plugins/qs-formwork/QsFormworkPlugin.csproj", false)]
     public void ShippedPlugin_DoesNotReferenceHost(string relative, bool requiresRevitUtil)
     {
         var csproj = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
@@ -41,7 +41,7 @@ public class PluginProjectContractTests
     }
 
     [Fact]
-    public void NonFullAccessPlugins_DoNotMentionAutodeskRevit()
+    public void ShippedPlugins_DoNotMentionAutodeskRevit()
     {
         var pluginsDir = Path.Combine(RepoRoot(), "Plugins");
         Assert.True(Directory.Exists(pluginsDir), "Plugins/ missing");
@@ -50,8 +50,6 @@ public class PluginProjectContractTests
             var csFiles = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories);
             if (csFiles.Length == 0) continue;
             var combined = string.Join("\n", csFiles.Select(File.ReadAllText));
-            if (combined.IndexOf("IRevitFullAccess", StringComparison.Ordinal) >= 0)
-                continue;
 
             Assert.DoesNotContain("Autodesk.Revit", combined);
             foreach (var csprojPath in Directory.GetFiles(dir, "*.csproj", SearchOption.AllDirectories))
@@ -102,10 +100,9 @@ public class PluginProjectContractTests
     }
 
     [Fact]
-    public void QueryViewParamFactories_SucceedWithNullFullAccess()
+    public void QueryViewParamFactories_Succeed()
     {
         var ctx = new Fakes.FakePluginContext(new Fakes.FakeRevitBridge { HasActiveDocument = true });
-        Assert.Null(ctx.FullAccess);
         Assert.Contains(LoadingAI.Tools.QueryTools.Create(ctx), t => t.Definition.Function.Name == "get_model_summary");
         Assert.Contains(LoadingAI.Tools.QueryTools.Create(ctx), t => t.Definition.Function.Name == "get_worksets");
         Assert.Contains(LoadingAI.Tools.QueryTools.Create(ctx), t => t.Definition.Function.Name == "get_phases");

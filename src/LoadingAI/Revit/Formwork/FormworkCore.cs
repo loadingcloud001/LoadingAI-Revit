@@ -3,10 +3,18 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using LoadingAI.Tools;
 
-namespace LoadingAI.Plugins.QsFormwork;
+namespace LoadingAI.Revit.Formwork;
 
 internal static class FormworkCore
 {
+    /// <summary>
+    /// Looks the formwork schema up, creating and finishing it on first use.
+    /// <para>
+    /// <c>SchemaBuilder.Finish()</c> is illegal while a <c>Transaction</c> is open, so every caller must
+    /// invoke this <em>before</em> <c>tx.Start()</c>. Called inside an open transaction it is a plain
+    /// <c>Schema.Lookup</c> hit once some earlier call has created the schema.
+    /// </para>
+    /// </summary>
     public static Schema GetOrCreateSchema()
     {
         var guid = new Guid(FormworkConfig.SchemaGuid);

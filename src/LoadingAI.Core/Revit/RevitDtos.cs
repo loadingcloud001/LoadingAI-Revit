@@ -194,6 +194,9 @@ public sealed record CommandResultDto(
     string? ViewName = null,
     IReadOnlyList<string>? ElementIds = null);
 
+/// <summary>One millimetre-space point at the Bridge boundary. Adapter converts with <c>Metric.MmToFt</c>.</summary>
+public sealed record PointMmDto(double X, double Y, double Z);
+
 public sealed record ParamExportRowDto(
     string Id,
     IReadOnlyList<string> Values);
@@ -224,3 +227,156 @@ public sealed record QuantityTakeoffDto(
 public sealed record ParamImportRowDto(
     string Id,
     string Value);
+
+/// <summary>
+/// Outcome of a purge run. <c>DeletedCount</c> and <c>Passes</c> stay 0 when
+/// <c>Preview</c> is true, so a preview can never be mistaken for a delete.
+/// Same partial-failure convention as <see cref="QuantityTakeoffDto"/>.
+/// </summary>
+public sealed record PurgeUnusedResultDto(
+    bool Preview,
+    int UnusedCount,
+    int DeletedCount,
+    int Passes,
+    IReadOnlyList<string> Sample,
+    string? Error = null);
+
+/// <summary>
+/// Handle on a view or schedule the Adapter just created. <c>Message</c> is the
+/// human-readable outcome composed Adapter-side, same convention as
+/// <see cref="CommandResultDto.Message"/>, so a plugin handler stays plumbing.
+/// </summary>
+public sealed record ViewRefDto(
+    string Id,
+    string Name,
+    string Message,
+    string? Error = null);
+
+/// <summary>
+/// Schedule table body, already clamped to the requested row window. Cell text
+/// is tab-scrubbed Adapter-side so a row can be joined for display. Same
+/// nullable-DTO / trailing <c>Error</c> convention as <see cref="ElementDetailsDto"/>.
+/// </summary>
+public sealed record ScheduleDataDto(
+    string Id,
+    string Name,
+    int TotalRows,
+    int TotalColumns,
+    int ShownRows,
+    IReadOnlyList<IReadOnlyList<string>> Rows,
+    string? Error = null);
+
+/// <summary>One path-of-travel start/end pair. Millimetres; Adapter converts.</summary>
+public sealed record PathPairDto(PointMmDto Start, PointMmDto End);
+
+/// <summary>
+/// Outcome of a path-of-travel run. <c>CreatedIds</c> holds only the paths that
+/// were actually created; <c>Failures</c> holds one <c>#index:status</c> entry per
+/// pair that did not solve, so a partial success is never mistaken for a full one.
+/// </summary>
+public sealed record PathOfTravelResultDto(
+    string ViewName,
+    int Requested,
+    int Created,
+    IReadOnlyList<string> CreatedIds,
+    IReadOnlyList<string> Failures,
+    string? Error = null);
+
+/// <summary>
+/// One page of host element ids, in the order the host collected them.
+/// <c>Offset</c> echoes the requested window and <c>Total</c> is the size of the
+/// whole collection, so a caller can page without re-collecting.
+/// </summary>
+public sealed record ElementIdListDto(
+    IReadOnlyList<string> Ids,
+    int Offset,
+    int Total,
+    string? Error = null);
+
+/// <summary>
+/// Input for one structure-cuts run. <c>HostIds</c> and <c>Cutters</c> are the two
+/// id filters the algorithms take; <b>null means every element</b>, while an empty
+/// list is honoured as-is, so a caller holding an empty list must pass null to ask
+/// for the default. <c>Categories</c> follows the same rule, and <c>Scope</c> is
+/// only consulted when <c>HostIds</c> is null. <c>DryRun</c> short-circuits before
+/// any transaction, which is why a dry run always reports zero writes.
+/// </summary>
+public sealed record SplitRequestDto(
+    IReadOnlyList<string>? HostIds,
+    IReadOnlyList<string>? Cutters,
+    IReadOnlyList<string>? Categories,
+    string Scope,
+    int ContinueFrom,
+    int Limit,
+    bool DryRun,
+    bool UniqueMark,
+    bool CopyParams);
+
+/// <summary>
+/// Outcome of one structure-cuts run. <c>Report</c> is the algorithms' own prose,
+/// verbatim; the counters are kept separate from it so a partial run cannot read as
+/// a whole one. <c>Created</c> counts hosts replaced by more than one piece and
+/// <c>Skipped</c> counts hosts left alone for any reason.
+/// </summary>
+public sealed record SplitResultDto(
+    string Report,
+    int Created,
+    int Openings,
+    int Skipped,
+    IReadOnlyList<string> NewIds,
+    string? Error = null);
+
+/// <summary>
+/// Input for one formwork setup run. The tool takes no arguments today; the type exists
+/// so the slice keeps the same request/result shape as its siblings and a future knob
+/// does not need a signature change.
+/// </summary>
+public sealed record FormworkSetupRequestDto();
+
+/// <summary>
+/// Outcome of one formwork setup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// </summary>
+public sealed record FormworkSetupResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one formwork panel generation run. <c>Ids</c> null means the current selection;
+/// an empty list is honoured as-is. <c>FaceTypes</c> null or empty means every face type the
+/// generator supports, and <c>ThicknessMm</c> is in millimetres like the tool argument.
+/// </summary>
+public sealed record FormworkPanelsRequestDto(
+    IReadOnlyList<string>? Ids,
+    double ThicknessMm,
+    IReadOnlyList<string>? FaceTypes,
+    bool Collision,
+    bool DeleteExisting,
+    bool IncludeUnselectedLinks);
+
+/// <summary>
+/// Outcome of one formwork panel generation run. The generator's counters are already
+/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// </summary>
+public sealed record FormworkPanelsResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one formwork cleanup run. <c>Action</c> is already normalised to lower case
+/// by the caller and is one of <c>stats</c>, <c>delete_all</c>, <c>delete_by_type</c> or
+/// <c>cleanup_orphans</c>; <c>FaceType</c> is only consulted by <c>delete_by_type</c>.
+/// </summary>
+public sealed record CleanupRequestDto(string Action, string? FaceType);
+
+/// <summary>
+/// Outcome of one formwork cleanup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// </summary>
+public sealed record CleanupResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one parent-parameter copy run. <c>Ids</c> null or empty means every formwork
+/// panel in the model; an empty <c>Names</c> asks for the parameter catalogue instead of a copy.
+/// </summary>
+public sealed record CopyParamsRequestDto(IReadOnlyList<string>? Ids, IReadOnlyList<string>? Names);
+
+/// <summary>
+/// Outcome of one parent-parameter copy run. The copied/skipped counters are already
+/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// </summary>
+public sealed record CopyParamsResultDto(string Report, string? Error = null);
