@@ -9,7 +9,8 @@ Sources now live in `Plugins/core-tools/` (shipped Bridge-only plugin). This fol
 - **query-health** (9, now Bridge-only Core): get_worksets, get_phases, get_design_options, get_sheets_views, get_family_types, get_materials, get_room_area, get_clash_by_bb, get_model_health_score — `Plugins/core-tools/Core/QueryTools.cs`
 - **param-excel** (5, now Bridge-only Core): export_params_to_excel, import_excel_to_params, copy_params, replace_text, numbering_auto — `Plugins/core-tools/Core/ParamTools.cs`
 - **sheet-doc** (7, now Bridge-only Core): create_sheet, place_view_on_sheet, duplicate_view_ex, set_view_template, set_crop_box, create_dimension, tag_all — `Plugins/core-tools/Core/ViewTools.cs`
-- **geometry-create** (8, now Bridge-only Core): create_floor_by_outline, create_roof, create_grid_level, create_family_instance_array, rotate_elements, mirror_elements, split_wall, join_geometry — `Plugins/core-tools/Core/GeometryTools.cs`
+- **geometry-create** (7, now Bridge-only Core): create_floor_by_outline, create_roof, create_grid_level, create_family_instance_array, rotate_elements, mirror_elements, join_geometry — `Plugins/core-tools/Core/GeometryTools.cs`
+- **split_wall** is not a shipped catalog tool. Adapter `SplitWallAsync` stays not-implemented; use Dynamo or split the wall manually.
 - **query-save** (1, now Bridge-only Core): save_document — `Plugins/core-tools/Core/DocumentTools.cs`
 - **view-color** (3, now Bridge-only Core): override_color_in_view, color_by_construction_schedule, color_by_parameter — `Plugins/core-tools/Core/ViewTools.cs`
 - **param-mutate** (2, now Bridge-only Core): rename_elements, apply_construction_dates — `Plugins/core-tools/Core/ParamTools.cs`

@@ -3,7 +3,7 @@
     {"id":"query-health","name":"Query & Health","tools":["get_worksets","get_phases","get_design_options","get_sheets_views","get_family_types","get_materials","get_room_area","get_clash_by_bb","get_model_health_score"]},
     {"id":"param-excel","name":"Param & Excel","tools":["export_params_to_excel","import_excel_to_params","copy_params","replace_text","numbering_auto"]},
     {"id":"sheet-doc","name":"Sheet & Doc","tools":["create_sheet","place_view_on_sheet","duplicate_view_ex","set_view_template","set_crop_box","create_dimension","tag_all"]},
-    {"id":"geometry-create","name":"Geometry Create","tools":["create_floor_by_outline","create_roof","create_grid_level","create_family_instance_array","rotate_elements","mirror_elements","split_wall","join_geometry"]},
+    {"id":"geometry-create","name":"Geometry Create","tools":["create_floor_by_outline","create_roof","create_grid_level","create_family_instance_array","rotate_elements","mirror_elements","join_geometry"]},
     {"id":"worksharing-health","name":"Worksharing Health","tools":["reload_links","workset_assign","sync_info","audit_warnings_fix"]},
     {"id":"ifc-cost","name":"IFC & Cost","tools":["quantity_takeoff_by_category"]},
     {"id":"export-tools","name":"Export Tools","tools":["export_pdf","export_dwg","export_ifc","purge_unused"]},
