@@ -103,7 +103,9 @@ internal static class CurveMemberSplit
     public static bool TryNativeSplit(Document doc, Plan plan, SplitOptions options, out List<ElementId> ids)
     {
         ids = new List<ElementId>();
-        if (plan.Host is not FamilyInstance instance || !CanNativeSplit(instance))
+        // Joined members are allowed into the sub-transaction so ends can be unjoined first.
+        // Grouped, pinned and non-line/arc still abort the process — never call Split on those.
+        if (plan.Host is not FamilyInstance instance || !CanNativeSplit(instance, requireUnjoined: false))
             return false;
 
         var steps = SplitSequence.Build(plan.Cuts, MinGapFraction);
@@ -125,6 +127,13 @@ internal static class CurveMemberSplit
                         || !CanNativeSplit(current, requireUnjoined: false)
                         || current.Location is not LocationCurve location
                         || location.Curve == null)
+                    {
+                        sub.RollBack();
+                        return false;
+                    }
+
+                    if (!TryUnjoinEnds(doc, current, location) || Joined(location)
+                        || !CanNativeSplit(current))
                     {
                         sub.RollBack();
                         return false;
@@ -249,6 +258,7 @@ internal static class CurveMemberSplit
         var snapshot = options.CopyParams ? ParamCopy.Take(plan.Host) : null;
         var created = new List<ElementId>();
         var paramSkipped = 0;
+        var dependent = SplitElements.Dependent(plan.Host);
 
         using (var sub = new SubTransaction(doc))
         {
@@ -265,18 +275,6 @@ internal static class CurveMemberSplit
                     {
                         sub.RollBack();
                         return (empty, paramSkipped, 0, false);
-                    }
-
-                    if (i == 0)
-                    {
-                        if (!RewriteLocation(plan.Host, piece))
-                        {
-                            sub.RollBack();
-                            return (empty, paramSkipped, 0, false);
-                        }
-
-                        created.Add(plan.Host.Id);
-                        continue;
                     }
 
                     var made = CreatePiece(doc, piece, symbol, level, instance.StructuralType);
@@ -301,7 +299,7 @@ internal static class CurveMemberSplit
                     return (empty, paramSkipped, 0, false);
                 }
 
-                var dependent = SplitElements.Dependent(plan.Host);
+                doc.Delete(plan.Host.Id);
                 sub.Commit();
                 return (created, paramSkipped, dependent, true);
             }
@@ -343,6 +341,7 @@ internal static class CurveMemberSplit
         var snapshot = options.CopyParams ? ParamCopy.Take(wall) : null;
         var created = new List<ElementId>();
         var paramSkipped = 0;
+        var dependent = SplitElements.Dependent(wall);
 
         using (var sub = new SubTransaction(doc))
         {
@@ -356,18 +355,6 @@ internal static class CurveMemberSplit
                     {
                         sub.RollBack();
                         return (empty, paramSkipped, 0, false);
-                    }
-
-                    if (i == 0)
-                    {
-                        if (!RewriteLocation(wall, piece))
-                        {
-                            sub.RollBack();
-                            return (empty, paramSkipped, 0, false);
-                        }
-
-                        created.Add(wall.Id);
-                        continue;
                     }
 
                     Wall? made;
@@ -401,7 +388,7 @@ internal static class CurveMemberSplit
                     return (empty, paramSkipped, 0, false);
                 }
 
-                var dependent = SplitElements.Dependent(wall);
+                doc.Delete(wall.Id);
                 sub.Commit();
                 return (created, paramSkipped, dependent, true);
             }
@@ -422,8 +409,8 @@ internal static class CurveMemberSplit
             return native > 0 ? " Native split preserved parameters." : "";
 
         return paramSkipped > 0
-            ? $" Instance parameters copied to new pieces, {paramSkipped} skipped."
-            : " Instance parameters copied to new pieces.";
+            ? $" Instance parameters copied; {paramSkipped} parameter(s) skipped."
+            : " Instance parameters copied.";
     }
 
     private static bool Joined(LocationCurve location)
@@ -442,6 +429,60 @@ internal static class CurveMemberSplit
         }
     }
 
+    /// <summary>
+    /// Unjoin both ends so native Split can run. Unknown join status stays treated as joined and
+    /// the caller must not Split. Never call Split while still joined.
+    /// </summary>
+    private static bool TryUnjoinEnds(Document doc, FamilyInstance instance, LocationCurve location)
+    {
+        try
+        {
+            UnjoinEnd(doc, instance, location, 0);
+            UnjoinEnd(doc, instance, location, 1);
+            return !Joined(location);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void UnjoinEnd(Document doc, FamilyInstance instance, LocationCurve location, int end)
+    {
+        try { StructuralFramingUtils.DisallowJoinAtEnd(instance, end); }
+        catch { }
+
+        ElementArray? partners;
+        try
+        {
+            partners = location.get_ElementsAtJoin(end);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (partners == null || partners.Size == 0)
+            return;
+
+        var copy = new List<Element>();
+        foreach (Element partner in partners)
+        {
+            if (partner != null)
+                copy.Add(partner);
+        }
+
+        foreach (var partner in copy)
+        {
+            try
+            {
+                if (JoinGeometryUtils.AreElementsJoined(doc, instance, partner))
+                    JoinGeometryUtils.UnjoinGeometry(doc, instance, partner);
+            }
+            catch { }
+        }
+    }
+
     private static bool KeepsStart(FamilyInstance piece, XYZ originalStart, XYZ target)
     {
         if (piece.Location is not LocationCurve location)
@@ -457,31 +498,6 @@ internal static class CurveMemberSplit
 
     private static bool SamePoint(XYZ a, XYZ b)
         => a != null && b != null && a.DistanceTo(b) <= GeometryRevit.Tol;
-
-    private static bool RewriteLocation(Element host, Curve piece)
-    {
-        try
-        {
-            if (host.Location is LocationCurve location)
-            {
-                location.Curve = piece;
-                return true;
-            }
-        }
-        catch { }
-
-        try
-        {
-            if (host.Location is LocationCurve fallback)
-            {
-                fallback.Curve = Line.CreateBound(piece.GetEndPoint(0), piece.GetEndPoint(1));
-                return true;
-            }
-        }
-        catch { }
-
-        return false;
-    }
 
     private static Element? CreatePiece(Document doc, Curve piece, FamilySymbol symbol, Level level, StructuralType structuralType)
     {

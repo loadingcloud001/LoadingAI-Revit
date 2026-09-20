@@ -294,6 +294,15 @@ public sealed class OpenAiCompatibleClient : IDisposable
         List<ToolDefinition>? tools,
         Action<string>? onDelta,
         CancellationToken ct = default)
+        => await ChatAsync(provider, messages, tools, onDelta, null, ct);
+
+    public async Task<ChatCompletionResponse> ChatAsync(
+        ProviderConfig provider,
+        List<ChatMessage> messages,
+        List<ToolDefinition>? tools,
+        Action<string>? onDelta,
+        Action<string>? onReasoning,
+        CancellationToken ct = default)
     {
         if (!DefaultLlm.IsBuiltin(provider.Id)
             && string.IsNullOrWhiteSpace(provider.ApiKey)
@@ -310,16 +319,11 @@ public sealed class OpenAiCompatibleClient : IDisposable
         if (kind == "responses" || IsResponsesModel(provider.Model))
         {
             var resp = await ResponsesOnceAsync(provider, messages, tools, ct);
-            if (onDelta != null)
-            {
-                var text = LlmJson.GetContentString(resp.Choices?.FirstOrDefault()?.Message?.Content);
-                if (!string.IsNullOrEmpty(text))
-                    try { onDelta(text); } catch { }
-            }
+            EmitStrippedOnce(resp, onDelta, onReasoning);
             return resp;
         }
 
-        if (onDelta != null)
+        if (onDelta != null || onReasoning != null)
         {
             var streamed = false;
             try
@@ -327,8 +331,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
                 return await ChatStreamAsync(provider, messages, tools, chunk =>
                 {
                     streamed = true;
-                    onDelta(chunk);
-                }, ct);
+                    try { onDelta?.Invoke(chunk); } catch { }
+                }, onReasoning, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch when (!streamed)
@@ -338,7 +342,30 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
-        return await ChatOnceAsync(provider, messages, tools, timeoutCts.Token);
+        var once = await ChatOnceAsync(provider, messages, tools, timeoutCts.Token);
+        EmitStrippedOnce(once, onDelta, onReasoning);
+        return once;
+    }
+
+    /// <summary>
+    /// Non-stream replies still dump the full content; strip think tags so they never reach chat
+    /// and route inner think to the Think panel when a host post exists.
+    /// </summary>
+    private static void EmitStrippedOnce(
+        ChatCompletionResponse resp,
+        Action<string>? onDelta,
+        Action<string>? onReasoning)
+    {
+        var msg = resp.Choices?.FirstOrDefault()?.Message;
+        if (msg == null) return;
+        var raw = LlmJson.GetContentString(msg.Content);
+        if (string.IsNullOrEmpty(raw)) return;
+        var stripped = ThinkTagStripper.Strip(raw);
+        msg.Content = stripped.Visible;
+        if (!string.IsNullOrEmpty(stripped.Visible) && onDelta != null)
+            try { onDelta(stripped.Visible); } catch { }
+        if (!string.IsNullOrEmpty(stripped.Reasoning) && onReasoning != null)
+            try { onReasoning(stripped.Reasoning); } catch { }
     }
 
     private async Task<ChatCompletionResponse> ChatOnceAsync(
@@ -569,6 +596,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         List<ChatMessage> messages,
         List<ToolDefinition>? tools,
         Action<string> onDelta,
+        Action<string>? onReasoning,
         CancellationToken ct)
     {
         var url = BuildUrl(provider.BaseUrl);
@@ -606,6 +634,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
         var contentSb = new StringBuilder();
         var toolCallsAccum = new StreamToolCallAccumulator();
+        var thinkStrip = new ThinkTagStripper();
         string? finishReason = null;
         string? role = "assistant";
 
@@ -636,12 +665,27 @@ public sealed class OpenAiCompatibleClient : IDisposable
             var deltaContent = LlmJson.GetContentString(delta.Content);
             if (!string.IsNullOrEmpty(deltaContent))
             {
-                contentSb.Append(deltaContent);
-                try { onDelta(deltaContent); } catch { }
+                var stripped = thinkStrip.Push(deltaContent);
+                if (!string.IsNullOrEmpty(stripped.Visible))
+                {
+                    contentSb.Append(stripped.Visible);
+                    try { onDelta(stripped.Visible); } catch { }
+                }
+                if (!string.IsNullOrEmpty(stripped.Reasoning) && onReasoning != null)
+                    try { onReasoning(stripped.Reasoning); } catch { }
             }
 
             try { toolCallsAccum.ApplyChunk(data); } catch { }
         }
+
+        var flushed = thinkStrip.Flush();
+        if (!string.IsNullOrEmpty(flushed.Visible))
+        {
+            contentSb.Append(flushed.Visible);
+            try { onDelta(flushed.Visible); } catch { }
+        }
+        if (!string.IsNullOrEmpty(flushed.Reasoning) && onReasoning != null)
+            try { onReasoning(flushed.Reasoning); } catch { }
 
         var finalMsg = new ChatMessage { Role = role ?? "assistant", Content = contentSb.ToString() };
         if (toolCallsAccum.Calls.Count > 0)

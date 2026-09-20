@@ -241,6 +241,8 @@ public class StructureCutsContractTests
         Assert.Contains("GeometryRevit.TrySlabRegion", floor, StringComparison.Ordinal);
         Assert.Contains("SlopeArrowFor", floor, StringComparison.Ordinal);
         Assert.Contains("Floor.Create(doc,", floor, StringComparison.Ordinal);
+        Assert.Contains("Instance parameters copied", floor, StringComparison.Ordinal);
+        Assert.DoesNotContain("copied to new pieces", floor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("unsupported", floor, StringComparison.Ordinal);
 
         // Each reason a slab is left alone is named, so a run says what it could not do and why.
@@ -268,7 +270,9 @@ public class StructureCutsContractTests
         // fallback, which re-creates pieces and has to copy parameters across by hand. Native Split
         // aborts Revit 2024–2027 on grouped/pinned/joined/non-line members, so CanNativeSplit
         // gates the call; SubTransaction still wraps Split for catchable failures.
-        Assert.Contains("CanNativeSplit(instance)", beam, StringComparison.Ordinal);
+        Assert.Contains("CanNativeSplit(FamilyInstance instance)", beam, StringComparison.Ordinal);
+        Assert.Contains("CanNativeSplit(current)", beam, StringComparison.Ordinal);
+        Assert.Contains("CanNativeSplit(instance, requireUnjoined: false)", beam, StringComparison.Ordinal);
         Assert.Contains("instance.CanSplit", beam, StringComparison.Ordinal);
         Assert.Contains("instance.Pinned", beam, StringComparison.Ordinal);
         Assert.Contains("instance.GroupId", beam, StringComparison.Ordinal);
@@ -277,7 +281,16 @@ public class StructureCutsContractTests
         Assert.Contains("get_ElementsAtJoin", beam, StringComparison.Ordinal);
         // Join-status throw must count as joined so native Split is never called on an unknown member.
         Assert.Contains("Unknown join status is treated as joined", beam, StringComparison.Ordinal);
+        // Joined members unjoin first; Split runs only after joins are actually gone.
+        // Framing joins that meet columns live in get_ElementsAtJoin; UnjoinGeometry is not enough.
+        Assert.Contains("StructuralFramingUtils.DisallowJoinAtEnd", beam, StringComparison.Ordinal);
+        Assert.Contains("JoinGeometryUtils.AreElementsJoined", beam, StringComparison.Ordinal);
+        Assert.Contains("JoinGeometryUtils.UnjoinGeometry", beam, StringComparison.Ordinal);
+        Assert.Contains("TryUnjoinEnds", beam, StringComparison.Ordinal);
         Assert.Contains("requireUnjoined: false", beam, StringComparison.Ordinal);
+        AssertOrdered("CurveMemberSplit.cs", beam,
+            "TryUnjoinEnds(doc, current, location)",
+            ".Split(local)");
         Assert.Contains(".Split(local)", beam, StringComparison.Ordinal);
         Assert.Contains("SplitSequence.Build(", beam, StringComparison.Ordinal);
         Assert.Contains("originalStart = live.GetEndPoint(0)", beam, StringComparison.Ordinal);
@@ -290,6 +303,8 @@ public class StructureCutsContractTests
         // were copied across belongs to the fallback.
         Assert.Contains("Native split preserved parameters.", beam, StringComparison.Ordinal);
         Assert.Contains("ParamCopy.Apply(snapshot, made, markFor)", beam, StringComparison.Ordinal);
+        Assert.Contains("Instance parameters copied; {paramSkipped} parameter(s) skipped.", beam, StringComparison.Ordinal);
+        Assert.DoesNotContain("copied to new pieces", beam, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("unsupported", beam, StringComparison.Ordinal);
 
         // Nothing splits without a sub-transaction to undo it, and the document is never regenerated

@@ -12,9 +12,10 @@ namespace LoadingAI.Revit.StructureCuts;
 /// centreline crosses the column's real plan outline leaves a member whole when a column only clips its
 /// end, and a curved member is cut along its own curve instead of across a single chord.
 /// <para>
-/// Unjoined line and arc beams that are not grouped or pinned are split in place, so the original
-/// element, its host and its parameters survive. Grouped, pinned, joined or non-line/arc members
-/// recreate the location curve — native Split on those is a Revit process abort. Each member runs in
+/// Line and arc beams that are not grouped or pinned are split in place after unjoining ends, so the
+/// original element, its host and its parameters survive. Grouped, pinned or non-line/arc members
+/// recreate every piece and delete the original — native Split on those is a Revit process abort.
+/// Recreate does not re-host dependents; the report only counts them. Each member runs in
 /// its own sub-transaction, so a member that fails either way is put back exactly as it was instead of
 /// being left silently shortened.
 /// </para>

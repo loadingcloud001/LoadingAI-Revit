@@ -41,6 +41,10 @@ public class UsabilityContractTests
         // The native confirm itself is unchanged and still the single L3 gate.
         Assert.Contains("ConfirmL3NativeAsync", src, StringComparison.Ordinal);
         Assert.Contains("Confirm L3:", src, StringComparison.Ordinal);
+
+        // Dry-run already skips L3 TaskDialog; it must also skip the Confirm-options preset form.
+        Assert.Contains("ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
+        Assert.Contains("ToolPresets.HasPresets(entry)", src, StringComparison.Ordinal);
     }
 
     [Fact]

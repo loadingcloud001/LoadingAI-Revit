@@ -154,12 +154,12 @@ internal static class FloorSplit
             + skips.Note()
             + SplitReport.Progress(batch);
         message += options.CopyParams
-            ? " Instance parameters copied to new pieces."
+            ? (paramSkipped > 0
+                ? $" Instance parameters copied; {paramSkipped} parameter(s) skipped."
+                : " Instance parameters copied.")
             : " Copy params: off.";
         if (slopedMade > 0)
             message += $" Replaced with a slope arrow: {slopedMade}.";
-        if (options.CopyParams && paramSkipped > 0)
-            message += $" Param copy skipped: {paramSkipped}.";
         if (splitFloors > 0)
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
