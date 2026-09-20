@@ -19,6 +19,14 @@ public sealed class PluginAllowlist
     public const string AllowlistFileName = "plugin-allowlist.json";
 
     private static readonly object Gate = new();
+
+    /// <summary>
+    /// Serialises <see cref="TryAddTrustedHash"/> only. Deliberately not <see cref="Gate"/>, which is
+    /// released when <see cref="Current"/> evaluates and therefore cannot exclude a concurrent
+    /// <see cref="IsAllowed"/> read; holding it across a write would stall every plugin scan on the
+    /// filesystem for no exclusion benefit.
+    /// </summary>
+    private static readonly object WriteGate = new();
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
     private static PluginAllowlist? _current;
 
@@ -90,6 +98,7 @@ public sealed class PluginAllowlist
     /// An existing file that cannot be parsed aborts the write: <see cref="LoadHashes"/> reports an
     /// empty set for such a file, so overwriting it would silently un-trust every other plugin on it.
     /// Only the parent directory of <see cref="AllowlistPath"/> may be created — never <see cref="DevPluginsDir"/>.
+    /// Writes are serialised on <see cref="WriteGate"/>, held across the whole read-modify-write.
     /// </summary>
     public bool TryAddTrustedHash(string sha256, out string error)
     {
@@ -101,41 +110,47 @@ public sealed class PluginAllowlist
             return false;
         }
 
-        List<string> entries;
-        try
+        // WriteGate is held across the whole read-modify-write, read included: two callers that both
+        // read before either writes each append to a stale list and one append is lost. The
+        // File.Exists check below is inside the region too, or Exists-then-Replace is itself a race.
+        lock (WriteGate)
         {
-            entries = ReadEntriesForWrite(AllowlistPath);
-        }
-        catch (Exception ex)
-        {
-            error = $"refusing to overwrite unreadable {AllowlistPath}: {ex.Message}";
-            return false;
-        }
+            List<string> entries;
+            try
+            {
+                entries = ReadEntriesForWrite(AllowlistPath);
+            }
+            catch (Exception ex)
+            {
+                error = $"refusing to overwrite unreadable {AllowlistPath}: {ex.Message}";
+                return false;
+            }
 
-        if (entries.Contains(hash, StringComparer.OrdinalIgnoreCase)) return true;
+            if (entries.Contains(hash, StringComparer.OrdinalIgnoreCase)) return true;
 
-        entries.Add(hash);
-        var dir = Path.GetDirectoryName(Path.GetFullPath(AllowlistPath)) ?? ".";
-        var temp = Path.Combine(dir, $".{Path.GetFileName(AllowlistPath)}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(temp, JsonSerializer.Serialize(entries, IndentedJson) + Environment.NewLine);
-            // File.Move(source, destination, overwrite) is Core-only; Revit 2024 builds net48.
-            if (File.Exists(AllowlistPath)) File.Replace(temp, AllowlistPath, null);
-            else File.Move(temp, AllowlistPath);
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
-        }
-        finally
-        {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-        }
+            entries.Add(hash);
+            var dir = Path.GetDirectoryName(Path.GetFullPath(AllowlistPath)) ?? ".";
+            var temp = Path.Combine(dir, $".{Path.GetFileName(AllowlistPath)}.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(temp, JsonSerializer.Serialize(entries, IndentedJson) + Environment.NewLine);
+                // File.Move(source, destination, overwrite) is Core-only; Revit 2024 builds net48.
+                if (File.Exists(AllowlistPath)) File.Replace(temp, AllowlistPath, null);
+                else File.Move(temp, AllowlistPath);
+            }
+            catch (Exception ex)
+            {
+                error = $"refusing to overwrite {AllowlistPath}: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            }
 
-        return true;
+            return true;
+        }
     }
 
     public static string HashFile(string path)
