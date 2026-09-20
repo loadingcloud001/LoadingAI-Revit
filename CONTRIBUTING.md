@@ -12,6 +12,7 @@ Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Propos
 - [ADR-0007](docs/adr/0007-port-view-tools-onto-bridge.md) — `view-tools` is Bridge-only (`GetScheduleData` / `CreateSchedule` / `CreateFloorPlan` / `Create3DView` / `CreateSectionView` / `CreatePathOfTravel`).
 - [ADR-0008](docs/adr/0008-port-structure-cuts-onto-bridge.md) — `structure-cuts` is Bridge-only (`CollectHosts` / `SplitBeamsByColumns` / `SplitFloorsByBeams` / `SplitByLevels` / `SplitByGrids`).
 - [ADR-0009](docs/adr/0009-port-qs-formwork-onto-bridge.md) — `qs-formwork` is Bridge-only (`FormworkSetup` / `CreateFormworkPanels` / `CleanupFormwork` / `CopyFormworkParentParams`), and `IRevitFullAccess` is retired.
+- [ADR-0010](docs/adr/0010-plugin-load-allowlist.md) — `PluginLoader` refuses an unknown DLL SHA-256 **before** load. Dev folder and recorded hashes still load; `PluginMeta.Verified` is not a gate.
 
 ## How to add a plugin
 
@@ -48,7 +49,9 @@ Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Propos
 
 ## Local dev without PR
 
-Drop `<PluginId>/plugin.json + *.dll` into `%AppData%\LoadingAI\Plugins\` (or `src/LoadingAI/Plugins/dev/` for dev build). Restart Revit. **Settings** shows it as **Unverified** — works locally, not distributed.
+Copy `<PluginId>/plugin.json + *.dll` into `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Create that folder and copy the plugin in by hand; the build does not do it, and nothing else under `Addins\<year>\` is scanned. This folder is not hash-gated. To load from the normal runtime folder `%AppData%\LoadingAI\Plugins\` instead, record the DLL's SHA-256 in `%AppData%\LoadingAI\plugin-allowlist.json`. Restart Revit. **Settings** shows a local plugin as **Unverified** — works locally, not distributed.
+
+An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused **before** the assembly loads (ADR-0010 stage 1): the plugin shows a **Settings** load issue and none of its tools register, so it cannot reach Confirm L3. `"verified": true` does not override that. A drop-in trust prompt is stage 2 and is not implemented yet.
 
 ## Rules
 

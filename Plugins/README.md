@@ -2,8 +2,10 @@
 
 This folder documents the runtime plugin directory, not the repo source.
 
-Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll`
-Dev location (optional, copied on build if exists): `src/LoadingAI/Plugins/dev/<pluginId>/`
+Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll` — hash-gated, see **Load gate** below.
+Dev location: `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Not hash-gated. Create the folder and copy the plugin into it by hand; no build step does that, and a plugin put anywhere else under `Addins\<year>\` is never scanned.
+
+Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach Confirm L3. Put the plugin in `LoadingAI\Plugins\dev` beside the installed `LoadingAI.dll`, or record its SHA-256 in the AppData allowlist. A trust-prompt flow for drop-ins is stage 2 and is not implemented yet.
 
 Each plugin folder example:
 
@@ -31,7 +33,7 @@ Plugins/hello/
 ```
 
 - `verified:true` = merged via PR and reviewed.
-- `verified:false` = local drop, shown in **Settings** as unverified.
+- `verified:false` = built outside the repo, shown in **Settings** as unverified. Display-only: this field is **not** the load gate, the DLL hash is. `"verified":true` on an unknown hash still refuses to load.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggle in Web requires no restart, adding/removing DLL requires restart (AppDomain lock).
 - csproj must ProjectReference `LoadingAI.Core` — and nothing else. Never reference the host `LoadingAI.csproj`, `LoadingAI.RevitUtil`, or the Nice3point RevitAPI packages (no shipped plugin does).
 
