@@ -30,6 +30,44 @@ internal static class CurveMemberSplit
         public List<double> Cuts { get; }
     }
 
+    /// <summary>
+    /// One wall cut into storeys. The sibling of <see cref="Plan"/> for a horizontal wall, whose
+    /// location curve no storey plane can cross: this cut is by height, not by length.
+    /// </summary>
+    public sealed class Stack
+    {
+        public Stack(Wall wall, Curve curve, List<StackPiece> pieces)
+        {
+            Wall = wall;
+            Curve = curve;
+            Pieces = pieces;
+        }
+
+        public Wall Wall { get; }
+
+        /// <summary>The wall's own footprint, reused by every piece at its own storey.</summary>
+        public Curve Curve { get; }
+
+        public List<StackPiece> Pieces { get; }
+    }
+
+    /// <summary>One piece of a storey stack: the storey it is based on, its base offset and its height.</summary>
+    public sealed class StackPiece
+    {
+        public StackPiece(Level level, double offset, double height)
+        {
+            Level = level;
+            Offset = offset;
+            Height = height;
+        }
+
+        public Level Level { get; }
+
+        public double Offset { get; }
+
+        public double Height { get; }
+    }
+
     public static (List<ElementId> Ids, int ParamSkipped, bool Rollback, bool Native, int Dependent) SplitAtCuts(
         Document doc,
         Plan plan,
@@ -400,6 +438,109 @@ internal static class CurveMemberSplit
         }
     }
 
+    /// <summary>
+    /// One wall in, one wall per storey out: piece 0 on the wall's own storey with the wall's own base
+    /// offset, then one piece per storey up to the wall top. The last piece's storey is the highest
+    /// storey strictly below the top, and its height is what remains up to the top.
+    /// <para>
+    /// Like the curve path, the storey stack deletes the host it replaces and does not re-host its
+    /// dependents; the count comes back to the caller, which reports it.
+    /// </para>
+    /// </summary>
+    public static (List<ElementId> Ids, int ParamSkipped, int Dependent, bool Rollback) SplitWallStack(
+        Document doc,
+        Stack stack,
+        SplitOptions options)
+    {
+        var empty = new List<ElementId>();
+        if (stack.Pieces.Count < 2)
+            return (empty, 0, 0, true);
+
+        var wall = stack.Wall;
+        var typeId = wall.GetTypeId();
+        if (typeId == null || typeId == ElementId.InvalidElementId)
+            return (empty, 0, 0, true);
+
+        var structural = wall.StructuralUsage != StructuralWallUsage.NonBearing;
+
+        var mark = options.UniqueMark ? ParamCopy.Mark(wall) : null;
+        var snapshot = options.CopyParams ? ParamCopy.Take(wall) : null;
+        var created = new List<ElementId>();
+        var paramSkipped = 0;
+
+        // Counted before the sub-transaction, as RecreateWall does: once the host is deleted its
+        // dependents are gone with it and there is nothing left to count.
+        var dependent = SplitElements.Dependent(wall);
+
+        using (var sub = new SubTransaction(doc))
+        {
+            sub.Start();
+            try
+            {
+                for (var i = 0; i < stack.Pieces.Count; i++)
+                {
+                    var piece = stack.Pieces[i];
+                    Wall? made;
+                    try
+                    {
+                        // Every piece keeps the wall's footprint and flip; only the storey it is based
+                        // on, its base offset and its height change.
+                        made = Wall.Create(
+                            doc,
+                            stack.Curve,
+                            typeId,
+                            piece.Level.Id,
+                            piece.Height,
+                            piece.Offset,
+                            wall.Flipped,
+                            structural);
+                    }
+                    catch
+                    {
+                        made = null;
+                    }
+
+                    if (made == null)
+                    {
+                        sub.RollBack();
+                        return (empty, paramSkipped, 0, true);
+                    }
+
+                    var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
+                    if (snapshot != null)
+                        paramSkipped += ParamCopy.Apply(snapshot, made, markFor);
+                    else
+                        ParamCopy.SetMark(made, markFor);
+
+                    // The copied instance parameters carry the original wall's height and base offset
+                    // with them, so the piece's own storey is re-imposed after the copy.
+                    if (!PinStorey(made, piece.Offset, piece.Height))
+                    {
+                        sub.RollBack();
+                        return (empty, paramSkipped, 0, true);
+                    }
+
+                    created.Add(made.Id);
+                }
+
+                if (created.Count < 2)
+                {
+                    sub.RollBack();
+                    return (empty, paramSkipped, 0, true);
+                }
+
+                doc.Delete(wall.Id);
+                sub.Commit();
+                return (created, paramSkipped, dependent, false);
+            }
+            catch
+            {
+                try { sub.RollBack(); } catch { }
+                return (empty, paramSkipped, 0, true);
+            }
+        }
+    }
+
     public static string ParamNote(SplitOptions options, int native, int recreated, int paramSkipped)
     {
         if (!options.CopyParams)
@@ -498,6 +639,39 @@ internal static class CurveMemberSplit
 
     private static bool SamePoint(XYZ a, XYZ b)
         => a != null && b != null && a.DistanceTo(b) <= GeometryRevit.Tol;
+
+    /// <summary>
+    /// Re-imposes the storey geometry on a stack piece. The instance parameter copy runs last so the
+    /// engineer's parameters follow the wall, but it also carries the original wall's height and base
+    /// offset, which would stretch the base piece up through the storeys above it and sink every piece
+    /// above the first. The piece's own storey wins: too read-only to set is a rollback, not a
+    /// silently wrong wall.
+    /// </summary>
+    private static bool PinStorey(Element piece, double offset, double height)
+    {
+        var baseOffset = piece.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET);
+        var userHeight = piece.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM);
+        if (baseOffset == null || userHeight == null)
+            return false;
+
+        return Set(baseOffset, offset) && Set(userHeight, height);
+    }
+
+    private static bool Set(Parameter param, double value)
+    {
+        try
+        {
+            if (Math.Abs(param.AsDouble() - value) <= GeometryRevit.Tol)
+                return true;
+            if (param.IsReadOnly)
+                return false;
+            return param.Set(value);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static Element? CreatePiece(Document doc, Curve piece, FamilySymbol symbol, Level level, StructuralType structuralType)
     {
