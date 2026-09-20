@@ -8,7 +8,9 @@ namespace LoadingAI.Revit.StructureCuts;
 /// <summary>
 /// Splits walls, columns, beams and floors at storey elevations. Curve members use
 /// <see cref="CurveCut.AtElevation"/> then native split or location-curve recreate. Horizontal
-/// floors skip with no-level-hit; a leaning slab is cut along the plane intersection.
+/// floors skip with no-level-hit; a leaning slab is cut along the plane intersection. A horizontal
+/// wall is cut into one piece per storey instead, since a storey plane can never cross its
+/// horizontal location curve; a leaning wall still cuts along the plane intersection.
 /// </summary>
 internal static class LevelSplit
 {
@@ -38,6 +40,7 @@ internal static class LevelSplit
         var elevations = levels.Select(level => level.Elevation).Distinct().OrderBy(z => z).ToList();
         var skips = new Skips();
         var curvePlans = new List<CurveMemberSplit.Plan>();
+        var stackPlans = new List<CurveMemberSplit.Stack>();
         var floorPlans = new List<FloorSplit.Plan>();
 
         foreach (var host in batch.Items)
@@ -66,20 +69,34 @@ internal static class LevelSplit
                 continue;
             }
 
-            PlanCurve(host, elevations, skips, curvePlans);
+            var samples = HostCurve.Samples(host);
+            if (samples.Count < 2)
+            {
+                skips.NoCurve++;
+                continue;
+            }
+
+            // A wall whose location curve is horizontal is cut into storeys, because a horizontal
+            // curve cannot be crossed by a horizontal plane. Everything else keeps the curve path,
+            // which already cuts a slanted wall at the storeys.
+            if (PlanWallStack(doc, host, samples, levels, skips, stackPlans))
+                continue;
+
+            PlanCurve(host, samples, elevations, skips, curvePlans);
         }
 
         var notes = skips.Note() + SplitReport.Progress(batch);
         if (options.DryRun)
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
+            var stackPieces = stackPlans.Sum(stack => stack.Pieces.Count);
             var floorPieces = floorPlans.Sum(plan => plan.Regions.Count);
             return "Dry-run. "
-                + $"Would split {curvePlans.Count} members into {curvePieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
+                + $"Would split {curvePlans.Count + stackPlans.Count} members into {curvePieces + stackPieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
                 + notes;
         }
 
-        if (curvePlans.Count == 0 && floorPlans.Count == 0)
+        if (curvePlans.Count == 0 && stackPlans.Count == 0 && floorPlans.Count == 0)
             return "Nothing to split." + notes;
 
         var created = new List<ElementId>();
@@ -118,6 +135,29 @@ internal static class LevelSplit
                         recreated++;
                         dependents += lost;
                     }
+                }
+                else
+                {
+                    skips.Unchanged++;
+                }
+            }
+
+            foreach (var stack in stackPlans)
+            {
+                var (ids, skipped, rollback) = CurveMemberSplit.SplitWallStack(doc, stack, options);
+                paramSkipped += skipped;
+                if (rollback)
+                {
+                    skips.Failed++;
+                    continue;
+                }
+
+                if (ids.Count > 1)
+                {
+                    split++;
+                    piecesMade += ids.Count;
+                    created.AddRange(ids);
+                    recreated++;
                 }
                 else
                 {
@@ -168,13 +208,13 @@ internal static class LevelSplit
 
     private static void PlanCurve(
         Element host,
+        IReadOnlyList<Vec3> samples,
         IReadOnlyList<double> elevations,
         Skips skips,
         List<CurveMemberSplit.Plan> plans)
     {
         var curve = HostCurve.Of(host);
-        var samples = HostCurve.Samples(host);
-        if (curve == null || samples.Count < 2)
+        if (curve == null)
         {
             skips.NoCurve++;
             return;
@@ -192,6 +232,105 @@ internal static class LevelSplit
         }
 
         plans.Add(new CurveMemberSplit.Plan(host, curve, cuts));
+    }
+
+    /// <summary>
+    /// A wall is cut into one piece per storey when its location curve is horizontal, because the
+    /// planar cut <see cref="PlanCurve"/> uses can only fail there: a horizontal plane crosses a
+    /// horizontal curve end-on, never at a point. Claims the host (returns true) when it has handled
+    /// it, either by planning the stack or by naming why it would not. Returns false to leave the host
+    /// on the curve path, which is what a slanted wall, a wall inside one storey, or a non-wall needs.
+    /// </summary>
+    private static bool PlanWallStack(
+        Document doc,
+        Element host,
+        IReadOnlyList<Vec3> samples,
+        IReadOnlyList<Level> levels,
+        Skips skips,
+        List<CurveMemberSplit.Stack> stacks)
+    {
+        if (host is not Wall wall)
+            return false;
+
+        var rise = 0.0;
+        foreach (var sample in samples)
+            rise = Math.Max(rise, Math.Abs(sample.Z - samples[0].Z));
+        if (rise > GeometryRevit.ZTolFt)
+            return false;
+
+        var curve = HostCurve.Of(host);
+        if (curve == null || doc.GetElement(wall.LevelId) is not Level baseLevel)
+            return false;
+
+        // A top this path cannot rebuild is named, not folded into "no level hit": the storeys are
+        // there, the top is what is missing, and the engineer needs to read that difference.
+        if (!WallTop(wall, baseLevel, out var top))
+        {
+            skips.TopAttached++;
+            return true;
+        }
+
+        var offset = wall.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0;
+        var baseZ = baseLevel.Elevation + offset;
+        if (top - baseZ <= GeometryRevit.ZTolFt)
+            return false;
+
+        // Only the storeys the engineer selected, and only those strictly inside the wall: a storey
+        // level with the base or the top would be a zero-height piece.
+        var interior = levels
+            .Where(level => level.Elevation > baseZ + GeometryRevit.ZTolFt
+                && level.Elevation < top - GeometryRevit.ZTolFt)
+            .GroupBy(level => level.Elevation)
+            .Select(group => group.First())
+            .OrderBy(level => level.Elevation)
+            .ToList();
+        if (interior.Count == 0)
+            return false;
+
+        var pieces = new List<CurveMemberSplit.StackPiece>
+        {
+            // The wall's own storey keeps the wall's own base offset, so a piece based below the wall
+            // base still lands where the wall was. Every storey above starts at its own 0.
+            new(baseLevel, offset, interior[0].Elevation - baseZ)
+        };
+
+        for (var i = 0; i < interior.Count - 1; i++)
+            pieces.Add(new CurveMemberSplit.StackPiece(interior[i], 0, interior[i + 1].Elevation - interior[i].Elevation));
+
+        pieces.Add(new CurveMemberSplit.StackPiece(interior[interior.Count - 1], 0, top - interior[interior.Count - 1].Elevation));
+
+        stacks.Add(new CurveMemberSplit.Stack(wall, curve, pieces));
+        return true;
+    }
+
+    /// <summary>
+    /// The wall's top in model Z, but only when the wall's own unconnected height is what places it.
+    /// An attached top, whose height parameter no longer places the top, is refused: rebuilding it as
+    /// pieces would silently drop the attachment and write pieces the model never had.
+    /// </summary>
+    private static bool WallTop(Wall wall, Level baseLevel, out double top)
+    {
+        top = 0;
+        try
+        {
+            var height = wall.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0;
+            if (height <= GeometryRevit.Tol)
+                return false;
+
+            var bottom = baseLevel.Elevation + (wall.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0);
+            top = bottom + height;
+
+            var box = wall.get_BoundingBox(null);
+            if (box == null)
+                return true;
+
+            return Math.Abs(box.Min.Z - bottom) <= GeometryRevit.ZTolFt
+                && Math.Abs(box.Max.Z - top) <= GeometryRevit.ZTolFt;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void PlanFloor(
@@ -336,6 +475,7 @@ internal static class LevelSplit
     {
         public int NoCurve { get; set; }
         public int NoHit { get; set; }
+        public int TopAttached { get; set; }
         public int Stacked { get; set; }
         public int Curtain { get; set; }
         public int ShapeEdited { get; set; }
@@ -346,7 +486,7 @@ internal static class LevelSplit
         public int Failed { get; set; }
 
         /// <summary>Every host this run left alone, whichever reason it was.</summary>
-        public int Total => NoCurve + NoHit + Stacked + Curtain + ShapeEdited
+        public int Total => NoCurve + NoHit + TopAttached + Stacked + Curtain + ShapeEdited
             + NoPlanarFace + NoLevel + NoRegions + Unchanged + Failed;
 
         public string Note()
@@ -354,6 +494,7 @@ internal static class LevelSplit
             var parts = new List<string>();
             SplitElements.AddSkip(parts, NoCurve, "no curve");
             SplitElements.AddSkip(parts, NoHit, "no level hit");
+            SplitElements.AddSkip(parts, TopAttached, "top not at wall height");
             SplitElements.AddSkip(parts, Stacked, "stacked");
             SplitElements.AddSkip(parts, Curtain, "curtain");
             SplitElements.AddSkip(parts, ShapeEdited, "shape edited");
