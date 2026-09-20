@@ -536,16 +536,6 @@
       ]
     },
     {
-      "name": "split_wall",
-      "tier": "L3",
-      "description": "Split wall at point.",
-      "enabledByDefault": false,
-      "tags": [
-        "write",
-        "compat"
-      ]
-    },
-    {
       "name": "join_geometry",
       "tier": "L2",
       "description": "Join two elements geometry.",
