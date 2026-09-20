@@ -44,7 +44,7 @@ Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/export-tools/` — Bridge-only `export_pdf`, `export_dwg`, `export_ifc` (L1), `purge_unused` (L3)
 - `Plugins/view-tools/` — Bridge-only `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
 - `Plugins/modeling-tools/` — Bridge-only `load_family`, `change_element_type`, `create_topography`
-- `Plugins/structure-cuts/` — Bridge-only `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected host-side (`IRevitQuery.CollectHostsAsync`) from `scope=selection|visible|all` so chat never has to paste hundreds of ids. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
+- `Plugins/structure-cuts/` — Bridge-only `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected host-side from `scope=selection|visible|all`, so chat never has to paste hundreds of ids; `IRevitQuery.CollectHostsAsync` exposes the same page to callers that want it directly. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
 - `Plugins/qs-formwork/` — `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params`
 
 ## structure-cuts

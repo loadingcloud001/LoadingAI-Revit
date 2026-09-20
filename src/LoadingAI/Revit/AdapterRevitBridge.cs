@@ -3236,6 +3236,7 @@ public sealed class AdapterRevitBridge : IRevitBridge
 
     /// <summary>Body rows shown when a caller passes no usable <c>rowLimit</c>.</summary>
     private const int DefaultScheduleRows = 25;
+
     /// <summary>Hard ceiling on schedule body rows returned in one call.</summary>
     private const int MaxScheduleRows = 40;
 

@@ -103,6 +103,7 @@ internal static class FloorSplit
 
         if (plans.Count == 0)
             return "Nothing to split." + notes;
+
         var created = new List<ElementId>();
         var splitFloors = 0;
         var piecesMade = 0;
