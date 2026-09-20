@@ -21,7 +21,8 @@ public sealed record PluginLoadIssue(
     string Assembly,
     string Summary,
     string Detail,
-    string Hint);
+    string Hint,
+    string Sha256 = "");
 
 public static class PluginLoader
 {
@@ -209,10 +210,10 @@ public static class PluginLoader
         meta.FolderPath = folder;
         if (string.IsNullOrWhiteSpace(meta.EntryAssembly)) meta.EntryAssembly = Path.GetFileName(dll);
 
-        if (!PluginAllowlist.Current.IsAllowed(dll, out _, out var why))
+        if (!PluginAllowlist.Current.IsAllowed(dll, out var sha, out var why))
         {
             Log($"{folder} DLL not on allowlist: {why}");
-            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "DLL not on allowlist", why, AllowlistRefusalHint);
+            RecordIssue(folder, meta.Id, Path.GetFileName(dll), "DLL not on allowlist", why, AllowlistRefusalHint, sha);
             return null;
         }
 
@@ -339,9 +340,9 @@ public static class PluginLoader
         return string.Join("; ", parts);
     }
 
-    private static void RecordIssue(string folder, string pluginId, string assembly, string summary, string detail, string hint)
+    private static void RecordIssue(string folder, string pluginId, string assembly, string summary, string detail, string hint, string sha256 = "")
     {
-        var issue = new PluginLoadIssue(folder, pluginId ?? "", assembly ?? "", summary, detail ?? "", hint ?? "");
+        var issue = new PluginLoadIssue(folder, pluginId ?? "", assembly ?? "", summary, detail ?? "", hint ?? "", sha256 ?? "");
         lock (_issuesLock) _issues.Add(issue);
     }
 

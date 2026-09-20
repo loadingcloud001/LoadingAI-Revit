@@ -65,3 +65,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0008](0008-port-structure-cuts-onto-bridge.md) | Port structure-cuts onto Bridge | Accepted |
 | [0009](0009-port-qs-formwork-onto-bridge.md) | Port qs-formwork onto Bridge and retire FullAccess | Accepted |
 | [0010](0010-plugin-load-allowlist.md) | Plugin load SHA-256 allowlist (refuse unknown AppData DLL) | Proposed |
+| [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Proposed |

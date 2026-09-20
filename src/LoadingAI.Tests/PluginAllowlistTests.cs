@@ -109,6 +109,174 @@ public class PluginAllowlistTests
         Assert.Contains("Condition=\"Exists('$(TargetDir)plugin-shipped-hashes.json')\"", csproj);
     }
 
+    [Fact]
+    public void TryAddTrustedHash_CreatesFileWhenMissing_ThenThatDllIsAllowed()
+    {
+        using var t = new TempAllowlist();
+        var dll = t.WriteDll(t.RuntimeDir, "trusted.dll", 3, 1, 4);
+        var other = t.WriteDll(t.RuntimeDir, "still-unknown.dll", 3, 1, 5);
+        var hash = PluginAllowlist.HashFile(dll);
+        Assert.False(File.Exists(t.AllowlistPath));
+        Assert.False(t.Allowlist.IsAllowed(dll, out _, out _));
+
+        Assert.True(t.Allowlist.TryAddTrustedHash(hash, out var error), error);
+        Assert.Equal("", error);
+        Assert.True(File.Exists(t.AllowlistPath));
+        Assert.True(t.Allowlist.IsAllowed(dll, out var actual, out var reason));
+        Assert.Equal(hash, actual);
+        Assert.Equal("listed", reason);
+        Assert.False(t.Allowlist.IsAllowed(other, out _, out _));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_AppendsUnion_PreservesExistingEntries_Dedups()
+    {
+        using var t = new TempAllowlist();
+        var first = t.WriteDll(t.RuntimeDir, "first.dll", 1, 1, 1);
+        var second = t.WriteDll(t.RuntimeDir, "second.dll", 2, 2, 2);
+        var handEdited = new string('b', 64);
+        File.WriteAllText(t.AllowlistPath, $"[\"{PluginAllowlist.HashFile(first)}\",\"{handEdited}\"]");
+
+        var added = PluginAllowlist.HashFile(second);
+        Assert.True(t.Allowlist.TryAddTrustedHash(added, out var error), error);
+        Assert.True(t.Allowlist.TryAddTrustedHash(added, out error), error);
+
+        var json = File.ReadAllText(t.AllowlistPath);
+        Assert.Contains(PluginAllowlist.HashFile(first), json);
+        Assert.Contains(handEdited, json);
+        Assert.Equal(1, json.Split(new[] { added }, StringSplitOptions.None).Length - 1);
+        Assert.Contains("\n", json);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.AllowlistPath)!, "*.tmp"));
+
+        Assert.True(t.Allowlist.IsAllowed(first, out _, out _));
+        Assert.True(t.Allowlist.IsAllowed(second, out _, out _));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_UnreadableExisting_AbortsAndLeavesFileBytes()
+    {
+        using var t = new TempAllowlist();
+        File.WriteAllText(t.AllowlistPath, "{not json");
+        var before = File.ReadAllText(t.AllowlistPath);
+
+        var ok = t.Allowlist.TryAddTrustedHash(new string('c', 64), out var error);
+
+        Assert.False(ok);
+        Assert.False(string.IsNullOrWhiteSpace(error));
+        Assert.Equal(before, File.ReadAllText(t.AllowlistPath));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.AllowlistPath)!, "*.tmp"));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_EmptyExistingFile_IsTreatedAsNoEntries()
+    {
+        using var t = new TempAllowlist();
+        File.WriteAllText(t.AllowlistPath, "   ");
+        Assert.True(t.Allowlist.TryAddTrustedHash(new string('d', 64), out var error), error);
+        Assert.Contains(new string('d', 64), File.ReadAllText(t.AllowlistPath));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_RejectsNonSha256_AndWritesNothing()
+    {
+        using var t = new TempAllowlist();
+        Assert.False(t.Allowlist.TryAddTrustedHash("abc", out var shortError));
+        Assert.False(string.IsNullOrWhiteSpace(shortError));
+        Assert.False(t.Allowlist.TryAddTrustedHash(new string('z', 64), out var nonHexError));
+        Assert.False(string.IsNullOrWhiteSpace(nonHexError));
+        Assert.False(t.Allowlist.TryAddTrustedHash("", out var emptyError));
+        Assert.False(string.IsNullOrWhiteSpace(emptyError));
+        Assert.False(File.Exists(t.AllowlistPath));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_UppercaseHex_IsNormalized()
+    {
+        using var t = new TempAllowlist();
+        var dll = t.WriteDll(t.RuntimeDir, "upper.dll", 7, 7);
+        var hash = PluginAllowlist.HashFile(dll);
+
+        Assert.True(t.Allowlist.TryAddTrustedHash(hash.ToUpperInvariant(), out var error), error);
+
+        var json = File.ReadAllText(t.AllowlistPath);
+        Assert.Contains(hash, json);
+        Assert.DoesNotContain(hash.ToUpperInvariant(), json);
+        Assert.True(t.Allowlist.IsAllowed(dll, out _, out _));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_EmptyAllowlist_ShippedHashStillAllowed()
+    {
+        using var t = new TempAllowlist();
+        var shipped = t.WriteDll(t.RuntimeDir, "core.dll", 10, 11, 13);
+        var shippedHash = PluginAllowlist.HashFile(shipped);
+        File.WriteAllText(t.ShippedSetPath, $"[\"{shippedHash}\"]");
+        Assert.True(t.Allowlist.IsAllowed(shipped, out _, out var shippedReason));
+        Assert.Equal("listed", shippedReason);
+
+        Assert.True(t.Allowlist.TryAddTrustedHash(new string('e', 64), out var error), error);
+
+        Assert.True(t.Allowlist.IsAllowed(shipped, out _, out _));
+        Assert.Contains(shippedHash, File.ReadAllText(t.ShippedSetPath));
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_CreatesAllowlistParent_ButNotDevPluginsDir()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "loadingai-allowlist-writer-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var devDir = Path.Combine(root, "dev");
+            var allowlistDir = Path.Combine(root, "appdata", "LoadingAI");
+            var allowlist = new PluginAllowlist(
+                Path.Combine(allowlistDir, PluginAllowlist.AllowlistFileName),
+                Path.Combine(root, PluginAllowlist.ShippedHashesFileName),
+                devDir);
+
+            Assert.True(allowlist.TryAddTrustedHash(new string('f', 64), out var error), error);
+
+            Assert.True(File.Exists(allowlist.AllowlistPath));
+            Assert.False(Directory.Exists(devDir));
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void TryAddTrustedHash_ThroughInjectedCurrent_IsHonoredByGate()
+    {
+        using var t = new TempAllowlist();
+        var dll = t.WriteDll(t.RuntimeDir, "via-current.dll", 4, 4, 4);
+        var previous = PluginAllowlist.Current;
+        try
+        {
+            PluginAllowlist.Current = t.Allowlist;
+            Assert.False(PluginAllowlist.Current.IsAllowed(dll, out var refused, out _));
+            Assert.True(PluginAllowlist.Current.TryAddTrustedHash(refused, out var error), error);
+            Assert.True(PluginAllowlist.Current.IsAllowed(dll, out _, out _));
+        }
+        finally
+        {
+            PluginAllowlist.Current = previous;
+        }
+    }
+
+    [Fact]
+    public void Source_WriterOnlyCreatesTheAllowlistParentDirectory()
+    {
+        var allow = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Plugins", "Core", "PluginAllowlist.cs"));
+        Assert.Contains("Path.GetDirectoryName(Path.GetFullPath(AllowlistPath))", allow);
+        Assert.DoesNotContain("Directory.CreateDirectory(DevPluginsDir)", allow);
+
+        var creates = allow.Split(new[] { "Directory.CreateDirectory(" }, StringSplitOptions.None)
+            .Skip(1)
+            .Select(rest => rest.Substring(0, rest.IndexOf(')')))
+            .ToList();
+        Assert.Equal(new[] { "dir" }, creates);
+    }
+
     private static string ToHex(byte[] hash)
     {
         var sb = new StringBuilder(hash.Length * 2);
