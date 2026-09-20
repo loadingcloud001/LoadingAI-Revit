@@ -11,7 +11,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
 {
     public string Id => "qs-formwork";
     public string Name => "Formwork QS Tools";
-    public string Version => "1.0.0";
+    public string Version => "1.0.1";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
