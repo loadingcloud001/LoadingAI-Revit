@@ -1459,7 +1459,7 @@ public class FakeBridgeToolTests
     [Fact]
     public async Task LoadFamily_MissingFile_DoesNotCallBridge()
     {
-        var missing = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests", "missing-family.rfa");
+        var missing = Path.Combine(FamilyPaths.Root, "missing-family.rfa");
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
         var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
             .CreateTools(new FakePluginContext(bridge))
@@ -1467,7 +1467,27 @@ public class FakeBridgeToolTests
 
         var text = await tool.Handler($$"""{"path":{{JsonEncode(missing)}}}""");
 
-        Assert.Equal($"File not found: {missing}", text);
+        Assert.Equal($"File not found: {Path.GetFullPath(missing)}", text);
+        Assert.Empty(bridge.LoadFamilyCalls);
+    }
+
+    [Fact]
+    public async Task LoadFamily_PathOutsideSandbox_DoesNotCallBridge()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests", "evil.rfa");
+        Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
+        File.WriteAllText(outside, "rfa");
+        var windows = @"C:\Windows\evil.rfa";
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = new LoadingAI.Plugins.ModelingTools.ModelingToolsPlugin()
+            .CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == "load_family");
+
+        var tempText = await tool.Handler($$"""{"path":{{JsonEncode(outside)}}}""");
+        var windowsText = await tool.Handler($$"""{"path":{{JsonEncode(windows)}}}""");
+
+        Assert.Equal($"Failed: Path must be under {FamilyPaths.Root}", tempText);
+        Assert.Equal($"Failed: Path must be under {FamilyPaths.Root}", windowsText);
         Assert.Empty(bridge.LoadFamilyCalls);
     }
 
@@ -2562,9 +2582,9 @@ public class FakeBridgeToolTests
 
     private static string WriteTempRfa()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "LoadingAI.Tests");
+        var dir = FamilyPaths.Root;
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "family.rfa");
+        var path = Path.GetFullPath(Path.Combine(dir, "family.rfa"));
         File.WriteAllText(path, "rfa");
         return path;
     }
