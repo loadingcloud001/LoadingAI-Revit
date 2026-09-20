@@ -972,18 +972,13 @@ public class FakeBridgeToolTests
     }
 
     [Fact]
-    public async Task SplitWall_NotImplemented_PassesMillimetres()
+    public void GeometryTools_Create_DoesNotRegisterSplitWall()
     {
-        var bridge = new FakeRevitBridge { HasActiveDocument = true };
-        var tool = GeometryTools.Create(new FakePluginContext(bridge))
-            .Single(t => t.Definition.Function.Name == "split_wall");
+        var names = GeometryTools.Create(new FakePluginContext(new FakeRevitBridge()))
+            .Select(t => t.Definition.Function.Name)
+            .ToArray();
 
-        var text = await tool.Handler("""{"wallId":"55","x":1500,"y":0}""");
-
-        Assert.Contains("Split not yet implemented for 55 at (1500,0)", text);
-        Assert.Single(bridge.SplitWallCalls);
-        Assert.Equal("55", bridge.SplitWallCalls[0].WallId);
-        Assert.Equal(1500, bridge.SplitWallCalls[0].X);
+        Assert.DoesNotContain("split_wall", names);
     }
 
     [Fact]

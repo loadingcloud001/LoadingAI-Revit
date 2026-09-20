@@ -203,7 +203,7 @@ public static class ToolSelector
             tags.Add("write");
         if (n.Contains("excel") || n.Contains("workset") || n.Contains("clash")
             || n.Contains("numbering") || n.Contains("replace_text") || n.Contains("copy_params")
-            || n.Contains("join_geometry") || n == "split_wall" || n.Contains("design_option")
+            || n.Contains("join_geometry") || n.Contains("design_option")
             || n.Contains("family_instance_array"))
             tags.Add("compat");
         return tags.Count == 0 ? Array.Empty<string>() : tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

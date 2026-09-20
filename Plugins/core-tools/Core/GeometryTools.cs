@@ -20,7 +20,6 @@ public static class GeometryTools
         yield return CreateFamilyInstanceArray(context);
         yield return CreateRotateElements(context);
         yield return CreateMirrorElements(context);
-        yield return CreateSplitWall(context);
         yield return CreateJoinGeometry(context);
     }
 
@@ -474,46 +473,6 @@ public static class GeometryTools
                 }
                 catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
                 var result = await context.Bridge.MirrorElementsAsync(ids, x1, y1, x2, y2);
-                return result.Message;
-            }
-        };
-    }
-
-    internal static ToolEntry CreateSplitWall(IPluginContext context)
-    {
-        return new ToolEntry
-        {
-            Tier = ToolTier.L3,
-            Definition = new ToolDefinition
-            {
-                Function = new ToolFunction
-                {
-                    Name = "split_wall",
-                    Description = "Split wall at point (pyRevit). Params: wallId, x,y in mm.",
-                    Parameters = new
-                    {
-                        type = "object",
-                        properties = new
-                        {
-                            wallId = new { type = "string" },
-                            x = new { type = "number" }, y = new { type = "number" }
-                        },
-                        required = new[] { "wallId", "x", "y" }
-                    }
-                }
-            },
-            Handler = async json =>
-            {
-                string wid = ""; double x = 0, y = 0;
-                try
-                {
-                    using var d = JsonDocument.Parse(json);
-                    wid = d.RootElement.GetProperty("wallId").GetString() ?? "";
-                    x = d.RootElement.GetProperty("x").GetDouble();
-                    y = d.RootElement.GetProperty("y").GetDouble();
-                }
-                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                var result = await context.Bridge.SplitWallAsync(wid, x, y);
                 return result.Message;
             }
         };
