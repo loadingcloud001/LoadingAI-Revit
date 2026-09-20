@@ -16,9 +16,11 @@ internal static class FormworkSetup
         if (doc == null) return "Please open a model first.";
         try
         {
+            // SchemaBuilder.Finish() is illegal inside an open Transaction, so the schema is created
+            // and finished first; the transaction only binds parameters and counts existing panels.
+            FormworkCore.GetOrCreateSchema();
             using var tx = new Transaction(doc, "Setup Formwork Parameters");
             tx.Start();
-            FormworkCore.GetOrCreateSchema();
             var (ok, fail, missing) = FormworkParameters.SetupSharedParameters(doc);
             var panels = FormworkCore.CollectPanels(doc).Count;
             var links = FormworkCore.LinkCount(doc);
@@ -51,6 +53,9 @@ internal static class FormworkPanels
         if (doc == null) return "Please open a model first.";
         try
         {
+            // Generate() calls GetOrCreateSchema() too; creating it here makes that a Lookup hit, so no
+            // SchemaBuilder.Finish() ever runs with this transaction open.
+            FormworkCore.GetOrCreateSchema();
             using var tx = new Transaction(doc, "LoadingAI for Revit: create formwork panels");
             tx.Start();
             var result = FormworkGenerator.Generate(doc, ids, new GenerateOptions
