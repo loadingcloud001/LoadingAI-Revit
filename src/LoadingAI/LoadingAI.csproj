@@ -65,6 +65,16 @@
     <Error Condition="'@(_MissingPlugin)' != ''" Text="Shipped plugin was not deployed: @(_MissingPlugin->'%(Dll)')" />
   </Target>
 
+  <!-- One host copy-after target: SHA-256 of the six CopyPlugin DLLs next to LoadingAI.dll.
+       Empty AppData plugin-allowlist.json must not lock these out. SkipHostPluginBuild skips this. -->
+  <Target Name="RecordShippedHashes" AfterTargets="BuildShippedPlugins" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
+    <PropertyGroup>
+      <_RecordHashesScript>$(MSBuildThisFileDirectory)..\..\scripts\record-shipped-plugin-hashes.ps1</_RecordHashesScript>
+      <_ShippedHashesPath>$(TargetDir)plugin-shipped-hashes.json</_ShippedHashesPath>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RecordHashesScript)&quot; -OutPath &quot;$(_ShippedHashesPath)&quot; @(ShippedPlugin->'-Dlls &quot;%(Dll)&quot;', ' ')" />
+  </Target>
+
   <Target Name="CopyAddin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(RevitAddinDir)" />
     <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" />
@@ -72,6 +82,7 @@
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).deps.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).deps.json')" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\LoadingAI.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(TargetDir)plugin-shipped-hashes.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)plugin-shipped-hashes.json')" />
     <!-- copy all runtime deps (Toolkit etc) -->
     <ItemGroup>
       <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)RevitAPI.dll;$(TargetDir)RevitAPIUI.dll" />
