@@ -68,6 +68,52 @@ internal static class CurveMemberSplit
         public double Height { get; }
     }
 
+    /// <summary>
+    /// One LocationPoint column cut into storeys. Sibling of <see cref="Stack"/>: a vertical
+    /// structural column has no location curve for native Split, so each piece is a new
+    /// FamilyInstance based and topped on consecutive storeys.
+    /// </summary>
+    public sealed class ColumnStack
+    {
+        public ColumnStack(FamilyInstance host, XYZ origin, List<ColumnPiece> pieces)
+        {
+            Host = host;
+            Origin = origin;
+            Pieces = pieces;
+        }
+
+        public FamilyInstance Host { get; }
+
+        /// <summary>The column's plan point, reused by every piece at its own storey.</summary>
+        public XYZ Origin { get; }
+
+        public List<ColumnPiece> Pieces { get; }
+    }
+
+    /// <summary>
+    /// One storey of a point-column stack: base and top levels with their offsets. The top
+    /// piece keeps the original column's top level and offset; interior pieces sit on consecutive
+    /// storeys at offset 0.
+    /// </summary>
+    public sealed class ColumnPiece
+    {
+        public ColumnPiece(Level baseLevel, double baseOffset, Level topLevel, double topOffset)
+        {
+            BaseLevel = baseLevel;
+            BaseOffset = baseOffset;
+            TopLevel = topLevel;
+            TopOffset = topOffset;
+        }
+
+        public Level BaseLevel { get; }
+
+        public double BaseOffset { get; }
+
+        public Level TopLevel { get; }
+
+        public double TopOffset { get; }
+    }
+
     public static (List<ElementId> Ids, int ParamSkipped, bool Rollback, bool Native, int Dependent) SplitAtCuts(
         Document doc,
         Plan plan,
@@ -541,6 +587,82 @@ internal static class CurveMemberSplit
         }
     }
 
+    /// <summary>
+    /// One LocationPoint column in, one column per storey out. Piece 0 keeps the original base
+    /// level and offset; interior pieces sit on consecutive storeys at offset 0; the last piece
+    /// keeps the original top level and offset. Delete the original only after every piece exists.
+    /// Like the wall stack, dependents are counted before the host is deleted and not re-hosted.
+    /// </summary>
+    public static (List<ElementId> Ids, int ParamSkipped, int Dependent, bool Rollback) SplitColumnStack(
+        Document doc,
+        ColumnStack stack,
+        SplitOptions options)
+    {
+        var empty = new List<ElementId>();
+        if (stack.Pieces.Count < 2)
+            return (empty, 0, 0, true);
+
+        var host = stack.Host;
+        if (doc.GetElement(host.GetTypeId()) is not FamilySymbol symbol)
+            return (empty, 0, 0, true);
+
+        var mark = options.UniqueMark ? ParamCopy.Mark(host) : null;
+        var snapshot = options.CopyParams ? ParamCopy.Take(host) : null;
+        var created = new List<ElementId>();
+        var paramSkipped = 0;
+        var dependent = SplitElements.Dependent(host);
+
+        using (var sub = new SubTransaction(doc))
+        {
+            sub.Start();
+            try
+            {
+                if (!symbol.IsActive)
+                    symbol.Activate();
+
+                for (var i = 0; i < stack.Pieces.Count; i++)
+                {
+                    var piece = stack.Pieces[i];
+                    var made = CreatePointColumn(doc, stack.Origin, symbol, piece);
+                    if (made == null)
+                    {
+                        sub.RollBack();
+                        return (empty, paramSkipped, 0, true);
+                    }
+
+                    var markFor = options.UniqueMark ? SplitMarks.For(mark, i) : null;
+                    if (snapshot != null)
+                        paramSkipped += ParamCopy.Apply(snapshot, made, markFor);
+                    else
+                        ParamCopy.SetMark(made, markFor);
+
+                    if (!PinColumnStorey(made, piece))
+                    {
+                        sub.RollBack();
+                        return (empty, paramSkipped, 0, true);
+                    }
+
+                    created.Add(made.Id);
+                }
+
+                if (created.Count < 2)
+                {
+                    sub.RollBack();
+                    return (empty, paramSkipped, 0, true);
+                }
+
+                doc.Delete(host.Id);
+                sub.Commit();
+                return (created, paramSkipped, dependent, false);
+            }
+            catch
+            {
+                try { sub.RollBack(); } catch { }
+                return (empty, paramSkipped, 0, true);
+            }
+        }
+    }
+
     public static string ParamNote(SplitOptions options, int native, int recreated, int paramSkipped)
     {
         if (!options.CopyParams)
@@ -657,6 +779,25 @@ internal static class CurveMemberSplit
         return Set(baseOffset, offset) && Set(userHeight, height);
     }
 
+    /// <summary>
+    /// Re-imposes base and top after ParamCopy, which would otherwise restore the original
+    /// column's full-height constraints onto every piece.
+    /// </summary>
+    private static bool PinColumnStorey(Element piece, ColumnPiece storey)
+    {
+        var baseLevel = piece.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM);
+        var baseOffset = piece.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM);
+        var topLevel = piece.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM);
+        var topOffset = piece.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM);
+        if (baseLevel == null || baseOffset == null || topLevel == null || topOffset == null)
+            return false;
+
+        return SetId(baseLevel, storey.BaseLevel.Id)
+            && Set(baseOffset, storey.BaseOffset)
+            && SetId(topLevel, storey.TopLevel.Id)
+            && Set(topOffset, storey.TopOffset);
+    }
+
     private static bool Set(Parameter param, double value)
     {
         try
@@ -670,6 +811,39 @@ internal static class CurveMemberSplit
         catch
         {
             return false;
+        }
+    }
+
+    private static bool SetId(Parameter param, ElementId id)
+    {
+        try
+        {
+            if (param.AsElementId() == id)
+                return true;
+            if (param.IsReadOnly)
+                return false;
+            return param.Set(id);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static FamilyInstance? CreatePointColumn(
+        Document doc,
+        XYZ origin,
+        FamilySymbol symbol,
+        ColumnPiece piece)
+    {
+        try
+        {
+            var at = new XYZ(origin.X, origin.Y, piece.BaseLevel.Elevation + piece.BaseOffset);
+            return doc.Create.NewFamilyInstance(at, symbol, piece.BaseLevel, StructuralType.Column);
+        }
+        catch
+        {
+            return null;
         }
     }
 

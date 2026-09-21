@@ -31,10 +31,35 @@ internal static class HostCurve
     /// <summary>
     /// Native Split and location-curve recreate both need a real <see cref="LocationCurve"/>.
     /// A synthesised vertical for a <see cref="LocationPoint"/> column is only for geometry
-    /// sampling — it cannot be written, so plan must skip those hosts.
+    /// sampling — it cannot be written on the curve path. Grid plan skips those hosts; the
+    /// level path stacks them from the real base/top storeys instead.
     /// </summary>
     public static bool CanWrite(Element host)
         => SplitElements.LocationCurveOf(host) != null;
+
+    /// <summary>
+    /// The storey constraints a LocationPoint column is actually based on. Sampling still
+    /// synthesises a vertical from the bbox when these are missing; write needs both levels.
+    /// </summary>
+    public static bool TryPointLevels(
+        Element host,
+        out Level? baseLevel,
+        out double baseOffset,
+        out Level? topLevel,
+        out double topOffset)
+    {
+        baseLevel = null;
+        topLevel = null;
+        baseOffset = Offset(host, BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM);
+        topOffset = Offset(host, BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM);
+        var doc = host.Document;
+        if (doc == null)
+            return false;
+
+        baseLevel = doc.GetElement(host.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM)?.AsElementId()) as Level;
+        topLevel = doc.GetElement(host.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)?.AsElementId()) as Level;
+        return baseLevel != null && topLevel != null;
+    }
 
     public static string? WallSkip(Element host)
     {
