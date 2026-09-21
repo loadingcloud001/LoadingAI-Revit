@@ -7,7 +7,7 @@ namespace LoadingAI.Tests;
 public class StructureCutsContractTests
 {
     [Fact]
-    public void PluginJson_DeclaresFourL3SplitToolsDefaultOff()
+    public void PluginJson_DeclaresFiveL3SplitToolsDefaultOff()
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
@@ -16,13 +16,14 @@ public class StructureCutsContractTests
         Assert.True(root.GetProperty("verified").GetBoolean());
 
         var tools = root.GetProperty("tools").EnumerateArray().ToList();
-        Assert.Equal(4, tools.Count);
+        Assert.Equal(5, tools.Count);
 
         var names = tools.Select(t => t.GetProperty("name").GetString()).ToHashSet();
         Assert.Contains("split_beams_by_columns", names);
         Assert.Contains("split_floors_by_beams", names);
         Assert.Contains("split_by_levels", names);
         Assert.Contains("split_by_grids", names);
+        Assert.Contains("split_secondary_beams_by_main_beams", names);
 
         foreach (var t in tools)
         {

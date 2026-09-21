@@ -2217,11 +2217,12 @@ public class FakeBridgeToolTests
             .Select(t => (t.Definition.Function.Name, t.Tier))
             .ToDictionary(x => x.Name, x => x.Tier);
 
-        Assert.Equal(4, tools.Count);
+        Assert.Equal(5, tools.Count);
         Assert.Equal(ToolTier.L3, tools["split_beams_by_columns"]);
         Assert.Equal(ToolTier.L3, tools["split_floors_by_beams"]);
         Assert.Equal(ToolTier.L3, tools["split_by_levels"]);
         Assert.Equal(ToolTier.L3, tools["split_by_grids"]);
+        Assert.Equal(ToolTier.L3, tools["split_secondary_beams_by_main_beams"]);
     }
 
     [Fact]
