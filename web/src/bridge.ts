@@ -98,6 +98,7 @@ export type ToHost =
   | { type: 'saveToolSettings' }
   | { type: 'removePlugin'; pluginId: string }
   | { type: 'reloadPlugins' }
+  | { type: 'trustPlugin'; folder: string; assembly: string }
   | { type: 'listCheckpoints' }
   | { type: 'resumeCheckpoint'; id: string };
 

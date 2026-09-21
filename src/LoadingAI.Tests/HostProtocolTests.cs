@@ -11,9 +11,9 @@ namespace LoadingAI.Tests;
 public class HostProtocolTests
 {
     [Fact]
-    public void TryParse_AllTwentyToHostKinds()
+    public void TryParse_AllTwentyOneToHostKinds()
     {
-        Assert.Equal(20, ToHostKind.All.Count);
+        Assert.Equal(21, ToHostKind.All.Count);
 
         Assert.True(ToHostMessage.TryParse("""{"type":"send","text":"hi","mode":"plan","slash":"/plan","mentions":["Selection"]}""", out var send, out var err));
         Assert.Null(err);
@@ -30,6 +30,7 @@ public class HostProtocolTests
         AssertKind<ToHostMessage.ListPlugins>("""{"type":"listPlugins"}""");
         AssertKind<ToHostMessage.SaveToolSettings>("""{"type":"saveToolSettings"}""");
         AssertKind<ToHostMessage.ReloadPlugins>("""{"type":"reloadPlugins"}""");
+        AssertKind<ToHostMessage.TrustPlugin>("""{"type":"trustPlugin","folder":"C:\\p","assembly":"a.dll"}""");
         AssertKind<ToHostMessage.ListCheckpoints>("""{"type":"listCheckpoints"}""");
 
         Assert.True(ToHostMessage.TryParse("""{"type":"saveSettings","settings":{"activeProviderId":"x","providers":[]}}""", out var save, out err));
@@ -74,6 +75,25 @@ public class HostProtocolTests
 
         Assert.True(ToHostMessage.TryParse("""{"type":"resumeCheckpoint","id":"cp1"}""", out var resume, out err));
         Assert.Equal("cp1", Assert.IsType<ToHostMessage.ResumeCheckpoint>(resume).Id);
+    }
+
+    [Fact]
+    public void TryParse_TrustPlugin_CarriesIdentifierOnly()
+    {
+        Assert.True(ToHostMessage.TryParse(
+            """{"type":"trustPlugin","folder":"C:\\Users\\bim\\AppData\\Roaming\\LoadingAI\\Plugins\\hello","assembly":"hello.dll","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}""",
+            out var msg, out var err));
+        Assert.Null(err);
+        var trust = Assert.IsType<ToHostMessage.TrustPlugin>(msg);
+        // A hash on the wire is ignored: the host re-hashes the DLL itself.
+        Assert.Equal(@"C:\Users\bim\AppData\Roaming\LoadingAI\Plugins\hello", trust.Folder);
+        Assert.Equal("hello.dll", trust.Assembly);
+
+        Assert.True(ToHostMessage.TryParse("""{"type":"trustPlugin"}""", out var empty, out err));
+        Assert.Null(err);
+        var blank = Assert.IsType<ToHostMessage.TrustPlugin>(empty);
+        Assert.Equal("", blank.Folder);
+        Assert.Equal("", blank.Assembly);
     }
 
     [Fact]
@@ -138,7 +158,7 @@ public class HostProtocolTests
             Assert.Contains($"type: '{kind}'", toHost);
         foreach (var kind in FromHostKind.All)
             Assert.Contains($"type: '{kind}'", fromHost);
-        Assert.Equal(20, CountOccurrences(toHost, "type: '"));
+        Assert.Equal(21, CountOccurrences(toHost, "type: '"));
         Assert.Equal(FromHostKind.All.Count, CountOccurrences(fromHost, "type: '"));
     }
 

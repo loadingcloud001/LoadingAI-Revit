@@ -127,6 +127,110 @@ public partial class HostPage : Page
             PostToWeb(new FromHostMessage.Status($"{PluginLoader.Issues.Count} plugin(s) failed to load. See Settings → Tools."));
     }
 
+    /// <summary>
+    /// Stage 2 trust click. The web sends the plugin identifier only; the host re-hashes the DLL bytes
+    /// here and compares them to the hash recorded by the scan that refused it, so the bytes trusted are
+    /// the bytes the engineer was shown. Writes once through <see cref="PluginAllowlist.TryAddTrustedHash"/>
+    /// — no internal retry, no loop. Trusting only records a hash: tool tiers and Confirm L3 are unchanged.
+    /// </summary>
+    private void TrustPlugin(string folder, string assembly)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || string.IsNullOrWhiteSpace(assembly))
+        {
+            PostToWeb(new FromHostMessage.Error("Trust refused: plugin folder and assembly are required."));
+            return;
+        }
+
+        string dll, pluginFolder;
+        try
+        {
+            pluginFolder = Path.GetFullPath(folder);
+            dll = Path.GetFullPath(Path.Combine(pluginFolder, Path.GetFileName(assembly)));
+        }
+        catch (Exception ex)
+        {
+            PostToWeb(new FromHostMessage.Error($"Trust refused: {ex.Message}"));
+            return;
+        }
+
+        if (!PluginAllowlist.IsUnderDirectory(dll, PluginLoader.RuntimePluginsDir))
+        {
+            PostToWeb(new FromHostMessage.Error($"Trust refused: {dll} is not in {PluginLoader.RuntimePluginsDir}."));
+            return;
+        }
+        if (!File.Exists(dll))
+        {
+            PostToWeb(new FromHostMessage.Error($"Trust refused: {dll} not found."));
+            return;
+        }
+
+        var assemblyName = Path.GetFileName(dll);
+        var recorded = PluginLoader.Issues.FirstOrDefault(i =>
+            !string.IsNullOrWhiteSpace(i.Sha256)
+            && string.Equals(i.Assembly, assemblyName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(i.Folder, pluginFolder, StringComparison.OrdinalIgnoreCase));
+        if (recorded == null)
+        {
+            PostToWeb(new FromHostMessage.Error("Trust refused: no refused DLL recorded for this row. Rescan, then click Trust this plugin… again."));
+            return;
+        }
+
+        string sha256;
+        try { sha256 = PluginAllowlist.HashFile(dll); }
+        catch (Exception ex)
+        {
+            PostToWeb(new FromHostMessage.Error($"Trust refused: cannot read {dll}: {ex.Message}"));
+            return;
+        }
+
+        if (!string.Equals(sha256, recorded.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            PostToWeb(new FromHostMessage.Error($"Trust refused: {assemblyName} changed since the last scan. Rescan, then click Trust this plugin… again."));
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(recorded.PluginId) ? Path.GetFileName(pluginFolder) : recorded.PluginId;
+        var td = new TaskDialog("LoadingAI for Revit")
+        {
+            MainInstruction = $"Trust plugin {name}?",
+            MainContent = $"{dll}\nSHA-256 {sha256}\n\nLets this DLL load in Revit. Tool tiers and Confirm L3 are unchanged.",
+            CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+            DefaultButton = TaskDialogResult.No
+        };
+        if (td.Show() != TaskDialogResult.Yes)
+        {
+            PostToWeb(new FromHostMessage.Status("Trust cancelled."));
+            return;
+        }
+
+        if (!PluginAllowlist.Current.TryAddTrustedHash(sha256, out var error))
+        {
+            // Verbatim, never swallowed: a false treated as "nothing happened" is a silent Trust click.
+            PostToWeb(new FromHostMessage.Error(error));
+            PostToWeb(new FromHostMessage.Status(TrustRetryHint(error)));
+            return;
+        }
+
+        if (!_session.TryReloadPlugins(out var reloadMsg))
+        {
+            PostToWeb(new FromHostMessage.Status($"Trusted {name}. {reloadMsg}"));
+            return;
+        }
+        PostPlugins($"Trusted {name}. {reloadMsg}");
+    }
+
+    /// <summary>
+    /// Writer aborts carrying the "refusing to overwrite" prefix are file-state, not caller bugs: a
+    /// concurrent read holding FileShare.Read blocks the delete inside File.Replace. Those can clear on
+    /// their own, so the engineer is offered a retry. The retry is the next Trust click — this never
+    /// re-attempts the write. Classification stays coarse: the prefix is shared by the unreadable-existing
+    /// and write-denied aborts, so it is deliberately not a fork between them.
+    /// </summary>
+    private static string TrustRetryHint(string error)
+        => error.StartsWith("refusing to overwrite", StringComparison.OrdinalIgnoreCase)
+            ? "Nothing was written. Click Trust this plugin… again to retry."
+            : "Nothing was written.";
+
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         var json = _web.TryRead(e, out var receiveError);
@@ -333,6 +437,10 @@ public partial class HostPage : Page
                 case ToHostMessage.ReloadPlugins:
                     if (_session.TryReloadPlugins(out var reloadMsg))
                         PostPlugins(reloadMsg);
+                    break;
+
+                case ToHostMessage.TrustPlugin { Folder: var trustFolder, Assembly: var trustAssembly }:
+                    TrustPlugin(trustFolder, trustAssembly);
                     break;
 
                 case ToHostMessage.ApproveTool { ToolCallId: var toolCallId, Approved: var approved }:
