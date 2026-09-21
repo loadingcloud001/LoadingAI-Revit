@@ -712,6 +712,10 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<SplitRequestDto> SplitBeamsCalls { get; } = new();
 
+    public SplitResultDto? NextSplitSecondaryByMainResult { get; set; }
+
+    public List<SplitRequestDto> SplitSecondaryByMainCalls { get; } = new();
+
     public SplitResultDto? NextSplitFloorsResult { get; set; }
 
     public List<SplitRequestDto> SplitFloorsCalls { get; } = new();
@@ -1183,6 +1187,17 @@ internal sealed class FakeRevitBridge : IRevitBridge
         if (NextSplitBeamsResult != null)
             return Task.FromResult<SplitResultDto?>(NextSplitBeamsResult);
         return Task.FromResult<SplitResultDto?>(Split(request, "Split 2 beams into 5 pieces."));
+    }
+
+    public Task<SplitResultDto?> SplitSecondaryBeamsByMainBeamsAsync(
+        SplitRequestDto request, CancellationToken ct = default)
+    {
+        SplitSecondaryByMainCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<SplitResultDto?>(ClosedSplit());
+        if (NextSplitSecondaryByMainResult != null)
+            return Task.FromResult<SplitResultDto?>(NextSplitSecondaryByMainResult);
+        return Task.FromResult<SplitResultDto?>(Split(request, "Split 1 secondary beams into 2 pieces."));
     }
 
     public Task<SplitResultDto?> SplitFloorsByBeamsAsync(

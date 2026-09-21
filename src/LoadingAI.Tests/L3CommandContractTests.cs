@@ -25,6 +25,7 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("SplitSecondaryBeamsByMainBeamsAsync", names);
         Assert.DoesNotContain("FormworkSetupAsync", names);
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
@@ -52,6 +53,7 @@ public class L3CommandContractTests
         Assert.Contains("SplitFloorsByBeamsAsync", names);
         Assert.Contains("SplitByLevelsAsync", names);
         Assert.Contains("SplitByGridsAsync", names);
+        Assert.Contains("SplitSecondaryBeamsByMainBeamsAsync", names);
         Assert.Contains("FormworkSetupAsync", names);
         Assert.Contains("CreateFormworkPanelsAsync", names);
         Assert.Contains("CleanupFormworkAsync", names);
@@ -123,6 +125,7 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("SplitSecondaryBeamsByMainBeamsAsync", names);
         Assert.DoesNotContain("FormworkSetupAsync", names);
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
@@ -149,6 +152,7 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("SplitSecondaryBeamsByMainBeamsAsync", names);
         Assert.DoesNotContain("FormworkSetupAsync", names);
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
@@ -166,6 +170,7 @@ public class L3CommandContractTests
         Assert.DoesNotContain("SplitFloorsByBeamsAsync", names);
         Assert.DoesNotContain("SplitByLevelsAsync", names);
         Assert.DoesNotContain("SplitByGridsAsync", names);
+        Assert.DoesNotContain("SplitSecondaryBeamsByMainBeamsAsync", names);
         Assert.DoesNotContain("FormworkSetupAsync", names);
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);

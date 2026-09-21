@@ -155,9 +155,9 @@ public class StructureCutsContractTests
 
         // The algorithms moved host-side, so the sweep has to cover both trees: plugin-only would
         // still pass after the move while proving nothing about the code that actually picks.
-        // 10 algorithms plus the two helper types lifted out of SplitOptions.cs and the outcome
-        // collector the Adapter reads the counters back through.
-        Assert.Equal(13, Directory.GetFiles(hostDir, "*.cs").Length);
+        // 11 algorithms (including BeamCut for secondary-by-main) plus the two helper types
+        // lifted out of SplitOptions.cs and the outcome collector the Adapter reads counters through.
+        Assert.Equal(14, Directory.GetFiles(hostDir, "*.cs").Length);
         foreach (var file in SweptSources(root))
         {
             var text = File.ReadAllText(file);
