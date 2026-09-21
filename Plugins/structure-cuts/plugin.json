@@ -45,6 +45,16 @@
         "structure",
         "write"
       ]
+    },
+    {
+      "name": "split_secondary_beams_by_main_beams",
+      "tier": "L3",
+      "description": "Split a strictly-shallower beam at a same-height pass-through with a strictly deeper main. Splits the shallower beam into two pieces at the crossing, no stub inside the main. Main means strictly deeper type section height; equal depth, bearing-on, or different heights = no cut. Not a cope. Scope selection|visible|all; empty scope refuses. Params: beamIds[] optional (else scope), scope selection|visible|all, continueFrom, dryRun boolean (count only, no model changes), uniqueMark boolean (suffix new Marks -1, -2, ...), copyParams boolean (default true), limit (default 50, max 200). Copies instance parameters onto pieces unless copyParams is off. Lengths in mm.",
+      "enabledByDefault": false,
+      "tags": [
+        "structure",
+        "write"
+      ]
     }
   ],
   "verified": true
