@@ -19,6 +19,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         yield return SplitFloorsByBeams(context);
         yield return SplitByLevels(context);
         yield return SplitByGrids(context);
+        yield return SplitSecondaryBeamsByMainBeams(context);
     }
 
     private static ToolEntry SplitBeamsByColumns(IPluginContext context) => new()
@@ -190,6 +191,45 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             var options = Options(args, json);
             var result = await context.Bridge.SplitByGridsAsync(
                 Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("gridIds")), Filter(args.Strings("categories"))));
+            return result?.Error ?? result?.Report ?? "Please open a model first.";
+        }
+    };
+
+    private static ToolEntry SplitSecondaryBeamsByMainBeams(IPluginContext context) => new()
+    {
+        Tier = ToolTier.L3,
+        Definition = new ToolDefinition
+        {
+            Function = new ToolFunction
+            {
+                Name = "split_secondary_beams_by_main_beams",
+                Description = "Split a strictly-shallower beam at a same-height pass-through with a strictly deeper main. Splits the shallower beam into two pieces at the crossing, no stub inside the main. Main means strictly deeper type section height; equal depth, bearing-on, or different heights = no cut. Not a cope. Empty scope refuses. Copies instance parameters onto pieces unless copyParams is off. Params: beamIds[] optional (else scope), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        beamIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses scope (selection, visible, or all) filtered to structural framing." },
+                        scope = ScopeProperty(),
+                        continueFrom = ContinueFromProperty(),
+                        dryRun = DryRunProperty(),
+                        uniqueMark = UniqueMarkProperty(),
+                        copyParams = CopyParamsProperty(),
+                        limit = LimitProperty()
+                    },
+                    required = Array.Empty<string>()
+                }
+            }
+        },
+        Presets = Concat(
+            new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
+            SharedKnobs()),
+        Handler = async json =>
+        {
+            var args = Args.Parse(json);
+            var options = Options(args, json);
+            var result = await context.Bridge.SplitSecondaryBeamsByMainBeamsAsync(
+                Request(options, Filter(args.Strings("beamIds")), null, null));
             return result?.Error ?? result?.Report ?? "Please open a model first.";
         }
     };
