@@ -330,14 +330,51 @@ public class StructureCutsContractTests
         Assert.Contains("public static bool CanWrite(Element host)", hostCurve, StringComparison.Ordinal);
         Assert.Contains("LocationCurveOf(host) != null", hostCurve, StringComparison.Ordinal);
 
-        // A synthesised vertical is only for sampling LocationPoint columns; write still needs a
-        // LocationCurve, so level/grid plan must skip those hosts instead of over-promising.
-        var levels = File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs"));
+        // Grid still has no LocationCurve write for a LocationPoint column, so it skips those
+        // hosts at plan time. The level path now stacks them (see sibling) instead of folding
+        // them into "no curve".
         var grids = File.ReadAllText(Path.Combine(hostDir, "GridSplit.cs"));
-        Assert.Contains("HostCurve.CanWrite(host)", levels, StringComparison.Ordinal);
         Assert.Contains("HostCurve.CanWrite(host)", grids, StringComparison.Ordinal);
-        AssertOrdered("LevelSplit.cs", levels, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
         AssertOrdered("GridSplit.cs", grids, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
+
+        var levels = File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs"));
+        Assert.Contains("HostCurve.CanWrite(host)", levels, StringComparison.Ordinal);
+        AssertOrdered("LevelSplit.cs", levels, "if (!HostCurve.CanWrite(host))", "PlanCurve(host,");
+    }
+
+    [Fact]
+    public void PointHostedColumns_AreStackedOnTheLevelPath()
+    {
+        var root = RepoRoot();
+        var hostDir = HostDir(root);
+        var levels = File.ReadAllText(Path.Combine(hostDir, "LevelSplit.cs"));
+        var curve = File.ReadAllText(Path.Combine(hostDir, "CurveMemberSplit.cs"));
+        var hostCurve = File.ReadAllText(Path.Combine(hostDir, "HostCurve.cs"));
+
+        // The column stack is claimed before the CanWrite guard that used to count those hosts
+        // as "no curve". Curve members still go through that guard after the stack returns false.
+        AssertOrdered("LevelSplit.cs", levels,
+            "if (PlanColumnStack(doc, host, levels, skips, columnStacks))",
+            "if (!HostCurve.CanWrite(host))",
+            "PlanCurve(host,");
+        Assert.Contains("PlanColumnStack(", levels, StringComparison.Ordinal);
+        Assert.Contains("SplitColumnStack(doc, stack, options)", levels, StringComparison.Ordinal);
+        Assert.Contains("columnStacks.Sum(stack => stack.Pieces.Count)", levels, StringComparison.Ordinal);
+        Assert.Contains("\"one storey\"", levels, StringComparison.Ordinal);
+        Assert.Contains("\"height-driven\"", levels, StringComparison.Ordinal);
+        Assert.Contains("\"pinned\"", levels, StringComparison.Ordinal);
+        Assert.Contains("\"grouped\"", levels, StringComparison.Ordinal);
+
+        Assert.Contains("public sealed class ColumnStack", curve, StringComparison.Ordinal);
+        Assert.Contains("public sealed class ColumnPiece", curve, StringComparison.Ordinal);
+        Assert.Contains("SplitColumnStack(", curve, StringComparison.Ordinal);
+        Assert.Contains("NewFamilyInstance(at, symbol, piece.BaseLevel, StructuralType.Column)", curve, StringComparison.Ordinal);
+        Assert.Contains("FAMILY_BASE_LEVEL_PARAM", curve, StringComparison.Ordinal);
+        Assert.Contains("FAMILY_TOP_LEVEL_PARAM", curve, StringComparison.Ordinal);
+
+        Assert.Contains("TryPointLevels(", hostCurve, StringComparison.Ordinal);
+        Assert.Contains("FAMILY_BASE_LEVEL_PARAM", hostCurve, StringComparison.Ordinal);
+        Assert.Contains("FAMILY_TOP_LEVEL_PARAM", hostCurve, StringComparison.Ordinal);
     }
 
     [Fact]

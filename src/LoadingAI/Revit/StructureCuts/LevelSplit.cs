@@ -10,7 +10,9 @@ namespace LoadingAI.Revit.StructureCuts;
 /// <see cref="CurveCut.AtElevation"/> then native split or location-curve recreate. Horizontal
 /// floors skip with no-level-hit; a leaning slab is cut along the plane intersection. A horizontal
 /// wall is cut into one piece per storey instead, since a storey plane can never cross its
-/// horizontal location curve; a leaning wall still cuts along the plane intersection.
+/// horizontal location curve; a leaning wall still cuts along the plane intersection. A vertical
+/// <see cref="LocationPoint"/> column has no curve to cut, so it is recreated one piece per storey
+/// between its base and top.
 /// </summary>
 internal static class LevelSplit
 {
@@ -41,6 +43,7 @@ internal static class LevelSplit
         var skips = new Skips();
         var curvePlans = new List<CurveMemberSplit.Plan>();
         var stackPlans = new List<CurveMemberSplit.Stack>();
+        var columnStacks = new List<CurveMemberSplit.ColumnStack>();
         var floorPlans = new List<FloorSplit.Plan>();
 
         foreach (var host in batch.Items)
@@ -62,6 +65,9 @@ internal static class LevelSplit
                 PlanFloor(doc, floor, elevations, skips, floorPlans);
                 continue;
             }
+
+            if (PlanColumnStack(doc, host, levels, skips, columnStacks))
+                continue;
 
             if (!HostCurve.CanWrite(host))
             {
@@ -90,13 +96,14 @@ internal static class LevelSplit
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
             var stackPieces = stackPlans.Sum(stack => stack.Pieces.Count);
+            var columnPieces = columnStacks.Sum(stack => stack.Pieces.Count);
             var floorPieces = floorPlans.Sum(plan => plan.Regions.Count);
             return "Dry-run. "
-                + $"Would split {curvePlans.Count + stackPlans.Count} members into {curvePieces + stackPieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
+                + $"Would split {curvePlans.Count + stackPlans.Count + columnStacks.Count} members into {curvePieces + stackPieces + columnPieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
                 + notes;
         }
 
-        if (curvePlans.Count == 0 && stackPlans.Count == 0 && floorPlans.Count == 0)
+        if (curvePlans.Count == 0 && stackPlans.Count == 0 && columnStacks.Count == 0 && floorPlans.Count == 0)
             return "Nothing to split." + notes;
 
         var created = new List<ElementId>();
@@ -162,6 +169,30 @@ internal static class LevelSplit
                     // with it. Like the curve path, the report counts that rather than re-hosting it: the
                     // write stays undoable as one step, but the report may not stay silent about what it
                     // took with the host.
+                    dependents += lost;
+                }
+                else
+                {
+                    skips.Unchanged++;
+                }
+            }
+
+            foreach (var stack in columnStacks)
+            {
+                var (ids, skipped, lost, rollback) = CurveMemberSplit.SplitColumnStack(doc, stack, options);
+                paramSkipped += skipped;
+                if (rollback)
+                {
+                    skips.Failed++;
+                    continue;
+                }
+
+                if (ids.Count > 1)
+                {
+                    split++;
+                    piecesMade += ids.Count;
+                    created.AddRange(ids);
+                    recreated++;
                     dependents += lost;
                 }
                 else
@@ -305,6 +336,98 @@ internal static class LevelSplit
         pieces.Add(new CurveMemberSplit.StackPiece(interior[interior.Count - 1], 0, top - interior[interior.Count - 1].Elevation));
 
         stacks.Add(new CurveMemberSplit.Stack(wall, curve, pieces));
+        return true;
+    }
+
+    /// <summary>
+    /// A vertical LocationPoint structural column is cut into one piece per storey between its
+    /// base and top, because native Split needs a LocationCurve it does not have. Claims the host
+    /// (returns true) when it has handled it, either by planning the stack or by naming why it
+    /// would not. Returns false to leave a slanted LocationCurve column, a beam, or a wall on
+    /// the existing write path.
+    /// </summary>
+    private static bool PlanColumnStack(
+        Document doc,
+        Element host,
+        IReadOnlyList<Level> levels,
+        Skips skips,
+        List<CurveMemberSplit.ColumnStack> stacks)
+    {
+        if (!SplitElements.IsColumn(host) || host is not FamilyInstance instance)
+            return false;
+        if (instance.Location is not LocationPoint location)
+            return false;
+
+        var origin = location.Point;
+        if (origin == null)
+            return false;
+
+        if (instance.Pinned)
+        {
+            skips.Pinned++;
+            return true;
+        }
+
+        try
+        {
+            if (instance.GroupId != null && instance.GroupId != ElementId.InvalidElementId)
+            {
+                skips.Grouped++;
+                return true;
+            }
+        }
+        catch
+        {
+            skips.Grouped++;
+            return true;
+        }
+
+        if (doc.GetElement(instance.GetTypeId()) is not FamilySymbol)
+        {
+            skips.NoType++;
+            return true;
+        }
+
+        if (!HostCurve.TryPointLevels(host, out var baseLevel, out var baseOffset, out var topLevel, out var topOffset)
+            || baseLevel == null
+            || topLevel == null)
+        {
+            skips.HeightDriven++;
+            return true;
+        }
+
+        var baseZ = baseLevel.Elevation + baseOffset;
+        var topZ = topLevel.Elevation + topOffset;
+        if (topZ - baseZ <= GeometryRevit.ZTolFt)
+        {
+            skips.OneStorey++;
+            return true;
+        }
+
+        var interior = levels
+            .Where(level => level.Elevation > baseZ + GeometryRevit.ZTolFt
+                && level.Elevation < topZ - GeometryRevit.ZTolFt)
+            .GroupBy(level => level.Elevation)
+            .Select(group => group.First())
+            .OrderBy(level => level.Elevation)
+            .ToList();
+        if (interior.Count == 0)
+        {
+            skips.OneStorey++;
+            return true;
+        }
+
+        var pieces = new List<CurveMemberSplit.ColumnPiece>
+        {
+            new(baseLevel, baseOffset, interior[0], 0)
+        };
+
+        for (var i = 0; i < interior.Count - 1; i++)
+            pieces.Add(new CurveMemberSplit.ColumnPiece(interior[i], 0, interior[i + 1], 0));
+
+        pieces.Add(new CurveMemberSplit.ColumnPiece(interior[interior.Count - 1], 0, topLevel, topOffset));
+
+        stacks.Add(new CurveMemberSplit.ColumnStack(instance, origin, pieces));
         return true;
     }
 
@@ -489,10 +612,16 @@ internal static class LevelSplit
         public int NoRegions { get; set; }
         public int Unchanged { get; set; }
         public int Failed { get; set; }
+        public int Pinned { get; set; }
+        public int Grouped { get; set; }
+        public int OneStorey { get; set; }
+        public int HeightDriven { get; set; }
+        public int NoType { get; set; }
 
         /// <summary>Every host this run left alone, whichever reason it was.</summary>
         public int Total => NoCurve + NoHit + TopAttached + Stacked + Curtain + ShapeEdited
-            + NoPlanarFace + NoLevel + NoRegions + Unchanged + Failed;
+            + NoPlanarFace + NoLevel + NoRegions + Unchanged + Failed
+            + Pinned + Grouped + OneStorey + HeightDriven + NoType;
 
         public string Note()
         {
@@ -508,6 +637,11 @@ internal static class LevelSplit
             SplitElements.AddSkip(parts, NoRegions, "no regions");
             SplitElements.AddSkip(parts, Unchanged, "unchanged");
             SplitElements.AddSkip(parts, Failed, "split failed");
+            SplitElements.AddSkip(parts, Pinned, "pinned");
+            SplitElements.AddSkip(parts, Grouped, "grouped");
+            SplitElements.AddSkip(parts, OneStorey, "one storey");
+            SplitElements.AddSkip(parts, HeightDriven, "height-driven");
+            SplitElements.AddSkip(parts, NoType, "no type");
             return parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
         }
     }
