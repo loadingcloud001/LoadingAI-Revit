@@ -342,6 +342,14 @@ public interface IRevitCreateCommand
     Task<SplitResultDto?> SplitBeamsByColumnsAsync(SplitRequestDto request, CancellationToken ct = default);
 
     /// <summary>
+    /// Split a strictly shallower structural beam at a same-height pass-through of a
+    /// strictly deeper main. Not cope/notch. Empty <c>Scope</c> is refused; never
+    /// degrades to every beam in the model. Depth ranking is type nominal section
+    /// height only. One-sided framing is skipped, not stubbed.
+    /// </summary>
+    Task<SplitResultDto?> SplitSecondaryBeamsByMainBeamsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
     /// Split floors along the beams and columns that cross them, cutting an opening
     /// where a column passes through. <c>Cutters</c> holds beams and columns together
     /// and is separated by category Adapter-side.

@@ -3164,6 +3164,14 @@ public sealed class AdapterRevitBridge : IRevitBridge
             options,
             outcome));
 
+    public Task<SplitResultDto?> SplitSecondaryBeamsByMainBeamsAsync(SplitRequestDto request, CancellationToken ct = default)
+        => RunSplit(request, ct, (uiApp, options, outcome) => BeamCut.Run(
+            uiApp,
+            request.HostIds ?? Array.Empty<string>(),
+            request.Cutters ?? Array.Empty<string>(),
+            options,
+            outcome));
+
     public Task<SplitResultDto?> SplitFloorsByBeamsAsync(SplitRequestDto request, CancellationToken ct = default)
         => RunSplit(request, ct, (uiApp, options, outcome) =>
         {
