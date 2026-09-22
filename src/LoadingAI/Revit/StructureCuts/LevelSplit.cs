@@ -31,7 +31,7 @@ internal static class LevelSplit
 
         var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds);
         if (batch.Items.Count == 0 && batch.Total == 0)
-            return SplitElements.EmptyHostMessage(options);
+            return SplitElements.NoHostMessage(options, batch, SplitElements.HostNoun(categories));
 
         var levels = SplitScope.Cutters(doc, uidoc, levelIds, SplitElements.IsLevel)
             .OfType<Level>()
@@ -97,7 +97,8 @@ internal static class LevelSplit
             PlanCurve(host, samples, elevations, skips, curvePlans);
         }
 
-        var notes = skips.Note() + SplitReport.Progress(batch) + links.Report();
+        var notes = skips.Note() + SplitReport.Progress(batch) + links.Report()
+            + SplitElements.MissedNote(batch.Missed);
         if (options.DryRun)
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
@@ -249,6 +250,7 @@ internal static class LevelSplit
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
         if (replaced.Count > 0)
             message += " Replaced: " + SplitReport.Ids(replaced.Select(SplitElements.Fmt)) + ".";
+        message += SplitElements.MissedNote(batch.Missed);
 
         outcome?.Record(created, openings, skips.Total);
 

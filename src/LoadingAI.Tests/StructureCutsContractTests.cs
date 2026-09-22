@@ -420,6 +420,39 @@ public class StructureCutsContractTests
             Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
         }
 
+    /// <summary>
+    /// Explicit ids are the work set. A miss is named. "Please select elements first." stays only
+    /// when no ids were supplied and the scope is selection. One helper covers all five tools.
+    /// </summary>
+    [Fact]
+    public void ExplicitIds_AreTheWorkSet_AndMissesAreNamed()
+    {
+        var root = RepoRoot();
+        var hostDir = HostDir(root);
+        Assert.Equal(14, Directory.GetFiles(hostDir, "*.cs").Length);
+
+        var elements = File.ReadAllText(Path.Combine(hostDir, "SplitElements.cs"));
+        Assert.Contains("0 of \" + count + \" ids matched \"", elements, StringComparison.Ordinal);
+        Assert.Contains("Please select elements first.", elements, StringComparison.Ordinal);
+        Assert.Contains("batch.SuppliedIds > 0", elements, StringComparison.Ordinal);
+        Assert.Contains("Missed: ", elements, StringComparison.Ordinal);
+        Assert.Contains("missed.Add(token);", elements, StringComparison.Ordinal);
+        Assert.Contains("return MissedIdsMessage(batch.SuppliedIds, batch.Missed, noun);", elements, StringComparison.Ordinal);
+
+        var scope = File.ReadAllText(Path.Combine(hostDir, "SplitScope.cs"));
+        Assert.Contains("SplitElements.Resolve(doc, ids, wanted, out missed)", scope, StringComparison.Ordinal);
+        Assert.Contains("ids.Count > 0", scope, StringComparison.Ordinal);
+
+        foreach (var file in new[] { "LevelSplit.cs", "GridSplit.cs", "BeamSplit.cs", "BeamCut.cs", "FloorSplit.cs" })
+        {
+            var text = File.ReadAllText(Path.Combine(hostDir, file));
+            Assert.Contains("SplitElements.NoHostMessage(", text, StringComparison.Ordinal);
+            Assert.Contains("SplitElements.MissedNote(batch.Missed)", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("EmptyHostMessage", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("return SplitElements.EmptyHostMessage", text, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Where the split algorithms live after the Bridge port.</summary>
     private static string HostDir(string root) => Path.Combine(root, "src", "LoadingAI", "Revit", "StructureCuts");
 
