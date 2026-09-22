@@ -453,8 +453,10 @@ internal sealed class ChatSession
             {
                 if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
                 {
+                    const string cancelled = "Cancelled by user.";
+                    try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
                     MarkTurnFailedIfGroupActive();
-                    return "Cancelled by user.";
+                    return cancelled;
                 }
             }
             else
@@ -474,8 +476,10 @@ internal sealed class ChatSession
 
             if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
             {
+                const string cancelled = "Cancelled by user.";
+                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
                 MarkTurnFailedIfGroupActive();
-                return "Cancelled by user.";
+                return cancelled;
             }
         }
         else
@@ -506,7 +510,7 @@ internal sealed class ChatSession
         else if (isWrite)
             _turnWrote = true;
 
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} result: {WebHostBridge.Truncate(result, 400)}"))); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} result: {result}"))); } catch { }
 
         if (entry.Tier != ToolTier.L1)
         {
