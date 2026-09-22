@@ -12,6 +12,7 @@ public class PluginProjectContractTests
     [InlineData("Plugins/modeling-tools/ModelingToolsPlugin.csproj", false)]
     [InlineData("Plugins/structure-cuts/StructureCutsPlugin.csproj", false)]
     [InlineData("Plugins/qs-formwork/QsFormworkPlugin.csproj", false)]
+    [InlineData("Plugins/opening-tools/OpeningToolsPlugin.csproj", false)]
     public void ShippedPlugin_DoesNotReferenceHost(string relative, bool requiresRevitUtil)
     {
         var csproj = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));

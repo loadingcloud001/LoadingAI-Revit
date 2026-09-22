@@ -380,3 +380,81 @@ public sealed record CopyParamsRequestDto(IReadOnlyList<string>? Ids, IReadOnlyL
 /// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
 /// </summary>
 public sealed record CopyParamsResultDto(string Report, string? Error = null);
+
+/// <summary>
+/// Input for one opening-tools clash probe or place. <c>MepIds</c> and <c>HostIds</c>
+/// empty means the current selection (a link selection is a valid MEP seed).
+/// <c>ClearanceMm</c> is millimetres at the tool boundary. <c>Shape</c> is
+/// <c>rectangle</c>, <c>circle</c>, or <c>auto</c>. <c>DryRun</c> is the plugin's
+/// concern — the probe slice never writes either way.
+/// </summary>
+public sealed record OpeningClashRequestDto(
+    IReadOnlyList<string> MepIds,
+    IReadOnlyList<string> HostIds,
+    string Shape,
+    double ClearanceMm,
+    string? FamilyName,
+    string? LevelName,
+    int Limit,
+    bool DryRun);
+
+/// <summary>
+/// One planned void. Coordinates are feet (the host's internal unit) so a later
+/// place call can replay the probe without re-deriving the clash.
+/// </summary>
+public sealed record OpeningPlanHitDto(
+    string HostId,
+    string SourceId,
+    double XFt,
+    double YFt,
+    double ZFt,
+    double WidthMm,
+    double HeightMm,
+    double DepthMm,
+    string Shape,
+    bool Combined,
+    int CombinedCount,
+    string CombinedSources);
+
+/// <summary>
+/// Probe outcome. <c>Report</c> is the skip reason when nothing can be planned;
+/// <c>Hits</c> is empty in that case and on a scope refusal. Never a write.
+/// </summary>
+public sealed record OpeningPlanResultDto(
+    string Report,
+    int Count,
+    int CombinedClusters,
+    int LargeClusters,
+    IReadOnlyList<OpeningPlanHitDto> Hits,
+    string? Error = null);
+
+/// <summary>
+/// Place outcome. <c>InstanceIds</c> and <c>Points</c> are parallel lists
+/// (<c>id(x, y, z ft)</c> lives in <c>Report</c> as well). <c>JoinsLost</c> is 0
+/// when the host API does not expose a join delta — that residual is stated in
+/// <c>Report</c> rather than dropped.
+/// </summary>
+public sealed record OpeningPlaceResultDto(
+    string Report,
+    int Placed,
+    int Punched,
+    int Failed,
+    int Skipped,
+    int JoinsLost,
+    IReadOnlyList<string> InstanceIds,
+    IReadOnlyList<string> Points,
+    string? Error = null);
+
+/// <summary>Repair-cut input. Empty lists fall through to the current selection.</summary>
+public sealed record OpeningCutRequestDto(
+    IReadOnlyList<string> OpeningIds,
+    IReadOnlyList<string> HostIds);
+
+/// <summary>Repair-cut outcome. Linked hosts are counted in the report, never cut.</summary>
+public sealed record OpeningCutResultDto(
+    string Report,
+    int Cut,
+    int SkippedLinked,
+    int SkippedCannot,
+    int Failed,
+    string? Error = null);

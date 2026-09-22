@@ -744,6 +744,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<CopyParamsRequestDto> CopyFormworkParentParamsCalls { get; } = new();
 
+    public List<OpeningClashRequestDto> OpeningProbeCalls { get; } = new();
+
+    public List<OpeningClashRequestDto> PlaceOpeningsCalls { get; } = new();
+
+    public List<OpeningCutRequestDto> CutHostsByOpeningsCalls { get; } = new();
+
+    public OpeningPlanResultDto? NextOpeningProbeResult { get; set; }
+
+    public OpeningPlaceResultDto? NextPlaceOpeningsResult { get; set; }
+
+    public OpeningCutResultDto? NextCutHostsResult { get; set; }
+
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
         => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
@@ -1304,6 +1316,50 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     private static CopyParamsResultDto ClosedCopyFormworkParentParams()
         => new("Please open a model first.");
+
+    /// <summary>Write-shaped: records before the closed-document guard.</summary>
+    public Task<OpeningPlanResultDto?> OpeningProbeClashAsync(
+        OpeningClashRequestDto request, CancellationToken ct = default)
+    {
+        OpeningProbeCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<OpeningPlanResultDto?>(
+                new OpeningPlanResultDto("Please open a model first.", 0, 0, 0, Array.Empty<OpeningPlanHitDto>()));
+        if (NextOpeningProbeResult != null)
+            return Task.FromResult<OpeningPlanResultDto?>(NextOpeningProbeResult);
+        return Task.FromResult<OpeningPlanResultDto?>(
+            new OpeningPlanResultDto("Planned 0 opening(s).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>()));
+    }
+
+    public Task<OpeningPlaceResultDto?> PlaceOpeningsAsync(
+        OpeningClashRequestDto request, CancellationToken ct = default)
+    {
+        PlaceOpeningsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<OpeningPlaceResultDto?>(
+                new OpeningPlaceResultDto("Please open a model first.", 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>()));
+        if (request.DryRun)
+            return Task.FromResult<OpeningPlaceResultDto?>(
+                new OpeningPlaceResultDto("Planned 2 opening(s). Dry run — no write.", 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>()));
+        if (NextPlaceOpeningsResult != null)
+            return Task.FromResult<OpeningPlaceResultDto?>(NextPlaceOpeningsResult);
+        return Task.FromResult<OpeningPlaceResultDto?>(new OpeningPlaceResultDto(
+            "Placed 1 opening(s) in the active document. 9001(1.0, 2.0, 3.0 ft). Punched 1. Failed 0.",
+            1, 1, 0, 0, 0, new[] { "9001" }, new[] { "1.0,2.0,3.0" }));
+    }
+
+    public Task<OpeningCutResultDto?> CutHostsByOpeningsAsync(
+        OpeningCutRequestDto request, CancellationToken ct = default)
+    {
+        CutHostsByOpeningsCalls.Add(request);
+        if (!HasActiveDocument)
+            return Task.FromResult<OpeningCutResultDto?>(
+                new OpeningCutResultDto("Please open a model first.", 0, 0, 0, 0));
+        if (NextCutHostsResult != null)
+            return Task.FromResult<OpeningCutResultDto?>(NextCutHostsResult);
+        return Task.FromResult<OpeningCutResultDto?>(
+            new OpeningCutResultDto("Cut 1. Skipped linked: 0. Skipped cannot-cut: 0. Failed 0.", 1, 0, 0, 0));
+    }
 
     /// <summary>A dry run reports no writes, so the counters stay at zero.</summary>
     private static SplitResultDto Split(SplitRequestDto request, string report)

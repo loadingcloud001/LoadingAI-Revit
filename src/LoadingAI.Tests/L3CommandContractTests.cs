@@ -30,6 +30,9 @@ public class L3CommandContractTests
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
         Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("OpeningProbeClashAsync", names);
+        Assert.DoesNotContain("PlaceOpeningsAsync", names);
+        Assert.DoesNotContain("CutHostsByOpeningsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -58,6 +61,9 @@ public class L3CommandContractTests
         Assert.Contains("CreateFormworkPanelsAsync", names);
         Assert.Contains("CleanupFormworkAsync", names);
         Assert.Contains("CopyFormworkParentParamsAsync", names);
+        Assert.Contains("OpeningProbeClashAsync", names);
+        Assert.Contains("PlaceOpeningsAsync", names);
+        Assert.Contains("CutHostsByOpeningsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
         Assert.DoesNotContain("DeleteElementsAsync", names);
         Assert.DoesNotContain("LoadFamilyAsync", names);
@@ -130,6 +136,9 @@ public class L3CommandContractTests
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
         Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("OpeningProbeClashAsync", names);
+        Assert.DoesNotContain("PlaceOpeningsAsync", names);
+        Assert.DoesNotContain("CutHostsByOpeningsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -157,6 +166,9 @@ public class L3CommandContractTests
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
         Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("OpeningProbeClashAsync", names);
+        Assert.DoesNotContain("PlaceOpeningsAsync", names);
+        Assert.DoesNotContain("CutHostsByOpeningsAsync", names);
         Assert.DoesNotContain("CollectHostsAsync", names);
     }
 
@@ -175,6 +187,9 @@ public class L3CommandContractTests
         Assert.DoesNotContain("CreateFormworkPanelsAsync", names);
         Assert.DoesNotContain("CleanupFormworkAsync", names);
         Assert.DoesNotContain("CopyFormworkParentParamsAsync", names);
+        Assert.DoesNotContain("OpeningProbeClashAsync", names);
+        Assert.DoesNotContain("PlaceOpeningsAsync", names);
+        Assert.DoesNotContain("CutHostsByOpeningsAsync", names);
         Assert.DoesNotContain("CreateScheduleAsync", names);
         Assert.DoesNotContain("CreateFloorPlanAsync", names);
         Assert.DoesNotContain("Create3DViewAsync", names);

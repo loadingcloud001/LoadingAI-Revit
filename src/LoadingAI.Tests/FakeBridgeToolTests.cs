@@ -2565,6 +2565,131 @@ public class FakeBridgeToolTests
         Assert.Equal("No formwork panels found.", text);
     }
 
+    [Fact]
+    public async Task CreateOpeningsFromClash_ForwardsIdsAndDefaults()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "create_openings_from_clash");
+
+        var text = await tool.Handler("""{"mepIds":["11"],"hostIds":["22"],"shape":"circle","clearanceMm":40,"familyName":"LoadingAI_Opening_Horizontal_Circle","levelName":"L1","limit":10}""");
+
+        Assert.Contains("9001", text);
+        Assert.Empty(bridge.OpeningProbeCalls);
+        var call = Assert.Single(bridge.PlaceOpeningsCalls);
+        Assert.Equal(new[] { "11" }, call.MepIds);
+        Assert.Equal(new[] { "22" }, call.HostIds);
+        Assert.Equal("circle", call.Shape);
+        Assert.Equal(40, call.ClearanceMm);
+        Assert.Equal("LoadingAI_Opening_Horizontal_Circle", call.FamilyName);
+        Assert.Equal("L1", call.LevelName);
+        Assert.Equal(10, call.Limit);
+        Assert.False(call.DryRun);
+        Assert.True(tool.RequiresWriteConfirm);
+    }
+
+    [Fact]
+    public async Task CreateOpeningsFromClash_OmittedArgs_UseDefaultsAndEmptySelection()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "create_openings_from_clash");
+
+        await tool.Handler("{}");
+
+        var call = Assert.Single(bridge.PlaceOpeningsCalls);
+        Assert.Empty(call.MepIds);
+        Assert.Empty(call.HostIds);
+        Assert.Equal("auto", call.Shape);
+        Assert.Equal(25, call.ClearanceMm);
+        Assert.Null(call.FamilyName);
+        Assert.Null(call.LevelName);
+        Assert.Equal(50, call.Limit);
+        Assert.False(call.DryRun);
+    }
+
+    [Fact]
+    public async Task CreateOpeningsFromClash_LimitCap_ClampsTo200()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "create_openings_from_clash");
+
+        await tool.Handler("""{"limit":999}""");
+
+        Assert.Equal(200, Assert.Single(bridge.PlaceOpeningsCalls).Limit);
+    }
+
+    [Fact]
+    public async Task CreateOpeningsFromClash_DryRun_ProbesAndDoesNotPlace()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "create_openings_from_clash");
+
+        var text = await tool.Handler("""{"dryRun":true,"hostIds":["22"]}""");
+
+        Assert.Contains("Dry run", text);
+        Assert.Empty(bridge.PlaceOpeningsCalls);
+        var call = Assert.Single(bridge.OpeningProbeCalls);
+        Assert.True(call.DryRun);
+        Assert.Equal(new[] { "22" }, call.HostIds);
+        Assert.Equal(50, call.Limit);
+    }
+
+    [Fact]
+    public async Task CreateOpeningsFromClash_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = OpeningTool(bridge, "create_openings_from_clash");
+
+        var text = await tool.Handler("""{"hostIds":["22"]}""");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Empty(bridge.OpeningProbeCalls);
+        Assert.Single(bridge.PlaceOpeningsCalls);
+    }
+
+    [Fact]
+    public async Task CutHostsByOpenings_ForwardsIds()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "cut_hosts_by_openings");
+
+        var text = await tool.Handler("""{"openingIds":["9"],"hostIds":["8"]}""");
+
+        Assert.Contains("Cut 1", text);
+        var call = Assert.Single(bridge.CutHostsByOpeningsCalls);
+        Assert.Equal(new[] { "9" }, call.OpeningIds);
+        Assert.Equal(new[] { "8" }, call.HostIds);
+        Assert.True(tool.RequiresWriteConfirm);
+    }
+
+    [Fact]
+    public async Task CutHostsByOpenings_Empty_UsesSelection()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = OpeningTool(bridge, "cut_hosts_by_openings");
+
+        await tool.Handler("{}");
+
+        var call = Assert.Single(bridge.CutHostsByOpeningsCalls);
+        Assert.Empty(call.OpeningIds);
+        Assert.Empty(call.HostIds);
+    }
+
+    [Fact]
+    public async Task CutHostsByOpenings_NoDocument_AsksToOpenModel()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = false };
+        var tool = OpeningTool(bridge, "cut_hosts_by_openings");
+
+        var text = await tool.Handler("{}");
+
+        Assert.Equal("Please open a model first.", text);
+        Assert.Single(bridge.CutHostsByOpeningsCalls);
+    }
+
+    private static ToolEntry OpeningTool(FakeRevitBridge bridge, string name)
+        => new LoadingAI.Plugins.OpeningTools.OpeningToolsPlugin().CreateTools(new FakePluginContext(bridge))
+            .Single(t => t.Definition.Function.Name == name);
+
     private static ToolEntry FormworkTool(FakeRevitBridge bridge, string name)
         => FormworkPlugin().CreateTools(new FakePluginContext(bridge))
             .Single(t => t.Definition.Function.Name == name);
