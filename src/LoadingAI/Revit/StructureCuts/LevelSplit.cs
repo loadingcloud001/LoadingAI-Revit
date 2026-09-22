@@ -113,6 +113,7 @@ internal static class LevelSplit
             return "Nothing to split." + notes;
 
         var created = new List<ElementId>();
+        var replaced = new List<ElementId>();
         var split = 0;
         var piecesMade = 0;
         var paramSkipped = 0;
@@ -148,6 +149,8 @@ internal static class LevelSplit
                         recreated++;
                         dependents += lost;
                     }
+
+                    replaced.Add(plan.Host.Id);
                 }
                 else
                 {
@@ -170,6 +173,7 @@ internal static class LevelSplit
                     split++;
                     piecesMade += ids.Count;
                     created.AddRange(ids);
+                    replaced.Add(stack.Wall.Id);
                     recreated++;
                     // The storey stack deletes the wall it replaces, so anything hanging off that host goes
                     // with it. Like the curve path, the report counts that rather than re-hosting it: the
@@ -198,6 +202,7 @@ internal static class LevelSplit
                     split++;
                     piecesMade += ids.Count;
                     created.AddRange(ids);
+                    replaced.Add(stack.Host.Id);
                     recreated++;
                     dependents += lost;
                 }
@@ -242,6 +247,8 @@ internal static class LevelSplit
         }
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+        if (replaced.Count > 0)
+            message += " Replaced: " + SplitReport.Ids(replaced.Select(SplitElements.Fmt)) + ".";
 
         outcome?.Record(created, openings, skips.Total);
 
@@ -424,19 +431,33 @@ internal static class LevelSplit
             return true;
         }
 
-        var pieces = new List<CurveMemberSplit.ColumnPiece>
+        var candidates = new List<CurveMemberSplit.ColumnPiece>
         {
             new(baseLevel, baseOffset, interior[0], 0)
         };
 
         for (var i = 0; i < interior.Count - 1; i++)
-            pieces.Add(new CurveMemberSplit.ColumnPiece(interior[i], 0, interior[i + 1], 0));
+            candidates.Add(new CurveMemberSplit.ColumnPiece(interior[i], 0, interior[i + 1], 0));
 
-        pieces.Add(new CurveMemberSplit.ColumnPiece(interior[interior.Count - 1], 0, topLevel, topOffset));
+        candidates.Add(new CurveMemberSplit.ColumnPiece(interior[interior.Count - 1], 0, topLevel, topOffset));
+
+        // A base or top offset can land on the next storey even when that storey's elevation is
+        // strictly inside the overall span. That piece has no height. Dry-run and write share
+        // this list, so dropping it here keeps the two counts equal and stops the write creating it.
+        var pieces = candidates.Where(piece => PieceSpan(piece) > GeometryRevit.ZTolFt).ToList();
+        if (pieces.Count == 0)
+        {
+            skips.OneStorey++;
+            return true;
+        }
 
         stacks.Add(new CurveMemberSplit.ColumnStack(instance, origin, pieces));
         return true;
     }
+
+    /// <summary>Model Z from the piece's own level plus offset. Zero when the two ends meet.</summary>
+    private static double PieceSpan(CurveMemberSplit.ColumnPiece piece)
+        => (piece.TopLevel.Elevation + piece.TopOffset) - (piece.BaseLevel.Elevation + piece.BaseOffset);
 
     /// <summary>
     /// The wall's top in model Z, but only when the wall's own unconnected height is what places it.
