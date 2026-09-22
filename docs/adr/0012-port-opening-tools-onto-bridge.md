@@ -1,6 +1,6 @@
 # ADR-0012 — Port opening-tools onto Bridge
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-22
 - Deciders: LoadingAI architecture
 - Does not supersede: [ADR-0009](0009-port-qs-formwork-onto-bridge.md), [ADR-0010](0010-plugin-load-allowlist.md), [ADR-0011](0011-plugin-trust-prompt.md)
@@ -53,7 +53,7 @@ Shipped plugins go from six to seven. Ship-list literals that said 6 become 7: h
 
 `ToolSelector.DefaultMax` is not raised. If a catalog test proves the two new names cannot fit under 24, stop — do not bump the cap in this PR.
 
-ADR-0010 and ADR-0011 stay as they are. Status here stays **Proposed** until an independent review accepts the port.
+ADR-0010 and ADR-0011 stay as they are. Status is **Accepted**: an independent review accepted the landed port and the engineer accepted that review.
 
 ## Do not
 
