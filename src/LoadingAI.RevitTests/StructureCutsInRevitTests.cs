@@ -127,6 +127,41 @@ public class StructureCutsInRevitTests
         }
     }
 
+    /// <summary>
+    /// Engineer punch: clear the selection, pass explicit ids, and those ids are the work set.
+    /// A bogus id is named. The selection sentence is only for no ids and no selection.
+    /// </summary>
+    [Test]
+    public void DryRun_ExplicitIds_IgnoreEmptySelection_AndNameMisses()
+    {
+        _uiApp.ActiveUIDocument.Selection.SetElementIds(new List<ElementId>());
+
+        const string bogus = "{\"dryRun\":true,\"elementIds\":[\"4710\",\"4711\",\"4712\",\"4713\"],\"categories\":[\"columns\"]}";
+        var byLevels = Run("split_by_levels", bogus);
+        Assert.That(byLevels, Does.Contain("0 of 4 ids matched category columns."));
+        Assert.That(byLevels, Does.Contain("Missed: 4710, 4711, 4712, 4713."));
+        Assert.That(byLevels, Does.Not.Contain("Please select elements first."));
+
+        var byGrids = Run("split_by_grids", bogus);
+        Assert.That(byGrids, Does.Contain("0 of 4 ids matched category columns."));
+        Assert.That(byGrids, Does.Not.Contain("Please select elements first."));
+
+        var beams = Run("split_beams_by_columns", "{\"dryRun\":true,\"beamIds\":[\"4710\",\"nope\"]}");
+        Assert.That(beams, Does.Contain("0 of 2 ids matched beams."));
+        Assert.That(beams, Does.Contain("Missed: 4710, nope."));
+        Assert.That(beams, Does.Not.Contain("Please select elements first."));
+
+        var floors = Run("split_floors_by_beams", "{\"dryRun\":true,\"floorIds\":[\"999999999\"]}");
+        Assert.That(floors, Does.Contain("0 of 1 ids matched floors."));
+        Assert.That(floors, Does.Not.Contain("Please select elements first."));
+
+        var secondary = Run(
+            "split_secondary_beams_by_main_beams",
+            "{\"dryRun\":true,\"beamIds\":[\"4710\",\"4711\"]}");
+        Assert.That(secondary, Does.Contain("0 of 2 ids matched beams."));
+        Assert.That(secondary, Does.Not.Contain("Please select elements first."));
+    }
+
     [Test]
     public void DryRun_ScopeAll_EmptyMetric_ReturnsSkipReasons()
     {

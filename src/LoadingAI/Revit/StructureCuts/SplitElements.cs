@@ -68,26 +68,67 @@ internal static class SplitElements
     }
 
     public static List<Element> Resolve(Document doc, IReadOnlyList<string> ids, Func<Element, bool> wanted)
+        => Resolve(doc, ids, wanted, out _);
+
+    /// <summary>
+    /// Ids the caller already named. A blank token is ignored. Anything else that does not parse,
+    /// is missing, or fails <paramref name="wanted"/> is returned in <paramref name="missed"/>
+    /// rather than dropped, so an explicit id list cannot collapse into "select elements first".
+    /// </summary>
+    public static List<Element> Resolve(
+        Document doc,
+        IReadOnlyList<string> ids,
+        Func<Element, bool> wanted,
+        out List<string> missed)
     {
         var list = new List<Element>();
+        missed = new List<string>();
         foreach (var s in ids)
         {
+            if (string.IsNullOrWhiteSpace(s))
+                continue;
+
+            var token = s.Trim();
             Element? el;
             try
             {
-                el = doc.GetElement(RevitParse.ParseEid(s));
+                el = doc.GetElement(RevitParse.ParseEid(token));
             }
             catch
             {
+                missed.Add(token);
                 continue;
             }
 
             if (el != null && wanted(el))
                 list.Add(el);
+            else
+                missed.Add(token);
         }
 
         return list;
     }
+
+    /// <summary>
+    /// Per-id answer when the caller supplied ids and none of them became a host. Does not
+    /// mention the Revit selection: those ids were the work set.
+    /// </summary>
+    public static string MissedIdsMessage(int supplied, IReadOnlyList<string> missed, string noun)
+    {
+        var count = supplied.ToString(CultureInfo.InvariantCulture);
+        var message = "0 of " + count + " ids matched " + noun + ".";
+        if (missed.Count == 0)
+            return message;
+
+        return message + " " + MissedNote(missed);
+    }
+
+    /// <summary>
+    /// Names supplied ids that did not become hosts. Empty when every supplied id matched, so a
+    /// normal run does not grow a footnote.
+    /// </summary>
+    public static string MissedNote(IReadOnlyList<string> missed)
+        => missed.Count == 0 ? "" : "Missed: " + SplitReport.Ids(missed) + ".";
 
     public static List<Element> GetSelection(UIDocument uidoc)
         => uidoc.Selection.GetElementIds()
@@ -145,10 +186,43 @@ internal static class SplitElements
             || (Match(wanted, "floor", "floors", "slab", "slabs") && IsFloorLike(el));
     }
 
+    /// <summary>
+    /// No hosts, and the caller did not name ids. "Please select elements first." is only the
+    /// selection-scope case. Explicit ids never reach this sentence.
+    /// </summary>
     public static string EmptyHostMessage(SplitOptions options)
         => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
             ? "Please select elements first."
             : "No hosts found.";
+
+    /// <summary>
+    /// Shared empty-host choice. Supplied ids that matched nothing get a per-id answer.
+    /// "Please select elements first." stays only when there were no ids and the scope is selection.
+    /// </summary>
+    public static string NoHostMessage(SplitOptions options, SplitBatch batch, string noun)
+        => NoHostMessage(options, batch, noun, "No hosts found.");
+
+    public static string NoHostMessage(SplitOptions options, SplitBatch batch, string noun, string noneInScope)
+    {
+        if (batch.SuppliedIds > 0)
+            return MissedIdsMessage(batch.SuppliedIds, batch.Missed, noun);
+
+        return string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
+            ? "Please select elements first."
+            : noneInScope;
+    }
+
+    /// <summary>Category phrase for a missed-id answer. Empty categories are the four host kinds.</summary>
+    public static string HostNoun(IReadOnlyList<string> categories)
+    {
+        var names = categories
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .ToList();
+        return names.Count == 0
+            ? "hosts"
+            : "category " + string.Join(", ", names);
+    }
 
     private static bool Match(HashSet<string> wanted, params string[] names)
     {

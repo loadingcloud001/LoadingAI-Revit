@@ -1,6 +1,8 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
+using System;
+
 namespace LoadingAI.Revit.StructureCuts;
 
 /// <summary>
@@ -10,10 +12,17 @@ namespace LoadingAI.Revit.StructureCuts;
 internal sealed class SplitBatch
 {
     public SplitBatch(List<Element> items, int offset, int total)
+        : this(items, offset, total, Array.Empty<string>(), 0)
+    {
+    }
+
+    public SplitBatch(List<Element> items, int offset, int total, IReadOnlyList<string> missed, int suppliedIds)
     {
         Items = items;
         Offset = offset;
         Total = total;
+        Missed = missed;
+        SuppliedIds = suppliedIds;
     }
 
     public List<Element> Items { get; }
@@ -21,6 +30,12 @@ internal sealed class SplitBatch
     public int Offset { get; }
 
     public int Total { get; }
+
+    /// <summary>Caller-supplied tokens that did not become a host. Empty when no ids were supplied.</summary>
+    public IReadOnlyList<string> Missed { get; }
+
+    /// <summary>How many id tokens the caller supplied, including the ones that missed.</summary>
+    public int SuppliedIds { get; }
 
     public int NextOffset => Offset + Items.Count;
 }
@@ -38,9 +53,19 @@ internal static class SplitScope
         SplitOptions options,
         IReadOnlyList<string> ids)
     {
-        var collected = ids.Count > 0
-            ? SplitElements.Resolve(doc, ids, wanted)
-            : ByScope(doc, uidoc, wanted, options.Scope);
+        // Explicit ids are the work set. An empty Revit selection must not replace them, and a
+        // miss is kept so the caller can name it instead of falling through to "select first".
+        List<string> missed;
+        List<Element> collected;
+        if (ids.Count > 0)
+        {
+            collected = SplitElements.Resolve(doc, ids, wanted, out missed);
+        }
+        else
+        {
+            collected = ByScope(doc, uidoc, wanted, options.Scope);
+            missed = new List<string>();
+        }
 
         var offset = Math.Max(0, options.ContinueFrom);
         if (offset > collected.Count)
@@ -49,7 +74,7 @@ internal static class SplitScope
         var remaining = collected.Count - offset;
         var take = Math.Min(options.Limit, remaining);
         var page = collected.Skip(offset).Take(take).ToList();
-        return new SplitBatch(page, offset, collected.Count);
+        return new SplitBatch(page, offset, collected.Count, missed, ids.Count);
     }
 
     public static List<Element> AllInModel(Document doc, Func<Element, bool> wanted)

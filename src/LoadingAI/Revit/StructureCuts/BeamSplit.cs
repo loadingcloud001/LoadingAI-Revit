@@ -39,7 +39,7 @@ internal static class BeamSplit
         var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsBeam, options, beamIds);
         var beams = batch.Items;
         if (beams.Count == 0 && batch.Total == 0)
-            return EmptyHostMessage(options);
+            return SplitElements.NoHostMessage(options, batch, "beams", "No beams found.");
 
         var columns = SplitScope.Cutters(doc, uidoc, columnIds, SplitElements.IsColumn);
         var links = SplitScope.LinkCutters(doc, options, SplitElements.IsColumn);
@@ -75,11 +75,13 @@ internal static class BeamSplit
             return "Dry-run. " + $"Would split {plans.Count} beams into {pieces} pieces. No changes made."
                 + SkipNote(skippedNoCurve, skippedNoCrossing, 0)
                 + SplitReport.Progress(batch)
-                + links.Report();
+                + links.Report()
+                + SplitElements.MissedNote(batch.Missed);
         }
 
         if (plans.Count == 0)
-            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0) + SplitReport.Progress(batch) + links.Report();
+            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0) + SplitReport.Progress(batch) + links.Report()
+                + SplitElements.MissedNote(batch.Missed);
 
         var created = new List<ElementId>();
         var split = 0;
@@ -142,7 +144,7 @@ internal static class BeamSplit
             message += $" Left alone: {skippedUnchanged}.";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
-        message += links.Report();
+        message += links.Report() + SplitElements.MissedNote(batch.Missed);
 
         outcome?.Record(created, 0, skippedNoCurve + skippedNoCrossing + skippedUnchanged + skippedFailed);
 
@@ -244,11 +246,6 @@ internal static class BeamSplit
 
     private static string SkipNote(int noCurve, int noCrossing, int failed)
         => Skips.Note(noCurve, noCrossing, failed);
-
-    private static string EmptyHostMessage(SplitOptions options)
-        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
-            ? "Please select elements first."
-            : "No beams found.";
 
     /// <summary>
     /// The reasons members were left alone, each one named rather than folded into a single count, so a

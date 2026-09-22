@@ -38,7 +38,7 @@ internal static class FloorSplit
         var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsFloorLike, options, floorIds);
         var floors = batch.Items;
         if (floors.Count == 0 && batch.Total == 0)
-            return EmptyHostMessage(options);
+            return SplitElements.NoHostMessage(options, batch, "floors", "No floors found.");
 
         var selection = SplitElements.GetSelection(uidoc);
         var beams = SplitElements.Resolve(doc, beamIds, SplitElements.IsBeam);
@@ -91,7 +91,8 @@ internal static class FloorSplit
             }
         }
 
-        var notes = skips.Note() + SplitReport.Progress(batch) + linkBeams.Report() + linkColumns.Report();
+        var notes = skips.Note() + SplitReport.Progress(batch) + linkBeams.Report() + linkColumns.Report()
+            + SplitElements.MissedNote(batch.Missed);
 
         if (options.DryRun)
         {
@@ -166,7 +167,7 @@ internal static class FloorSplit
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
-        message += linkBeams.Report() + linkColumns.Report();
+        message += linkBeams.Report() + linkColumns.Report() + SplitElements.MissedNote(batch.Missed);
 
         outcome?.Record(created, openingsMade, skips.Total);
 
@@ -558,11 +559,6 @@ internal static class FloorSplit
             return parts.Count > 0 ? $" Skipped: {string.Join(", ", parts)}." : "";
         }
     }
-
-    private static string EmptyHostMessage(SplitOptions options)
-        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
-            ? "Please select elements first."
-            : "No floors found.";
 
     /// <summary>A floor and the pieces it was planned to become, before anything is written.</summary>
     internal sealed class Plan

@@ -34,7 +34,7 @@ internal static class BeamCut
         var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsBeam, options, hostIds);
         var beams = batch.Items;
         if (beams.Count == 0 && batch.Total == 0)
-            return EmptyHostMessage(options);
+            return SplitElements.NoHostMessage(options, batch, "beams", "No beams found.");
 
         var mains = cutterIds.Count > 0
             ? SplitElements.Resolve(doc, cutterIds, SplitElements.IsBeam)
@@ -155,7 +155,8 @@ internal static class BeamCut
                 + SkipNote(skippedNoCurve, skippedNoPair, 0)
                 + refuseNote
                 + SplitReport.Progress(batch)
-                + links.Report();
+                + links.Report()
+                + SplitElements.MissedNote(batch.Missed);
         }
 
         if (plans.Count == 0)
@@ -163,7 +164,8 @@ internal static class BeamCut
                 + SkipNote(skippedNoCurve, skippedNoPair, 0)
                 + refuseNote
                 + SplitReport.Progress(batch)
-                + links.Report();
+                + links.Report()
+                + SplitElements.MissedNote(batch.Missed);
 
         var created = new List<ElementId>();
         var split = 0;
@@ -203,7 +205,7 @@ internal static class BeamCut
             message += $" Dependent elements to re-check: {dependents}.";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
-        message += links.Report();
+        message += links.Report() + SplitElements.MissedNote(batch.Missed);
 
         outcome?.Record(created, 0, skippedNoCurve + skippedNoPair + skippedFailed);
 
@@ -563,11 +565,6 @@ internal static class BeamCut
         cache[main.Id] = ring;
         return ring;
     }
-
-    private static string EmptyHostMessage(SplitOptions options)
-        => string.Equals(options.Scope, "selection", StringComparison.OrdinalIgnoreCase)
-            ? "Please select elements first."
-            : "No beams found.";
 
     private static string SkipNote(int noCurve, int noPair, int failed)
     {
