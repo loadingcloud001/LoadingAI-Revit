@@ -390,6 +390,33 @@ public class StructureCutsContractTests
         }
     }
 
+        [Fact]
+        public void IncludeLinks_IsOptionalDefaultOff_OnAllFiveTools()
+        {
+            var root = RepoRoot();
+            var json = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "plugin.json"));
+            using var doc = JsonDocument.Parse(json);
+            Assert.Equal("2.0.1", doc.RootElement.GetProperty("version").GetString());
+            var tools = doc.RootElement.GetProperty("tools").EnumerateArray().ToList();
+            Assert.Equal(5, tools.Count);
+            foreach (var tool in tools)
+            {
+                var desc = tool.GetProperty("description").GetString() ?? "";
+                Assert.Contains("includeLinks", desc, StringComparison.Ordinal);
+                Assert.Contains("Include linked cutters", desc, StringComparison.Ordinal);
+            }
+
+            var src = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
+            Assert.Equal(1, CountOccurrences(src, "args.Bool(\"includeLinks\", false)"));
+            Assert.Contains("IncludeLinks = args.Bool(\"includeLinks\", false)", src, StringComparison.Ordinal);
+            Assert.Contains("options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks);", src, StringComparison.Ordinal);
+            var preset = "new PresetField { Id = \"includeLinks\", Label = \"Include linked cutters\", Kind = PresetFieldKind.Boolean, Default = false }";
+            Assert.Contains(preset, src, StringComparison.Ordinal);
+            Assert.Equal(5, CountOccurrences(src, "includeLinks = IncludeLinksProperty()"));
+            Assert.DoesNotContain("PresetFieldKind.PickBox", src, StringComparison.Ordinal);
+            Assert.DoesNotContain("Required = true", src, StringComparison.Ordinal);
+        }
+
     /// <summary>Where the split algorithms live after the Bridge port.</summary>
     private static string HostDir(string root) => Path.Combine(root, "src", "LoadingAI", "Revit", "StructureCuts");
 
