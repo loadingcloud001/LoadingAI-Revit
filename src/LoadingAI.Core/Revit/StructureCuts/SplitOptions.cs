@@ -29,4 +29,11 @@ public sealed class SplitOptions
 
     /// <summary>How many already-collected hosts to skip, so a capped run can continue from nextOffset.</summary>
     public int ContinueFrom { get; init; }
+
+    /// <summary>
+    /// When on, loaded-link cutters are added to the host cutters already resolved.
+    /// Off (the default, including an omitted flag) keeps today's host-document cutters only.
+    /// Hosts being split stay in the host document either way.
+    /// </summary>
+    public bool IncludeLinks { get; init; }
 }

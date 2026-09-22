@@ -39,8 +39,9 @@ internal static class BeamCut
         var mains = cutterIds.Count > 0
             ? SplitElements.Resolve(doc, cutterIds, SplitElements.IsBeam)
             : beams;
-        if (mains.Count == 0)
-            return "No main beams found.";
+        var links = SplitScope.LinkCutters(doc, options, SplitElements.IsBeam);
+        if (mains.Count == 0 && links.Cutters.Count == 0)
+            return "No main beams found." + links.Report();
 
         var depths = new Dictionary<ElementId, double?>();
         var typeNames = new Dictionary<ElementId, string>();
@@ -105,6 +106,40 @@ internal static class BeamCut
                 break;
             }
 
+            if (!paired)
+            {
+                foreach (var main in links.Cutters)
+                {
+                    var order = SecondaryByMain.DecideOrder(
+                        TypeDepth(secondary, depths, typeNames),
+                        TypeName(secondary, typeNames),
+                        main.TypeDepth,
+                        main.TypeName);
+
+                    if (order.Refused)
+                    {
+                        if (!string.IsNullOrEmpty(order.RefusedTypeName))
+                            refusedTypes.Add(order.RefusedTypeName);
+                        continue;
+                    }
+
+                    if (!order.BIsMain)
+                        continue;
+
+                    var targetDepth = TypeDepth(secondary, depths, typeNames);
+                    if (targetDepth is not > 0)
+                        continue;
+
+                    if (!TryCrossing(secondary, curve, main, targetDepth.Value, out var decision))
+                        continue;
+
+                    plans.Add(new Plan(secondary, curve, decision));
+                    planned.Add(secondary.Id);
+                    paired = true;
+                    break;
+                }
+            }
+
             if (!paired && !planned.Contains(secondary.Id))
                 skippedNoPair++;
         }
@@ -119,14 +154,16 @@ internal static class BeamCut
             return "Dry-run. " + $"Would split {plans.Count} secondary beams into {pieces} pieces. No changes made."
                 + SkipNote(skippedNoCurve, skippedNoPair, 0)
                 + refuseNote
-                + SplitReport.Progress(batch);
+                + SplitReport.Progress(batch)
+                + links.Report();
         }
 
         if (plans.Count == 0)
             return "Nothing to split."
                 + SkipNote(skippedNoCurve, skippedNoPair, 0)
                 + refuseNote
-                + SplitReport.Progress(batch);
+                + SplitReport.Progress(batch)
+                + links.Report();
 
         var created = new List<ElementId>();
         var split = 0;
@@ -166,6 +203,7 @@ internal static class BeamCut
             message += $" Dependent elements to re-check: {dependents}.";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+        message += links.Report();
 
         outcome?.Record(created, 0, skippedNoCurve + skippedNoPair + skippedFailed);
 
@@ -217,6 +255,56 @@ internal static class BeamCut
 
             var mid = GeometryRevit.At(curve, (candidate.Enter + candidate.Leave) / 2.0);
             if (!SecondaryByMain.Occupies(cutterBot, cutterTop, mid.Z, targetDepth))
+                continue;
+
+            decision = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryCrossing(
+        Element secondary,
+        Curve curve,
+        SplitElements.LinkedCutter main,
+        double targetDepth,
+        out CrossingDecision decision)
+    {
+        decision = CrossingDecision.Skip("no crossing");
+        if (main.Curve == null)
+            return false;
+
+        var range = main.ZRange();
+        if (range == null)
+            return false;
+
+        var plane = GeometryRevit.HorizontalPlane(curve.GetEndPoint(0));
+        var centreline = GeometryRevit.ProjectAll(plane, GeometryRevit.Tessellate(curve));
+        if (centreline.Count < 2)
+            return false;
+
+        var ring = Polygon2D.Largest(main.Rings(plane));
+        if (ring == null || ring.Count < 3)
+            return false;
+
+        var clips = Polygon2D.ClipPolylineToPolygon(ring, centreline);
+        foreach (var clip in clips)
+        {
+            if (clip.Count < 2)
+                continue;
+
+            var enter = Polygon2D.ParameterAlong(centreline, clip[0]);
+            var leave = Polygon2D.ParameterAlong(centreline, clip[clip.Count - 1]);
+            var startInside = Polygon2D.PointInPolygon(centreline[0], ring);
+            var endInside = Polygon2D.PointInPolygon(centreline[centreline.Count - 1], ring);
+            var run = new CrossingRun(enter, leave, oneSided: startInside || endInside);
+            var candidate = SecondaryByMain.Crossing(run);
+            if (!candidate.Keep)
+                continue;
+
+            var mid = GeometryRevit.At(curve, (candidate.Enter + candidate.Leave) / 2.0);
+            if (!SecondaryByMain.Occupies(range.Value.Bot, range.Value.Top, mid.Z, targetDepth))
                 continue;
 
             decision = candidate;

@@ -3230,6 +3230,7 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 CopyParams = request.CopyParams,
                 Scope = request.Scope,
                 ContinueFrom = request.ContinueFrom,
+                IncludeLinks = request.IncludeLinks,
             };
             var outcome = new SplitOutcome();
             try

@@ -496,6 +496,25 @@ internal static class GeometryRevit
         return first.Min.Z <= second.Max.Z + ZTolFt && second.Min.Z <= first.Max.Z + ZTolFt;
     }
 
+    /// <summary>
+    /// Same reach test against a bounding box already in host space. A linked cutter must not be
+    /// asked through <see cref="Reaches(Element, Element)"/>: that reads the link-local box.
+    /// </summary>
+    public static bool Reaches(Element host, BoundingBoxXYZ cutter)
+    {
+        var first = host.get_BoundingBox(null);
+        if (first == null || cutter == null)
+            return false;
+
+        if (first.Min.X > cutter.Max.X + Tol || cutter.Min.X > first.Max.X + Tol)
+            return false;
+
+        if (first.Min.Y > cutter.Max.Y + Tol || cutter.Min.Y > first.Max.Y + Tol)
+            return false;
+
+        return first.Min.Z <= cutter.Max.Z + ZTolFt && cutter.Min.Z <= first.Max.Z + ZTolFt;
+    }
+
     /// <summary>Whether two elements' outlines overlap in plan and in height, i.e. whether they can interact.</summary>
     public static bool Reaches(Element a, Element b)
     {
@@ -700,5 +719,231 @@ internal static class GeometryRevit
         }
 
         return (max - min) / 2.0;
+    }
+
+    /// <summary>
+    /// Solids already in host space. Instance geometry is link-local; the link transform is applied
+    /// once. Do not also call <c>GetTransformed</c>.
+    /// </summary>
+    public static List<Solid> SolidsInHost(Element element, Transform toHost)
+    {
+        var solids = Solids(element);
+        if (toHost == null || toHost.IsIdentity)
+            return solids;
+
+        var moved = new List<Solid>(solids.Count);
+        foreach (var solid in solids)
+        {
+            try
+            {
+                var transformed = SolidUtils.CreateTransformed(solid, toHost);
+                if (transformed != null && transformed.Volume > 0)
+                    moved.Add(transformed);
+            }
+            catch
+            {
+                // A solid the transform refuses is omitted, not used at link-local coordinates.
+            }
+        }
+
+        return moved;
+    }
+
+    /// <summary>Location curve in host space. A null transform is identity, not a reason to keep link-local.</summary>
+    public static Curve? CurveInHost(Curve? curve, Transform toHost)
+    {
+        if (curve == null)
+            return null;
+        if (toHost == null || toHost.IsIdentity)
+            return curve;
+
+        try
+        {
+            return curve.CreateTransformed(toHost);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Horizontal rings of solids that are already in host space.</summary>
+    public static List<List<Point2>> RingsOf(IReadOnlyList<Solid> solids, Plane2D plane, BoundingBoxXYZ? fallback)
+    {
+        var z = plane.Origin.Z;
+        var best = new List<List<Point2>>();
+        var bestArea = 0.0;
+        foreach (var solid in solids)
+        {
+            var rings = ShadowRings(solid, plane, z);
+            if (rings.Count == 0)
+                rings = FaceRings(solid, plane, z);
+            if (rings.Count == 0)
+                continue;
+
+            var area = OuterArea(rings);
+            if (area <= bestArea)
+                continue;
+
+            bestArea = area;
+            best = rings;
+        }
+
+        if (best.Count > 0)
+            return best;
+
+        return fallback == null ? best : BoxRing(fallback, plane);
+    }
+
+    public static BoundingBoxXYZ? BoxInHost(BoundingBoxXYZ? box, Transform toHost)
+    {
+        if (box == null)
+            return null;
+        if (toHost == null || toHost.IsIdentity)
+            return box;
+
+        try
+        {
+            var moved = new BoundingBoxXYZ();
+            var corners = new[]
+            {
+                new XYZ(box.Min.X, box.Min.Y, box.Min.Z),
+                new XYZ(box.Min.X, box.Min.Y, box.Max.Z),
+                new XYZ(box.Min.X, box.Max.Y, box.Min.Z),
+                new XYZ(box.Min.X, box.Max.Y, box.Max.Z),
+                new XYZ(box.Max.X, box.Min.Y, box.Min.Z),
+                new XYZ(box.Max.X, box.Min.Y, box.Max.Z),
+                new XYZ(box.Max.X, box.Max.Y, box.Min.Z),
+                new XYZ(box.Max.X, box.Max.Y, box.Max.Z)
+            };
+            var min = toHost.OfPoint(corners[0]);
+            var max = min;
+            for (var i = 1; i < corners.Length; i++)
+            {
+                var point = toHost.OfPoint(corners[i]);
+                min = new XYZ(Math.Min(min.X, point.X), Math.Min(min.Y, point.Y), Math.Min(min.Z, point.Z));
+                max = new XYZ(Math.Max(max.X, point.X), Math.Max(max.Y, point.Y), Math.Max(max.Z, point.Z));
+            }
+
+            moved.Min = min;
+            moved.Max = max;
+            return moved;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static List<List<Point2>> BeamEdgesOf(Curve curve, Plane2D plane, double halfWidth, out List<Point2> centreline)
+    {
+        centreline = ProjectAll(plane, Tessellate(curve));
+        var edges = new List<List<Point2>>();
+        if (centreline.Count < 2)
+            return edges;
+
+        var half = halfWidth > Polygon2D.VertexTolerance ? halfWidth : Metric.MmToFt(50);
+        edges.Add(Polygon2D.OffsetPolyline(centreline, half));
+        edges.Add(Polygon2D.OffsetPolyline(centreline, -half));
+        return edges;
+    }
+
+    public static double HalfWidthOf(Element beam, IReadOnlyList<Point2> centreline, BoundingBoxXYZ? box)
+    {
+        try
+        {
+            var beamType = beam.Document?.GetElement(beam.GetTypeId());
+            if (beamType != null)
+            {
+                var width = beamType.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+                if (width == null || !width.HasValue)
+                    width = beamType.LookupParameter("Width");
+                if (width == null || !width.HasValue)
+                    width = beamType.LookupParameter("b");
+                if (width != null && width.HasValue && width.StorageType == StorageType.Double)
+                {
+                    var half = width.AsDouble() / 2.0;
+                    if (half > 0)
+                        return half;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to the host-space box.
+        }
+
+        if (box == null || centreline.Count < 2)
+            return 0;
+
+        var start = centreline[0];
+        var end = centreline[centreline.Count - 1];
+        var dx = end.X - start.X;
+        var dy = end.Y - start.Y;
+        var length = Math.Sqrt((dx * dx) + (dy * dy));
+        if (length <= Polygon2D.VertexTolerance)
+            return 0;
+
+        var nx = -dy / length;
+        var ny = dx / length;
+        var min = double.MaxValue;
+        var max = double.MinValue;
+        foreach (var corner in new[]
+        {
+            new Point2(box.Min.X, box.Min.Y),
+            new Point2(box.Max.X, box.Min.Y),
+            new Point2(box.Max.X, box.Max.Y),
+            new Point2(box.Min.X, box.Max.Y),
+        })
+        {
+            var offset = ((corner.X - start.X) * nx) + ((corner.Y - start.Y) * ny);
+            min = Math.Min(min, offset);
+            max = Math.Max(max, offset);
+        }
+
+        return (max - min) / 2.0;
+    }
+
+    public static (double Bot, double Top)? SolidZ(IReadOnlyList<Solid> solids)
+    {
+        if (solids.Count == 0)
+            return null;
+
+        var bot = double.MaxValue;
+        var top = double.MinValue;
+        foreach (var solid in solids)
+        {
+            var box = solid.GetBoundingBox();
+            if (box == null)
+                continue;
+            var corners = new[]
+            {
+                box.Transform.OfPoint(box.Min),
+                box.Transform.OfPoint(new XYZ(box.Min.X, box.Min.Y, box.Max.Z)),
+                box.Transform.OfPoint(new XYZ(box.Min.X, box.Max.Y, box.Min.Z)),
+                box.Transform.OfPoint(box.Max)
+            };
+            foreach (var corner in corners)
+            {
+                bot = Math.Min(bot, corner.Z);
+                top = Math.Max(top, corner.Z);
+            }
+        }
+
+        return bot <= top ? (bot, top) : null;
+    }
+
+    private static List<List<Point2>> BoxRing(BoundingBoxXYZ box, Plane2D plane)
+    {
+        var ring = new List<Point2>
+        {
+            plane.Project(new Vec3(box.Min.X, box.Min.Y, plane.Origin.Z)),
+            plane.Project(new Vec3(box.Max.X, box.Min.Y, plane.Origin.Z)),
+            plane.Project(new Vec3(box.Max.X, box.Max.Y, plane.Origin.Z)),
+            plane.Project(new Vec3(box.Min.X, box.Max.Y, plane.Origin.Z))
+        };
+        return Polygon2D.Area(ring) <= Polygon2D.AreaTolerance
+            ? new List<List<Point2>>()
+            : new List<List<Point2>> { ring };
     }
 }

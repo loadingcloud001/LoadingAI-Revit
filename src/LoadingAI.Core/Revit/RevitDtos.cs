@@ -310,7 +310,8 @@ public sealed record SplitRequestDto(
     int Limit,
     bool DryRun,
     bool UniqueMark,
-    bool CopyParams);
+    bool CopyParams,
+    bool IncludeLinks = false);
 
 /// <summary>
 /// Outcome of one structure-cuts run. <c>Report</c> is the algorithms' own prose,

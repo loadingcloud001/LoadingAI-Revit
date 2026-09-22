@@ -36,10 +36,16 @@ internal static class LevelSplit
         var levels = SplitScope.Cutters(doc, uidoc, levelIds, SplitElements.IsLevel)
             .OfType<Level>()
             .ToList();
-        if (levels.Count == 0)
-            return "No levels found.";
+        var links = SplitScope.LinkCutters(doc, options, SplitElements.IsLevel);
+        if (levels.Count == 0 && links.Cutters.Count == 0)
+            return "No levels found." + links.Report();
 
-        var elevations = levels.Select(level => level.Elevation).Distinct().OrderBy(z => z).ToList();
+        var hostElevations = levels.Select(level => level.Elevation).Distinct().OrderBy(z => z).ToList();
+        var linkedElevations = links.Cutters
+            .Where(cutter => cutter.Elevation.HasValue)
+            .Select(cutter => cutter.Elevation!.Value)
+            .ToList();
+        var elevations = LinkCutterMath.MergeElevations(hostElevations, linkedElevations);
         var skips = new Skips();
         var curvePlans = new List<CurveMemberSplit.Plan>();
         var stackPlans = new List<CurveMemberSplit.Stack>();
@@ -91,7 +97,7 @@ internal static class LevelSplit
             PlanCurve(host, samples, elevations, skips, curvePlans);
         }
 
-        var notes = skips.Note() + SplitReport.Progress(batch);
+        var notes = skips.Note() + SplitReport.Progress(batch) + links.Report();
         if (options.DryRun)
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
@@ -224,7 +230,8 @@ internal static class LevelSplit
         var message = $"Split {split} elements into {piecesMade} pieces."
             + skips.Note()
             + SplitReport.Progress(batch)
-            + CurveMemberSplit.ParamNote(options, native, recreated, paramSkipped);
+            + CurveMemberSplit.ParamNote(options, native, recreated, paramSkipped)
+            + links.Report();
         if (openings > 0)
             message += $" Openings: {openings}.";
         if (recreated > 0)
