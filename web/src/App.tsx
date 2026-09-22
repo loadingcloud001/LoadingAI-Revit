@@ -5,7 +5,7 @@ import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
-import { confirmOutcome, TranscriptSlice } from './transcript';
+import { classifyResult, outcomeLabel, TranscriptSlice } from './transcript';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -49,16 +49,17 @@ function confirmState(messages: Message[], toolCallId: string, toolName: string)
     const text = messages[i].text ?? '';
     if (text.includes(marker) || text.includes(presetMarker)) { start = i; break; }
   }
-  const from = start >= 0 ? start : 0;
-  for (let i = messages.length - 1; i >= from; i--) {
+  const from = start >= 0 ? start + 1 : 0;
+  for (let i = from; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role !== 'tool_result' || !m.text.includes(toolName)) continue;
-    const outcome = confirmOutcome(m.text);
-    if (outcome === 'confirmed') return 'Confirmed';
-    if (outcome === 'cancelled') return 'Cancelled';
-    if (outcome === 'timeout') return 'Timeout';
+    if (m.role !== 'tool_result') continue;
+    const c = classifyResult(m.text);
+    if (c.name !== toolName) continue;
+    if (c.kind === 'outcome') return outcomeLabel(c.outcome);
+    // A real result after the confirm ask means the confirm was accepted and the tool ran.
+    return c.kind === 'ran' ? 'Confirmed' : 'Done';
   }
-  return 'Done';
+  return 'Awaiting outcome…';
 }
 
 function normalizeSettings(raw: any): AppSettings | null {
@@ -165,6 +166,8 @@ export default function App() {
   const [currentPlan, setCurrentPlan] = useState<PlanPayload | null>(null);
   const [todos, setTodos] = useState<TodoPayload[]>([]);
   const [todoOpen, setTodoOpen] = useState(false);
+  const [todoDismissed, setTodoDismissed] = useState(false);
+  const [presetDescOpen, setPresetDescOpen] = useState<Record<string, boolean>>({});
   const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ApprovalPayload | null>(null);
   const [pendingPreset, setPendingPreset] = useState<PresetPayload | null>(null);
@@ -294,6 +297,7 @@ export default function App() {
           const hist = ((msg as any).messages as { role: string; text: string }[]) ?? [];
           setMessages([{ id: 'resumed', role: 'system', text: `Restored ${hist.length} messages` }, ...hist.map((h, i) => ({ id: `h${i}`, role: h.role === 'user' ? 'you' as const : h.role === 'assistant' ? 'assistant' as const : 'system' as const, text: h.text }))]);
           setIsRunning(false);
+          setTodoDismissed(false);
         } else if (msg.type === 'tool_approval') {
           setPendingApproval(msg.approval);
           setMessages(m => [...m, { id: nextId(), role: 'approval', text: `Approval: ${msg.approval.toolName}`, approval: msg.approval }]);
@@ -428,6 +432,7 @@ export default function App() {
     setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '(image)' : ''), attachments: atts.length ? atts : undefined }]);
     setInput(''); setAttachments([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
     setIsRunning(true); streamedRef.current = false; pendingDeltaRef.current = '';
+    setTodoDismissed(false);
     setProgress({ phase: 'thinking', label: effMode === 'plan' ? 'Planning…' : 'Thinking…', indeterminate: true });
     setStatus(effMode === 'plan' ? 'Planning...' : effMode === 'ask' ? 'Thinking...' : 'Working...');
     postToHost({ type: 'send', text: text || raw.trim(), attachments: atts.length ? atts : undefined, mode: effMode, slash: parsed.slash?.name, mentions: parsed.mentions } as any);
@@ -452,7 +457,7 @@ export default function App() {
     postToHost({ type: 'presetPick', toolCallId: pendingPreset.toolCallId, fieldId });
   };
   const handleStop = () => { postToHost({ type: 'cancel' }); setStatus('Cancelling...'); setProgress({ phase: 'cancelled', label: 'Cancelled' }); streamedRef.current = false; setPendingPreset(null); setPresetPickBusy(null); };
-  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setProgress(null); setPendingApproval(null); setPendingPreset(null); setPresetPickBusy(null); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
+  const handleClear = () => { setMessages([{ id: 'cleared', role: 'system', text: 'Cleared.' }]); streamedRef.current = false; pendingDeltaRef.current = ''; setCurrentPlan(null); setTodos([]); setTodoDismissed(false); setProgress(null); setPendingApproval(null); setPendingPreset(null); setPresetPickBusy(null); setPresetDescOpen({}); setReasoning(null); setContext(null); postToHost({ type: 'clear' }); };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
@@ -742,12 +747,15 @@ export default function App() {
         </div>
       )}
 
-      {todos.length > 0 && (
+      {todos.length > 0 && !todoDismissed && (
         <div style={{ borderBottom: '1px solid #d0d0d0', background: '#fff', flexShrink: 0 }}>
-          <button type="button" className="w-full text-left px-2.5 py-1 text-[11px] font-semibold flex items-center gap-2" style={{ background: '#fff' }} onClick={() => setTodoOpen(v => !v)} aria-expanded={todoOpen}>
-            <span className="flex-1">Todo · {todos.filter(t => t.status === 'done').length}/{todos.length}</span>
-            <span className="text-[10px] font-normal" style={{ color: '#5c5c5c' }}>{todoOpen ? 'hide' : 'show'}</span>
-          </button>
+          <div className="flex items-center gap-1 pl-2.5 pr-1 py-1">
+            <button type="button" className="flex-1 text-left text-[11px] font-semibold" style={{ background: '#fff' }} onClick={() => setTodoOpen(v => !v)} aria-expanded={todoOpen}>
+              <span>Todo · {todos.filter(t => t.status === 'done').length}/{todos.length}</span>
+              <span className="text-[10px] font-normal ml-2" style={{ color: '#5c5c5c' }}>{todoOpen ? 'hide' : 'show'}</span>
+            </button>
+            <button type="button" className="text-[11px] px-1" style={{ color: '#5c5c5c' }} aria-label="Dismiss todo list" title="Dismiss for this run" onClick={() => setTodoDismissed(true)}>×</button>
+          </div>
           {todoOpen && (
             <div style={{ maxHeight: 120, overflowY: 'auto', borderTop: '1px solid #ececec' }}>
               {todos.map(t => (
@@ -787,7 +795,7 @@ export default function App() {
           let buf: Message[] = [];
           const flush = () => {
             if (buf.length === 0) return;
-            nodes.push(<TranscriptSlice key={`slice-${buf[0].id}`} messages={buf} />);
+            nodes.push(<TranscriptSlice key={`slice-${buf[0].id}`} messages={buf} allMessages={messages} />);
             buf = [];
           };
           for (const m of messages) {
@@ -802,7 +810,19 @@ export default function App() {
               <div key={m.id} style={{ borderTop: '2px solid #2b2b2b', borderBottom: '1px solid #d0d0d0', background: '#fff', padding: 10, fontSize: 12.5 }}>
                 <div style={kLabel}>Confirm options</div>
                 <div>{m.preset.toolName}{m.preset.tier ? ` · ${m.preset.tier}` : ''}</div>
-                {m.preset.description ? <div className="mt-1" style={{ color: '#5c5c5c' }}>{m.preset.description}</div> : null}
+                {m.preset.description ? (
+                  <div className="mt-1">
+                    <button
+                      type="button"
+                      className="px-1.5 py-0.5 border bg-white text-[10px]"
+                      aria-expanded={!!presetDescOpen[m.id]}
+                      onClick={() => setPresetDescOpen(o => ({ ...o, [m.id]: !o[m.id] }))}
+                    >
+                      {presetDescOpen[m.id] ? 'Hide description' : 'Description'}
+                    </button>
+                    {presetDescOpen[m.id] ? <div className="mt-1" style={{ color: '#5c5c5c' }}>{m.preset.description}</div> : null}
+                  </div>
+                ) : null}
                 {isPending ? (
                   <div className="mt-2 grid gap-2">
                     {fields.map(f => (
