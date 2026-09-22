@@ -41,6 +41,7 @@ public class ToolCatalogContractTests
             "Plugins/modeling-tools/ModelingToolsPlugin.cs",
             "Plugins/structure-cuts/StructureCutsPlugin.cs",
             "Plugins/qs-formwork/QsFormworkPlugin.cs",
+            "Plugins/opening-tools/OpeningToolsPlugin.cs",
         })
         {
             var src = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

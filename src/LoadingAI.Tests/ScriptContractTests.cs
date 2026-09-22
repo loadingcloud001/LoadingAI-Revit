@@ -26,6 +26,7 @@ public class ScriptContractTests
         Assert.Contains("modeling-tools", ps1);
         Assert.Contains("structure-cuts", ps1);
         Assert.Contains("qs-formwork", ps1);
+        Assert.Contains("opening-tools", ps1);
         Assert.Contains("plugin-shipped-hashes.json", ps1);
         Assert.Contains("record-shipped-plugin-hashes.ps1", ps1);
     }
@@ -146,7 +147,8 @@ public class ScriptContractTests
             "Plugins/view-tools/ViewToolsPlugin.csproj",
             "Plugins/modeling-tools/ModelingToolsPlugin.csproj",
             "Plugins/structure-cuts/StructureCutsPlugin.csproj",
-            "Plugins/qs-formwork/QsFormworkPlugin.csproj"
+            "Plugins/qs-formwork/QsFormworkPlugin.csproj",
+            "Plugins/opening-tools/OpeningToolsPlugin.csproj"
         })
         {
             var csproj = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

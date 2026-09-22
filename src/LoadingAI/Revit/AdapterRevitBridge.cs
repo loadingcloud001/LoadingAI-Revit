@@ -4,6 +4,7 @@ using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
 using LoadingAI.Llm;
 using LoadingAI.Revit.Formwork;
+using LoadingAI.Revit.Openings;
 using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tools;
 
@@ -3276,6 +3277,105 @@ public sealed class AdapterRevitBridge : IRevitBridge
             r => new CopyParamsResultDto(r),
             null,
             ct);
+
+    public Task<OpeningPlanResultDto?> OpeningProbeClashAsync(OpeningClashRequestDto request, CancellationToken ct = default)
+        => RunOpening(
+            uiApp =>
+            {
+                var doc = uiApp.ActiveUIDocument?.Document;
+                var uidoc = uiApp.ActiveUIDocument;
+                if (doc == null || uidoc == null)
+                    return new OpeningPlanResultDto("Please open a model first.", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
+                try
+                {
+                    return PlaceOpenings.Plan(
+                        doc, uidoc,
+                        request.MepIds, request.HostIds, request.Shape, request.ClearanceMm,
+                        request.LevelName, request.Limit);
+                }
+                catch (Exception ex)
+                {
+                    return new OpeningPlanResultDto($"Failed: {ex.Message}", 0, 0, 0, Array.Empty<OpeningPlanHitDto>(), ex.Message);
+                }
+            },
+            PlaceOpenings.ClashTimeout,
+            ct);
+
+    public Task<OpeningPlaceResultDto?> PlaceOpeningsAsync(OpeningClashRequestDto request, CancellationToken ct = default)
+        => RunOpening(
+            uiApp =>
+            {
+                var doc = uiApp.ActiveUIDocument?.Document;
+                var uidoc = uiApp.ActiveUIDocument;
+                if (doc == null || uidoc == null)
+                    return new OpeningPlaceResultDto("Please open a model first.", 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>());
+                if (request.DryRun)
+                {
+                    var plan = PlaceOpenings.Plan(
+                        doc, uidoc, request.MepIds, request.HostIds, request.Shape,
+                        request.ClearanceMm, request.LevelName, request.Limit);
+                    return new OpeningPlaceResultDto(
+                        plan.Report, 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), plan.Error);
+                }
+                try
+                {
+                    var report = PlaceOpenings.Run(
+                        doc, uidoc, request.MepIds, request.HostIds, request.Shape,
+                        request.ClearanceMm, request.FamilyName, request.LevelName, request.Limit);
+                    return ProjectPlace(report);
+                }
+                catch (Exception ex)
+                {
+                    return new OpeningPlaceResultDto($"Failed: {ex.Message}", 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), ex.Message);
+                }
+            },
+            PlaceOpenings.ClashTimeout,
+            ct);
+
+    public Task<OpeningCutResultDto?> CutHostsByOpeningsAsync(OpeningCutRequestDto request, CancellationToken ct = default)
+        => RunOpening(
+            uiApp =>
+            {
+                var doc = uiApp.ActiveUIDocument?.Document;
+                var uidoc = uiApp.ActiveUIDocument;
+                if (doc == null || uidoc == null)
+                    return new OpeningCutResultDto("Please open a model first.", 0, 0, 0, 0);
+                try
+                {
+                    var report = CutLocal.Run(doc, uidoc, request.OpeningIds, request.HostIds);
+                    return new OpeningCutResultDto(report, 0, 0, 0, 0);
+                }
+                catch (Exception ex)
+                {
+                    return new OpeningCutResultDto($"Failed: {ex.Message}", 0, 0, 0, 0, ex.Message);
+                }
+            },
+            null,
+            ct);
+
+    static OpeningPlaceResultDto ProjectPlace(string report)
+    {
+        var ids = new List<string>();
+        var points = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+            report, @"(\d+)\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+) ft\)"))
+        {
+            ids.Add(m.Groups[1].Value);
+            points.Add($"{m.Groups[2].Value},{m.Groups[3].Value},{m.Groups[4].Value}");
+        }
+        return new OpeningPlaceResultDto(report, ids.Count, ids.Count, 0, 0, 0, ids, points);
+    }
+
+    private async Task<TDto?> RunOpening<TDto>(
+        Func<UIApplication, TDto> run,
+        TimeSpan? timeout,
+        CancellationToken ct) where TDto : class
+    {
+        var dto = timeout is { } budget
+            ? await _bridge.RunAsync(run, budget, ct)
+            : await _bridge.RunAsync(run, ct);
+        return dto;
+    }
 
     /// <summary>
     /// Shared shape of the four formwork tools. The host entry points already return their own

@@ -382,6 +382,24 @@ public interface IRevitCreateCommand
     /// instance parameters. An empty <c>Names</c> lists the catalogue instead.
     /// </summary>
     Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(CopyParamsRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Plan voids where linked or local MEP solid-intersects the selected host.
+    /// Nearby same-host hits combine when leftover web cannot act as a pier.
+    /// Does not write. A section box is not a host.
+    /// </summary>
+    Task<OpeningPlanResultDto?> OpeningProbeClashAsync(OpeningClashRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Load the four opening families and place plus punch the probe result.
+    /// One undo group. Rolls back when fewer pieces than required, or when the family is missing.
+    /// </summary>
+    Task<OpeningPlaceResultDto?> PlaceOpeningsAsync(OpeningClashRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Repair the void cut after a family reload. Linked hosts are skipped, not cut.
+    /// </summary>
+    Task<OpeningCutResultDto?> CutHostsByOpeningsAsync(OpeningCutRequestDto request, CancellationToken ct = default);
 }
 
 /// <summary>

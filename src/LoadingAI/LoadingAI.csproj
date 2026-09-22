@@ -55,6 +55,9 @@
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\qs-formwork\QsFormworkPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\qs-formwork\LoadingAI.Plugins.QsFormwork.dll</Dll>
     </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\opening-tools\OpeningToolsPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\opening-tools\LoadingAI.Plugins.OpeningTools.dll</Dll>
+    </ShippedPlugin>
   </ItemGroup>
 
   <Target Name="BuildShippedPlugins" AfterTargets="Build" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
@@ -65,7 +68,7 @@
     <Error Condition="'@(_MissingPlugin)' != ''" Text="Shipped plugin was not deployed: @(_MissingPlugin->'%(Dll)')" />
   </Target>
 
-  <!-- One host copy-after target: SHA-256 of the six CopyPlugin DLLs next to LoadingAI.dll.
+  <!-- One host copy-after target: SHA-256 of the seven CopyPlugin DLLs next to LoadingAI.dll.
        Empty AppData plugin-allowlist.json must not lock these out. SkipHostPluginBuild skips this. -->
   <Target Name="RecordShippedHashes" AfterTargets="BuildShippedPlugins" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
     <PropertyGroup>
