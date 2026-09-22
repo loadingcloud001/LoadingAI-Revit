@@ -31,21 +31,36 @@ internal static class GridSplit
         var grids = SplitScope.Cutters(doc, uidoc, gridIds, SplitElements.IsGrid)
             .OfType<Grid>()
             .ToList();
-        if (grids.Count == 0)
-            return "No grids found.";
+        var links = SplitScope.LinkCutters(doc, options, SplitElements.IsGrid);
+        if (grids.Count == 0 && links.Cutters.Count == 0)
+            return "No grids found." + links.Report();
+
+        var hostStations = new List<LinkCutterMath.GridStation>();
+        foreach (var grid in grids)
+        {
+            if (!TryStation(grid.Curve, out var station))
+                continue;
+            hostStations.Add(station);
+        }
+
+        var linkedStations = links.Cutters
+            .Where(cutter => cutter.Grid.HasValue)
+            .Select(cutter => cutter.Grid!.Value)
+            .ToList();
+        var stations = LinkCutterMath.MergeGrids(hostStations, linkedStations);
 
         var planes = new List<Plane2D>();
         var edges = new List<IReadOnlyList<Point2>>();
-        foreach (var grid in grids)
+        foreach (var station in stations)
         {
-            if (!TryPlane(grid, out var plane, out var edge))
+            if (!TryPlane(station, out var plane, out var edge))
                 continue;
             planes.Add(plane);
             edges.Add(edge);
         }
 
         if (planes.Count == 0)
-            return "No grids found.";
+            return "No grids found." + links.Report();
 
         var skips = new Skips();
         var curvePlans = new List<CurveMemberSplit.Plan>();
@@ -80,7 +95,7 @@ internal static class GridSplit
             PlanCurve(host, planes, skips, curvePlans);
         }
 
-        var notes = skips.Note() + SplitReport.Progress(batch);
+        var notes = skips.Note() + SplitReport.Progress(batch) + links.Report();
         if (options.DryRun)
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
@@ -159,7 +174,8 @@ internal static class GridSplit
         var message = $"Split {split} elements into {piecesMade} pieces."
             + skips.Note()
             + SplitReport.Progress(batch)
-            + CurveMemberSplit.ParamNote(options, native, recreated, paramSkipped);
+            + CurveMemberSplit.ParamNote(options, native, recreated, paramSkipped)
+            + links.Report();
         if (openings > 0)
             message += $" Openings: {openings}.";
         if (recreated > 0)
@@ -240,12 +256,9 @@ internal static class GridSplit
         }
     }
 
-    private static bool TryPlane(Grid grid, out Plane2D plane, out List<Point2> edge)
+    private static bool TryStation(Curve? curve, out LinkCutterMath.GridStation station)
     {
-        plane = new Plane2D(new Vec3(0, 0, 0), new Vec3(0, 0, 1));
-        edge = new List<Point2>();
-
-        var curve = grid.Curve;
+        station = new LinkCutterMath.GridStation(new Vec3(0, 0, 0), new Vec3(0, 0, 0));
         if (curve == null)
             return false;
 
@@ -261,20 +274,32 @@ internal static class GridSplit
             return false;
         }
 
-        var along = GeometryRevit.ToVec3(end - start);
-        along = new Vec3(along.X, along.Y, 0);
+        station = new LinkCutterMath.GridStation(GeometryRevit.ToVec3(start), GeometryRevit.ToVec3(end));
+        return true;
+    }
+
+    private static bool TryPlane(LinkCutterMath.GridStation station, out Plane2D plane, out List<Point2> edge)
+    {
+        plane = new Plane2D(new Vec3(0, 0, 0), new Vec3(0, 0, 1));
+        edge = new List<Point2>();
+
+        var start = GeometryRevit.ToXyz(station.Start);
+        var end = GeometryRevit.ToXyz(station.End);
+        var along = new Vec3(end.X - start.X, end.Y - start.Y, 0);
         if (along.Length <= 1e-9)
             return false;
 
-        var origin = GeometryRevit.ToVec3(start);
         var normal = Vec3.Cross(along, new Vec3(0, 0, 1));
         if (normal.Length <= 1e-9)
             return false;
 
-        plane = new Plane2D(origin, normal);
-        var horizontal = GeometryRevit.HorizontalPlane(start);
-        edge = GeometryRevit.ProjectAll(horizontal, GeometryRevit.Tessellate(curve));
-        return edge.Count >= 2;
+        plane = new Plane2D(station.Start, normal);
+        edge = new List<Point2>
+        {
+            new Point2(start.X, start.Y),
+            new Point2(end.X, end.Y)
+        };
+        return edge[0].DistanceTo(edge[1]) > Polygon2D.VertexTolerance;
     }
 
     private sealed class Skips

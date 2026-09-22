@@ -90,6 +90,18 @@ internal static class SplitScope
     }
 
     /// <summary>
+    /// Loaded-link cutters, only when the flag is on. Off returns an empty set and does not walk
+    /// link instances. The result is added to host cutters; it never replaces them.
+    /// </summary>
+    public static SplitElements.LinkCutters LinkCutters(Document doc, SplitOptions options, Func<Element, bool> wanted)
+    {
+        if (options == null || !options.IncludeLinks)
+            return new SplitElements.LinkCutters();
+
+        return SplitElements.Links(doc, wanted);
+    }
+
+    /// <summary>
     /// Empty / unknown scope falls back to selection, matching the host Select default.
     /// Public because <c>CollectHostsAsync</c> pages the same three scopes without the
     /// per-call options the split runs carry.

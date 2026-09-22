@@ -46,8 +46,10 @@ internal static class FloorSplit
             beams = selection.Where(SplitElements.IsBeam).ToList();
         if (beams.Count == 0)
             beams = HitElements(doc, BuiltInCategory.OST_StructuralFraming, floors, SplitElements.IsBeam);
-        if (beams.Count == 0)
-            return "No beams found to split along.";
+        var linkBeams = SplitScope.LinkCutters(doc, options, SplitElements.IsBeam);
+        var linkColumns = SplitScope.LinkCutters(doc, options, SplitElements.IsColumn);
+        if (beams.Count == 0 && linkBeams.Cutters.Count == 0)
+            return "No beams found to split along." + linkBeams.Report() + linkColumns.Report();
 
         var columns = SplitElements.Resolve(doc, columnIds, SplitElements.IsColumn);
         if (columns.Count == 0)
@@ -65,7 +67,7 @@ internal static class FloorSplit
                 continue;
             }
 
-            var (plan, error) = Prepare(doc, floor, beams, columns);
+            var (plan, error) = Prepare(doc, floor, beams, columns, linkBeams.Cutters, linkColumns.Cutters);
             switch (error)
             {
                 case "shape-edited":
@@ -89,7 +91,7 @@ internal static class FloorSplit
             }
         }
 
-        var notes = skips.Note() + SplitReport.Progress(batch);
+        var notes = skips.Note() + SplitReport.Progress(batch) + linkBeams.Report() + linkColumns.Report();
 
         if (options.DryRun)
         {
@@ -164,6 +166,7 @@ internal static class FloorSplit
             message += $" Replaced {splitFloors} floors ({dependents} dependent elements lost).";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+        message += linkBeams.Report() + linkColumns.Report();
 
         outcome?.Record(created, openingsMade, skips.Total);
 
@@ -214,7 +217,13 @@ internal static class FloorSplit
         }, null);
     }
 
-    private static (Plan? Plan, string? Error) Prepare(Document doc, Floor floor, IReadOnlyList<Element> beams, IReadOnlyList<Element> columns)
+    private static (Plan? Plan, string? Error) Prepare(
+        Document doc,
+        Floor floor,
+        IReadOnlyList<Element> beams,
+        IReadOnlyList<Element> columns,
+        IReadOnlyList<SplitElements.LinkedCutter> linkedBeams,
+        IReadOnlyList<SplitElements.LinkedCutter> linkedColumns)
     {
         // A slab whose shape has been edited by hand carries creases no slope arrow can express, so it is
         // left alone by name. Ask before reading the geometry: the name is the more useful of the two.
@@ -247,6 +256,20 @@ internal static class FloorSplit
             region = region.WithHole(ring);
         }
 
+        foreach (var column in linkedColumns)
+        {
+            if (column.Box != null && !GeometryRevit.Reaches(floor, column.Box))
+                continue;
+
+            var ring = Polygon2D.Largest(column.Rings(plane));
+            if (ring == null || Polygon2D.Area(ring) <= MinAreaSqFt)
+                continue;
+            if (!Inside(region, ring))
+                continue;
+
+            region = region.WithHole(ring);
+        }
+
         var regions = new List<Region2D> { region };
         foreach (var beam in beams)
         {
@@ -254,6 +277,17 @@ internal static class FloorSplit
                 continue;
 
             foreach (var edge in GeometryRevit.BeamEdges(beam, plane, out _))
+                regions = SplitAlong(regions, edge);
+        }
+
+        foreach (var beam in linkedBeams)
+        {
+            if (beam.Curve == null)
+                continue;
+            if (beam.Box != null && !GeometryRevit.Reaches(floor, beam.Box))
+                continue;
+
+            foreach (var edge in beam.Edges(plane, out _))
                 regions = SplitAlong(regions, edge);
         }
 

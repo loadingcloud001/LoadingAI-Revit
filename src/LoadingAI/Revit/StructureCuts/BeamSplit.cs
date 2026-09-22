@@ -42,8 +42,9 @@ internal static class BeamSplit
             return EmptyHostMessage(options);
 
         var columns = SplitScope.Cutters(doc, uidoc, columnIds, SplitElements.IsColumn);
-        if (columns.Count == 0)
-            return "No columns found.";
+        var links = SplitScope.LinkCutters(doc, options, SplitElements.IsColumn);
+        if (columns.Count == 0 && links.Cutters.Count == 0)
+            return "No columns found." + links.Report();
 
         var footprints = new Dictionary<string, List<List<Point2>>>(StringComparer.Ordinal);
         var plans = new List<CurveMemberSplit.Plan>();
@@ -58,7 +59,7 @@ internal static class BeamSplit
                 continue;
             }
 
-            var cuts = CutFractions(beam, curve, columns, footprints);
+            var cuts = CutFractions(beam, curve, columns, links.Cutters, footprints);
             if (cuts.Count == 0)
             {
                 skippedNoCrossing++;
@@ -73,11 +74,12 @@ internal static class BeamSplit
             var pieces = plans.Sum(plan => plan.Cuts.Count + 1);
             return "Dry-run. " + $"Would split {plans.Count} beams into {pieces} pieces. No changes made."
                 + SkipNote(skippedNoCurve, skippedNoCrossing, 0)
-                + SplitReport.Progress(batch);
+                + SplitReport.Progress(batch)
+                + links.Report();
         }
 
         if (plans.Count == 0)
-            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0) + SplitReport.Progress(batch);
+            return "Nothing to split." + SkipNote(skippedNoCurve, skippedNoCrossing, 0) + SplitReport.Progress(batch) + links.Report();
 
         var created = new List<ElementId>();
         var split = 0;
@@ -140,6 +142,7 @@ internal static class BeamSplit
             message += $" Left alone: {skippedUnchanged}.";
         if (created.Count > 0)
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
+        message += links.Report();
 
         outcome?.Record(created, 0, skippedNoCurve + skippedNoCrossing + skippedUnchanged + skippedFailed);
 
@@ -156,6 +159,7 @@ internal static class BeamSplit
         Element beam,
         Curve curve,
         IReadOnlyList<Element> columns,
+        IReadOnlyList<SplitElements.LinkedCutter> linked,
         Dictionary<string, List<List<Point2>>> footprints)
     {
         var cuts = new List<double>();
@@ -175,25 +179,42 @@ internal static class BeamSplit
             if (ring == null)
                 continue;
 
-            for (var i = 0; i < ring.Count; i++)
-            {
-                var a = ring[i];
-                var b = ring[(i + 1) % ring.Count];
-                for (var s = 0; s < centreline.Count - 1; s++)
-                {
-                    if (!Polygon2D.TryCross(centreline[s], centreline[s + 1], a, b, out var hit))
-                        continue;
+            CollectRingCuts(ring, centreline, cuts);
+        }
 
-                    var fraction = Polygon2D.ParameterAlong(centreline, hit);
-                    if (fraction <= MinFraction || fraction >= 1 - MinFraction)
-                        continue;
+        foreach (var column in linked)
+        {
+            if (column.Box != null && !GeometryRevit.Reaches(beam, column.Box))
+                continue;
 
-                    cuts.Add(fraction);
-                }
-            }
+            var ring = Polygon2D.Largest(column.Rings(plane));
+            if (ring == null)
+                continue;
+
+            CollectRingCuts(ring, centreline, cuts);
         }
 
         return CurveMemberSplit.DistinctCuts(cuts);
+    }
+
+    private static void CollectRingCuts(IReadOnlyList<Point2> ring, IReadOnlyList<Point2> centreline, List<double> cuts)
+    {
+        for (var i = 0; i < ring.Count; i++)
+        {
+            var a = ring[i];
+            var b = ring[(i + 1) % ring.Count];
+            for (var s = 0; s < centreline.Count - 1; s++)
+            {
+                if (!Polygon2D.TryCross(centreline[s], centreline[s + 1], a, b, out var hit))
+                    continue;
+
+                var fraction = Polygon2D.ParameterAlong(centreline, hit);
+                if (fraction <= MinFraction || fraction >= 1 - MinFraction)
+                    continue;
+
+                cuts.Add(fraction);
+            }
+        }
     }
 
     /// <summary>

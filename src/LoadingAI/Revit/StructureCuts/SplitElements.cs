@@ -3,6 +3,7 @@ using System.Globalization;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
+using LoadingAI.Geometry;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Revit.StructureCuts;
@@ -177,5 +178,275 @@ internal static class SplitElements
     {
         if (count > 0)
             parts.Add($"{count} {label}");
+    }
+
+    /// <summary>
+    /// Loaded-link cutters added to the host set. Flag off never enters here. An unloaded link is
+    /// noted and not treated as considered. Explicit host ids are never resolved through a link.
+    /// </summary>
+    public static LinkCutters Links(Document doc, Func<Element, bool> wanted)
+    {
+        var result = new LinkCutters();
+        if (doc == null)
+            return result;
+
+        IList<Element> links;
+        try
+        {
+            links = new FilteredElementCollector(doc)
+                .OfClass(typeof(RevitLinkInstance))
+                .WhereElementIsNotElementType()
+                .ToElements();
+        }
+        catch
+        {
+            return result;
+        }
+
+        foreach (var element in links)
+        {
+            if (element is not RevitLinkInstance link)
+                continue;
+
+            Document? linked;
+            try
+            {
+                linked = link.GetLinkDocument();
+            }
+            catch
+            {
+                result.Notes.Add(LinkCutterMath.UnloadedNote);
+                continue;
+            }
+
+            if (linked == null)
+            {
+                result.Notes.Add(LinkCutterMath.UnloadedNote);
+                continue;
+            }
+
+            result.Loaded++;
+            Transform transform;
+            try
+            {
+                transform = link.GetTotalTransform();
+            }
+            catch
+            {
+                result.Notes.Add(LinkCutterMath.TransformFailedNote);
+                continue;
+            }
+
+            IList<Element> members;
+            try
+            {
+                members = new FilteredElementCollector(linked)
+                    .WhereElementIsNotElementType()
+                    .ToElements();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var member in members)
+            {
+                if (!wanted(member))
+                    continue;
+
+                var station = LinkedCutter.Try(member, transform);
+                if (station == null)
+                {
+                    if (member is Level or Grid)
+                        result.Notes.Add(LinkCutterMath.TiltedSkip);
+                    continue;
+                }
+
+                result.Cutters.Add(station);
+            }
+        }
+
+        return result;
+    }
+
+    public sealed class LinkCutters
+    {
+        public int Loaded { get; set; }
+
+        public List<LinkedCutter> Cutters { get; } = new();
+
+        public List<string> Notes { get; } = new();
+
+        public string Report()
+        {
+            var distinct = new List<string>();
+            foreach (var note in Notes)
+            {
+                if (!distinct.Contains(note))
+                    distinct.Add(note);
+            }
+
+            var text = $" Links considered: {Loaded} loaded, {Cutters.Count} link cutters.";
+            if (distinct.Count > 0)
+                text += " " + string.Join("; ", distinct) + ".";
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// One linked cutter already in host space. Geometry readers must use these fields, never the
+    /// raw link element: its location and box are still link-local.
+    /// </summary>
+    public sealed class LinkedCutter
+    {
+        private LinkedCutter(Element source, Transform toHost, Curve? curve, IReadOnlyList<Solid> solids, BoundingBoxXYZ? box, double? elevation, LinkCutterMath.GridStation? grid)
+        {
+            Source = source;
+            ToHost = toHost;
+            Curve = curve;
+            Solids = solids;
+            Box = box;
+            Elevation = elevation;
+            Grid = grid;
+        }
+
+        public Element Source { get; }
+
+        public Transform ToHost { get; }
+
+        public Curve? Curve { get; }
+
+        public IReadOnlyList<Solid> Solids { get; }
+
+        public BoundingBoxXYZ? Box { get; }
+
+        public double? Elevation { get; }
+
+        public LinkCutterMath.GridStation? Grid { get; }
+
+        public double TypeDepth
+        {
+            get
+            {
+                try
+                {
+                    var type = Source.Document?.GetElement(Source.GetTypeId());
+                    if (type == null)
+                        return 0;
+                    var height = type.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+                    if (height == null || !height.HasValue)
+                        height = type.LookupParameter("Height");
+                    if (height != null && height.HasValue && height.StorageType == StorageType.Double)
+                        return height.AsDouble();
+                }
+                catch
+                {
+                    return 0;
+                }
+
+                return 0;
+            }
+        }
+
+        public string TypeName
+        {
+            get
+            {
+                try
+                {
+                    return Source.Document?.GetElement(Source.GetTypeId())?.Name ?? Source.Name ?? "";
+                }
+                catch
+                {
+                    return Source.Name ?? "";
+                }
+            }
+        }
+
+        public List<List<Point2>> Rings(Plane2D plane) => GeometryRevit.RingsOf(Solids, plane, Box);
+
+        public List<List<Point2>> Edges(Plane2D plane, out List<Point2> centreline)
+        {
+            centreline = new List<Point2>();
+            if (Curve == null)
+                return new List<List<Point2>>();
+
+            var half = GeometryRevit.HalfWidthOf(Source, GeometryRevit.ProjectAll(plane, GeometryRevit.Tessellate(Curve)), Box);
+            return GeometryRevit.BeamEdgesOf(Curve, plane, half, out centreline);
+        }
+
+        public (double Bot, double Top)? ZRange()
+        {
+            var solid = GeometryRevit.SolidZ(Solids);
+            if (solid != null)
+                return solid;
+            if (Box == null)
+                return null;
+            return (Box.Min.Z, Box.Max.Z);
+        }
+
+        public static LinkedCutter? Try(Element source, Transform toHost)
+        {
+            if (source is Level level)
+                return TryLevel(level, toHost);
+            if (source is Grid grid)
+                return TryGrid(grid, toHost);
+
+            var curve = GeometryRevit.CurveInHost(LocationCurveOf(source), toHost);
+            var solids = GeometryRevit.SolidsInHost(source, toHost);
+            var box = GeometryRevit.BoxInHost(source.get_BoundingBox(null), toHost);
+            if (curve == null && solids.Count == 0 && box == null)
+                return null;
+
+            return new LinkedCutter(source, toHost, curve, solids, box, null, null);
+        }
+
+        private static LinkedCutter? TryLevel(Level level, Transform toHost)
+        {
+            try
+            {
+                var origin = toHost.OfPoint(new XYZ(0, 0, level.Elevation));
+                var normal = toHost.OfVector(XYZ.BasisZ);
+                if (LinkCutterMath.IsTiltedLevel(GeometryRevit.ToVec3(normal)))
+                    return null;
+
+                return new LinkedCutter(level, toHost, null, Array.Empty<Solid>(), null, origin.Z, null);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static LinkedCutter? TryGrid(Grid grid, Transform toHost)
+        {
+            try
+            {
+                var curve = grid.Curve;
+                if (curve == null)
+                    return null;
+
+                var moved = GeometryRevit.CurveInHost(curve, toHost);
+                if (moved == null)
+                    return null;
+
+                var start = moved.GetEndPoint(0);
+                var end = moved.GetEndPoint(1);
+                if (LinkCutterMath.IsTiltedGrid(GeometryRevit.ToVec3(start), GeometryRevit.ToVec3(end)))
+                    return null;
+
+                var dx = end.X - start.X;
+                var dy = end.Y - start.Y;
+                if ((dx * dx) + (dy * dy) <= 1e-12)
+                    return null;
+
+                var station = new LinkCutterMath.GridStation(GeometryRevit.ToVec3(start), GeometryRevit.ToVec3(end));
+                return new LinkedCutter(grid, toHost, moved, Array.Empty<Solid>(), null, null, station);
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }
