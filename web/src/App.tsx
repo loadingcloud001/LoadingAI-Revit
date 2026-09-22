@@ -5,6 +5,7 @@ import { parseInput } from './cli/inputParser';
 import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
+import { confirmOutcome, TranscriptSlice } from './transcript';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -38,6 +39,26 @@ function formatPickSummary(field: PresetFieldPayload, value: unknown): string {
     return `${min.map(n => Math.round(n)).join(',')} → ${max.map(n => Math.round(n)).join(',')} mm`;
   }
   return 'None';
+}
+
+function confirmState(messages: Message[], toolCallId: string, toolName: string): string {
+  const marker = `(awaiting approval ${toolCallId})`;
+  const presetMarker = `(awaiting preset ${toolCallId})`;
+  let start = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const text = messages[i].text ?? '';
+    if (text.includes(marker) || text.includes(presetMarker)) { start = i; break; }
+  }
+  const from = start >= 0 ? start : 0;
+  for (let i = messages.length - 1; i >= from; i--) {
+    const m = messages[i];
+    if (m.role !== 'tool_result' || !m.text.includes(toolName)) continue;
+    const outcome = confirmOutcome(m.text);
+    if (outcome === 'confirmed') return 'Confirmed';
+    if (outcome === 'cancelled') return 'Cancelled';
+    if (outcome === 'timeout') return 'Timeout';
+  }
+  return 'Done';
 }
 
 function normalizeSettings(raw: any): AppSettings | null {
@@ -592,14 +613,6 @@ export default function App() {
     ? `Sel ${context.selectionCount}${context.selectionPreview ? ` · ${context.selectionPreview.slice(0, 40)}` : ''} · ${context.activeView} · warnings ${context.warningCount ?? 0}`
     : status;
 
-  const roleLabel = (role: Message['role']) => {
-    if (role === 'you') return 'You';
-    if (role === 'tool_call' || role === 'tool_result' || role === 'trace') return 'Tool';
-    if (role === 'system') return 'System';
-    if (role === 'reasoning') return 'Think';
-    return 'Agent';
-  };
-
   return (
     <div className="flex flex-col h-[100vh] text-[13px] antialiased" style={{ background: '#f3f3f3', color: '#111' }}>
       <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid #d0d0d0', background: '#f3f3f3' }}>
@@ -769,21 +782,23 @@ export default function App() {
             </div>
           </div>
         )}
-        {messages.map(m => {
-          if (m.role === 'plan' && m.plan) {
-            return (
-              <div key={m.id} style={rowStyle}>
-                <div style={kLabel}>Plan</div>
-                <div className="font-semibold text-xs">{m.plan.title}</div>
-                {m.plan.steps.map((s, i) => <div key={i} className="text-xs">{i + 1}. {s.title}</div>)}
-              </div>
-            );
-          }
-          if (m.role === 'preset' && m.preset) {
+        {(() => {
+          const nodes: JSX.Element[] = [];
+          let buf: Message[] = [];
+          const flush = () => {
+            if (buf.length === 0) return;
+            nodes.push(<TranscriptSlice key={`slice-${buf[0].id}`} messages={buf} />);
+            buf = [];
+          };
+          for (const m of messages) {
+            if (m.role !== 'preset' && m.role !== 'approval') { buf.push(m); continue; }
+            flush();
+            let card: JSX.Element | null = null;
+            if (m.role === 'preset' && m.preset) {
             const isPending = pendingPreset?.toolCallId === m.preset.toolCallId;
             const fields = m.preset.fields ?? [];
             const canConfirm = isPending && requiredPresetsFilled(m.preset, presetValues) && !presetPickBusy;
-            return (
+            card = (
               <div key={m.id} style={{ borderTop: '2px solid #2b2b2b', borderBottom: '1px solid #d0d0d0', background: '#fff', padding: 10, fontSize: 12.5 }}>
                 <div style={kLabel}>Confirm options</div>
                 <div>{m.preset.toolName}{m.preset.tier ? ` · ${m.preset.tier}` : ''}</div>
@@ -817,13 +832,13 @@ export default function App() {
                       <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!canConfirm} onClick={() => handleSubmitPreset(true)}>Confirm</button>
                     </div>
                   </div>
-                ) : <div className="text-[11px] text-muted-foreground mt-1">(done)</div>}
+                ) : <div className="text-[11px] text-muted-foreground mt-1">{confirmState(messages, m.preset.toolCallId, m.preset.toolName)}</div>}
               </div>
             );
-          }
+            }
           if (m.role === 'approval' && m.approval) {
             const isPending = pendingApproval?.toolCallId === m.approval.toolCallId;
-            return (
+            card = (
               <div key={m.id} style={{ borderTop: '2px solid #8a1f11', borderBottom: '1px solid #d0d0d0', background: '#fff8f6', padding: 10, fontSize: 12.5 }}>
                 <div style={{ ...kLabel, color: '#8a1f11' }}>Confirm L3</div>
                 <div>{m.approval.toolName}{m.approval.tier ? ` · ${m.approval.tier}` : ''}</div>
@@ -834,27 +849,15 @@ export default function App() {
                     <button type="button" className={btn} onClick={() => handleApprove(false)}>Deny</button>
                     <button type="button" className={btn} style={{ background: '#8a1f11', color: '#fff', borderColor: '#8a1f11' }} onClick={() => handleApprove(true)}>Allow</button>
                   </div>
-                ) : <div className="text-[11px] text-muted-foreground mt-1">(done)</div>}
+                ) : <div className="text-[11px] text-muted-foreground mt-1">{confirmState(messages, m.approval.toolCallId, m.approval.toolName)}</div>}
               </div>
             );
+            }
+            if (card) nodes.push(card);
           }
-          const mono = m.role === 'tool_call' || m.role === 'tool_result' || m.role === 'trace';
-          return (
-            <div key={m.id} style={rowStyle}>
-              <div style={kLabel}>{roleLabel(m.role)}</div>
-              {mono ? <div className="font-mono text-[11px] break-all" style={{ color: '#3f3f3f' }}>{m.text}</div> : m.role === 'you' ? (
-                <div>
-                  {m.text && <div className="whitespace-pre-wrap break-words">{m.text}</div>}
-                  {m.attachments?.length ? (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {m.attachments.map(a => <img key={a.id} src={a.dataUrl} alt={a.name} style={{ maxWidth: 160, maxHeight: 100, objectFit: 'cover', border: '1px solid #d0d0d0' }} />)}
-                    </div>
-                  ) : null}
-                </div>
-              ) : <div className="text-xs leading-relaxed"><ReactMarkdown>{m.text}</ReactMarkdown></div>}
-            </div>
-          );
-        })}
+          flush();
+          return nodes;
+        })()}
         {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{mode === 'plan' ? 'Planning…' : mode === 'ask' ? 'Thinking…' : 'Working…'}</div>}
       </div>
 
