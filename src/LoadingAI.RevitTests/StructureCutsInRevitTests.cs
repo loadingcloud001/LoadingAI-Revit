@@ -542,6 +542,210 @@ public class StructureCutsInRevitTests
         Assert.That(CountWalls(doc), Is.EqualTo(wallsBefore));
     }
 
+    /// <summary>
+    /// Column sibling of <see cref="Write_SplitByLevels_HorizontalWall_CutsOneWallPerStorey"/>.
+    /// A LocationPoint column is stacked, the input id is deleted and named, and dry-run N is
+    /// the piece count the write creates. A metric template with no structural column symbol
+    /// is recorded and ignored — the assertion is not weakened into a pass.
+    /// </summary>
+    [Test]
+    public void Write_SplitByLevels_PointColumn_ReplacesOriginalAndMatchesDryRun()
+    {
+        var doc = _uiApp.ActiveUIDocument?.Document;
+        if (doc == null)
+        {
+            Assert.Ignore("no active document");
+            return;
+        }
+
+        var before = CountCategory(doc, BuiltInCategory.OST_StructuralColumns);
+        var baseLevel = LowestStorey(doc);
+        if (baseLevel == null)
+        {
+            Assert.Ignore("The model holds no storey to base a column on.");
+            return;
+        }
+
+        EnsureStackStoreys(doc, baseLevel.Elevation);
+        var levels = AllStoreys(doc);
+        var topLevel = levels.FirstOrDefault(level =>
+            Math.Abs(level.Elevation - (baseLevel.Elevation + StackHeightFeet)) <= StoreyTolFt);
+        if (topLevel == null)
+        {
+            Assert.Ignore("could not build a storey ladder tall enough for a column probe");
+            return;
+        }
+
+        var column = TryCreatePointColumn(doc, baseLevel, topLevel, new XYZ(30, 30, 0));
+        if (column == null)
+        {
+            TestContext.WriteLine(
+                "Column probe not run: this document has no activatable structural column symbol.");
+            Assert.Ignore("no structural column symbol in this document");
+            return;
+        }
+
+        if (column.Location is not LocationPoint placed || placed.Point == null)
+        {
+            TestContext.WriteLine(
+                "Column probe location is " + (column.Location?.GetType().Name ?? "null") + ", not LocationPoint.");
+            Assert.Ignore("placed column is not LocationPoint, so this probe does not cover the stack plan");
+            return;
+        }
+
+        var baseZ = baseLevel.Elevation
+            + (column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0);
+        var topZ = topLevel.Elevation
+            + (column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0);
+        var interior = Storeys(levels, baseZ, topZ);
+        var expectedPieces = interior.Count + 1;
+        Assert.That(interior.Count, Is.GreaterThanOrEqualTo(2),
+            "the probe column has to span at least two interior storeys");
+        Assert.That(ColumnSpan(doc, column), Is.GreaterThan(StoreyTolFt),
+            "the probe column itself has a real height before the split");
+        var originX = placed.Point.X;
+        var originY = placed.Point.Y;
+
+        var group = new TransactionGroup(doc, "LoadingAI.RevitTests column split probe");
+        group.Start();
+        try
+        {
+            var id = column.Id.Value;
+            var args = "{\"category\":\"columns\",\"uniqueMark\":true,\"elementIds\":[\"" + id + "\"]}";
+            var dry = Run("split_by_levels", "{\"dryRun\":true,\"category\":\"columns\",\"uniqueMark\":true,\"elementIds\":[\"" + id + "\"]}");
+            Assert.That(
+                dry,
+                Does.Contain("Would split 1 members into " + expectedPieces + " pieces"),
+                "dry-run counts the stack pieces, not levels above the top. " + dry);
+
+            var result = Run("split_by_levels", args);
+            Assert.That(result, Does.Contain("Split 1 elements into " + expectedPieces + " pieces"), result);
+            Assert.That(result, Does.Contain("re-created: 1"), result);
+            Assert.That(result, Does.Contain("Replaced: " + id), result);
+            Assert.That(doc.GetElement(new ElementId(id)), Is.Null, "the input id is deleted, not left as a live column");
+
+            var created = CreatedColumns(doc, result);
+            Assert.That(created.Count, Is.EqualTo(expectedPieces), "write creates the dry-run count. " + result);
+
+            foreach (var piece in created)
+            {
+                Assert.That(ColumnSpan(doc, piece), Is.GreaterThan(StoreyTolFt),
+                    "no created piece has zero height. id " + piece.Id.Value);
+                if (piece.Location is LocationPoint piecePoint && piecePoint.Point != null)
+                {
+                    Assert.That(Math.Abs(piecePoint.Point.X - originX), Is.LessThanOrEqualTo(StoreyTolFt));
+                    Assert.That(Math.Abs(piecePoint.Point.Y - originY), Is.LessThanOrEqualTo(StoreyTolFt));
+                }
+            }
+
+            var again = Run("split_by_levels", args);
+            Assert.That(again, Does.Contain("Nothing to split"), "a second split of the old id finds it gone. " + again);
+        }
+        finally
+        {
+            if (group.GetStatus() == TransactionStatus.Started)
+                group.RollBack();
+        }
+
+        Assert.That(CountCategory(doc, BuiltInCategory.OST_StructuralColumns), Is.EqualTo(before),
+            "rolling the group back restores the column count");
+    }
+
+    /// <summary>
+    /// The engineer's zero-height piece: the column top offset lands on the last interior level,
+    /// so the last planned piece has no span. Dry-run and write must both omit it, and the
+    /// input id is still named as replaced.
+    /// </summary>
+    [Test]
+    public void Write_SplitByLevels_PointColumn_DropsZeroHeightTopStub()
+    {
+        var doc = _uiApp.ActiveUIDocument?.Document;
+        if (doc == null)
+        {
+            Assert.Ignore("no active document");
+            return;
+        }
+
+        var baseLevel = LowestStorey(doc);
+        if (baseLevel == null)
+        {
+            Assert.Ignore("The model holds no storey to base a column on.");
+            return;
+        }
+
+        EnsureStackStoreys(doc, baseLevel.Elevation);
+        var levels = AllStoreys(doc);
+        var topLevel = levels.FirstOrDefault(level =>
+            Math.Abs(level.Elevation - (baseLevel.Elevation + StackHeightFeet)) <= StoreyTolFt);
+        if (topLevel == null)
+        {
+            Assert.Ignore("could not build a storey ladder tall enough for a column probe");
+            return;
+        }
+
+        var fullInterior = Storeys(levels, baseLevel.Elevation, topLevel.Elevation);
+        if (fullInterior.Count == 0)
+        {
+            Assert.Ignore("the ladder has no interior storey to collapse the top onto");
+            return;
+        }
+
+        var lastInterior = fullInterior[fullInterior.Count - 1];
+        var collapsedOffset = lastInterior.Elevation - topLevel.Elevation;
+        var column = TryCreatePointColumn(doc, baseLevel, topLevel, new XYZ(40, 40, 0), collapsedOffset);
+        if (column == null)
+        {
+            TestContext.WriteLine(
+                "Zero-height column probe not run: this document has no activatable structural column symbol.");
+            Assert.Ignore("no structural column symbol in this document");
+            return;
+        }
+
+        // Interior levels are those strictly inside the collapsed span. The last ladder interior
+        // is the new top, so it is not a cut, and the collapsed stub is not a piece either.
+        var baseZ = baseLevel.Elevation
+            + (column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0);
+        var collapsedTop = topLevel.Elevation
+            + (column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0);
+        var liveInterior = Storeys(levels, baseZ, collapsedTop);
+        var expectedPieces = liveInterior.Count + 1;
+        Assert.That(expectedPieces, Is.LessThan(fullInterior.Count + 1),
+            "the collapsed top must remove at least the zero-height stub from the count");
+        Assert.That(expectedPieces, Is.GreaterThanOrEqualTo(2),
+            "the collapsed column still spans a real storey, or the probe has nothing to split");
+
+        var group = new TransactionGroup(doc, "LoadingAI.RevitTests column zero-height probe");
+        group.Start();
+        try
+        {
+            var id = column.Id.Value;
+            var args = "{\"category\":\"columns\",\"elementIds\":[\"" + id + "\"]}";
+            var dry = Run("split_by_levels", "{\"dryRun\":true,\"category\":\"columns\",\"elementIds\":[\"" + id + "\"]}");
+            Assert.That(
+                dry,
+                Does.Contain("Would split 1 members into " + expectedPieces + " pieces"),
+                "a top collapsed onto the last interior is not a piece. " + dry);
+
+            var result = Run("split_by_levels", args);
+            Assert.That(result, Does.Contain("Split 1 elements into " + expectedPieces + " pieces"), result);
+            Assert.That(result, Does.Contain("Replaced: " + id), result);
+            Assert.That(doc.GetElement(new ElementId(id)), Is.Null);
+
+            var created = CreatedColumns(doc, result);
+            Assert.That(created.Count, Is.EqualTo(expectedPieces), result);
+            foreach (var piece in created)
+            {
+                Assert.That(ColumnSpan(doc, piece), Is.GreaterThan(StoreyTolFt),
+                    "write did not create the zero-height stub. id " + piece.Id.Value);
+            }
+        }
+        finally
+        {
+            if (group.GetStatus() == TransactionStatus.Started)
+                group.RollBack();
+        }
+    }
+
     /// <summary>The tool's own tolerance for "a storey strictly inside the wall": 30 mm.</summary>
     private const double StoreyTolFt = 30.0 / 304.8;
 
@@ -1221,6 +1425,112 @@ public class StructureCutsInRevitTests
             + CountCategory(doc, BuiltInCategory.OST_StructuralColumns)
             + CountCategory(doc, BuiltInCategory.OST_StructuralFraming)
             + CountClass(doc, typeof(Floor));
+
+    /// <summary>
+    /// A structural column based on <paramref name="baseLevel"/> and topped on
+    /// <paramref name="topLevel"/>. Returns null when the document has no column symbol the
+    /// host will activate — the caller records that, it does not invent a pass.
+    /// </summary>
+    private static FamilyInstance? TryCreatePointColumn(
+        Document doc,
+        Level baseLevel,
+        Level topLevel,
+        XYZ origin,
+        double topOffset = 0)
+    {
+        var symbol = FindColumnSymbol(doc);
+        if (symbol == null)
+            return null;
+
+        using var tx = new Transaction(doc, "LoadingAI.RevitTests create probe column");
+        tx.Start();
+        try
+        {
+            if (!symbol.IsActive)
+                symbol.Activate();
+
+            var column = doc.Create.NewFamilyInstance(
+                origin, symbol, baseLevel, Autodesk.Revit.DB.Structure.StructuralType.Column);
+            if (column == null)
+            {
+                tx.RollBack();
+                return null;
+            }
+
+            var top = column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM);
+            var offset = column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM);
+            if (top == null || !top.Set(topLevel.Id))
+            {
+                tx.RollBack();
+                return null;
+            }
+
+            if (Math.Abs(topOffset) > StoreyTolFt && (offset == null || offset.IsReadOnly || !offset.Set(topOffset)))
+            {
+                tx.RollBack();
+                return null;
+            }
+
+            tx.Commit();
+            return column;
+        }
+        catch (Exception ex)
+        {
+            if (tx.GetStatus() == TransactionStatus.Started)
+                tx.RollBack();
+            TestContext.WriteLine("Probe column not created: " + ex.Message);
+            return null;
+        }
+    }
+
+    private static FamilySymbol? FindColumnSymbol(Document doc)
+    {
+        foreach (var symbol in new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>())
+        {
+            if (symbol.Category?.Id.Value == (long)BuiltInCategory.OST_StructuralColumns)
+                return symbol;
+        }
+
+        return null;
+    }
+
+    /// <summary>Base elevation plus offset, up to top elevation plus offset. Zero when unreadable.</summary>
+    private static double ColumnSpan(Document doc, Element column)
+    {
+        var baseLevel = doc.GetElement(column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM)?.AsElementId()) as Level;
+        var topLevel = doc.GetElement(column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)?.AsElementId()) as Level;
+        if (baseLevel == null || topLevel == null)
+            return 0;
+
+        var baseOffset = column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0;
+        var topOffset = column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0;
+        return (topLevel.Elevation + topOffset) - (baseLevel.Elevation + baseOffset);
+    }
+
+    /// <summary>Columns named in the tool's "Created:" clause, resolved in the document.</summary>
+    private static List<FamilyInstance> CreatedColumns(Document doc, string report)
+    {
+        var marker = "Created:";
+        var at = report.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            return new List<FamilyInstance>();
+
+        var tail = report.Substring(at + marker.Length);
+        var end = tail.IndexOf('.');
+        if (end >= 0)
+            tail = tail.Substring(0, end);
+
+        var created = new List<FamilyInstance>();
+        foreach (var token in tail.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!long.TryParse(token, out var raw))
+                continue;
+            if (doc.GetElement(new ElementId(raw)) is FamilyInstance column)
+                created.Add(column);
+        }
+
+        return created;
+    }
 
     private static Wall? TryCreateTallWall(Document doc)
     {

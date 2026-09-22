@@ -360,6 +360,9 @@ public class StructureCutsContractTests
         Assert.Contains("PlanColumnStack(", levels, StringComparison.Ordinal);
         Assert.Contains("SplitColumnStack(doc, stack, options)", levels, StringComparison.Ordinal);
         Assert.Contains("columnStacks.Sum(stack => stack.Pieces.Count)", levels, StringComparison.Ordinal);
+        Assert.Contains("Replaced:", levels, StringComparison.Ordinal);
+        Assert.Contains("PieceSpan(piece)", levels, StringComparison.Ordinal);
+        Assert.Contains("ColumnPieceHasHeight(", curve, StringComparison.Ordinal);
         Assert.Contains("\"one storey\"", levels, StringComparison.Ordinal);
         Assert.Contains("\"height-driven\"", levels, StringComparison.Ordinal);
         Assert.Contains("\"pinned\"", levels, StringComparison.Ordinal);

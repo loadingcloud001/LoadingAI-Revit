@@ -636,7 +636,7 @@ internal static class CurveMemberSplit
                     else
                         ParamCopy.SetMark(made, markFor);
 
-                    if (!PinColumnStorey(made, piece))
+                    if (!PinColumnStorey(made, piece) || !ColumnPieceHasHeight(doc, made))
                     {
                         sub.RollBack();
                         return (empty, paramSkipped, 0, true);
@@ -796,6 +796,22 @@ internal static class CurveMemberSplit
             && Set(baseOffset, storey.BaseOffset)
             && SetId(topLevel, storey.TopLevel.Id)
             && Set(topOffset, storey.TopOffset);
+    }
+
+    /// <summary>
+    /// The pin wrote the levels, but a copied length or offset can still leave the live column
+    /// with no span. Read the same parameters back rather than trusting the planned offsets.
+    /// </summary>
+    private static bool ColumnPieceHasHeight(Document doc, Element column)
+    {
+        var baseLevel = doc.GetElement(column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM)?.AsElementId()) as Level;
+        var topLevel = doc.GetElement(column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)?.AsElementId()) as Level;
+        if (baseLevel == null || topLevel == null)
+            return false;
+
+        var baseOffset = column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0;
+        var topOffset = column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)?.AsDouble() ?? 0;
+        return (topLevel.Elevation + topOffset) - (baseLevel.Elevation + baseOffset) > GeometryRevit.ZTolFt;
     }
 
     private static bool Set(Parameter param, double value)
