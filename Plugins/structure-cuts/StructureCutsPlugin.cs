@@ -30,7 +30,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "split_beams_by_columns",
-                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Splits the element in place with Revit's own split where it can, so the member, its host and its parameters stay; a member Revit will not split is re-created as location-curve segments instead. Not a solid cut. Straight and curved beams, cut at the real column footprint, not a bounding box. Copies instance parameters onto pieces it has to re-create unless copyParams is off. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Description = "Split structural beams at columns (pyRevit: Cutbeambycolumn). Splits the element in place with Revit's own split where it can, so the member, its host and its parameters stay; a member Revit will not split is re-created as location-curve segments instead. Not a solid cut. Straight and curved beams, cut at the real column footprint, not a bounding box. Copies instance parameters onto pieces it has to re-create unless copyParams is off. Params: beamIds[] optional (else current selection), columnIds[] optional (else selection, then all columns), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200, includeLinks boolean (default off) also uses loaded-link cutters; hosts stay in this model. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -43,7 +43,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                         dryRun = DryRunProperty(),
                         uniqueMark = UniqueMarkProperty(),
                         copyParams = CopyParamsProperty(),
-                        limit = LimitProperty()
+                        limit = LimitProperty(),
+                        includeLinks = IncludeLinksProperty()
                     },
                     required = Array.Empty<string>()
                 }
@@ -71,7 +72,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "split_floors_by_beams",
-                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Rebuilds planar floor regions through the flooring API and carries a single-plane slope with a slope arrow. Not a solid cut. Handles floors with openings, curved beams and real column footprints, and leaves alone, counted by reason, any slab it cannot rebuild exactly. Copies instance parameters onto new pieces unless copyParams is off. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Description = "Split floors along beam edges and add column openings (pyRevit: Cutslabbybeam). Rebuilds planar floor regions through the flooring API and carries a single-plane slope with a slope arrow. Not a solid cut. Handles floors with openings, curved beams and real column footprints, and leaves alone, counted by reason, any slab it cannot rebuild exactly. Copies instance parameters onto new pieces unless copyParams is off. Params: floorIds[] optional (else current selection), beamIds[]/columnIds[] optional, scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200, includeLinks boolean (default off) also uses loaded-link cutters; hosts stay in this model. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -85,7 +86,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                         dryRun = DryRunProperty(),
                         uniqueMark = UniqueMarkProperty(),
                         copyParams = CopyParamsProperty(),
-                        limit = LimitProperty()
+                        limit = LimitProperty(),
+                        includeLinks = IncludeLinksProperty()
                     },
                     required = Array.Empty<string>()
                 }
@@ -117,7 +119,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "split_by_levels",
-                Description = "Split walls, columns, beams and floors at storey elevations (Naviate-style split by levels). Curve members use FamilyInstance.Split where Revit allows it, else location-curve recreate; walls recreate the location curve; stacked and curtain walls are skipped by name. Horizontal floors skip with no-level-hit; a leaning slab is cut along the storey plane. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), levelIds[] optional (else selection, then all levels), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean, copyParams boolean, limit default 50 max 200.",
+                Description = "Split walls, columns, beams and floors at storey elevations (Naviate-style split by levels). Curve members use FamilyInstance.Split where Revit allows it, else location-curve recreate; walls recreate the location curve; stacked and curtain walls are skipped by name. Horizontal floors skip with no-level-hit; a leaning slab is cut along the storey plane. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), levelIds[] optional (else selection, then all levels), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean, copyParams boolean, limit default 50 max 200, includeLinks boolean (default off) also uses loaded-link cutters; hosts stay in this model.",
                 Parameters = new
                 {
                     type = "object",
@@ -131,7 +133,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                         dryRun = DryRunProperty(),
                         uniqueMark = UniqueMarkProperty(),
                         copyParams = CopyParamsProperty(),
-                        limit = LimitProperty()
+                        limit = LimitProperty(),
+                        includeLinks = IncludeLinksProperty()
                     },
                     required = Array.Empty<string>()
                 }
@@ -160,7 +163,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "split_by_grids",
-                Description = "Split walls, columns, beams and floors at grid lines (Naviate-style split by grids). Curve members cut on the vertical plane through each grid; floors reuse the planar region pipeline with grid lines as cutters. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), gridIds[] optional (else selection, then all grids), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean, copyParams boolean, limit default 50 max 200.",
+                Description = "Split walls, columns, beams and floors at grid lines (Naviate-style split by grids). Curve members cut on the vertical plane through each grid; floors reuse the planar region pipeline with grid lines as cutters. Copies instance parameters onto re-created pieces. Params: elementIds[] optional (else scope), gridIds[] optional (else selection, then all grids), categories[] optional (walls, columns, beams, floors), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean, copyParams boolean, limit default 50 max 200, includeLinks boolean (default off) also uses loaded-link cutters; hosts stay in this model.",
                 Parameters = new
                 {
                     type = "object",
@@ -174,7 +177,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                         dryRun = DryRunProperty(),
                         uniqueMark = UniqueMarkProperty(),
                         copyParams = CopyParamsProperty(),
-                        limit = LimitProperty()
+                        limit = LimitProperty(),
+                        includeLinks = IncludeLinksProperty()
                     },
                     required = Array.Empty<string>()
                 }
@@ -203,7 +207,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "split_secondary_beams_by_main_beams",
-                Description = "Split a strictly-shallower beam at a same-height pass-through with a strictly deeper main. Splits the shallower beam into two pieces at the crossing, no stub inside the main. Main means strictly deeper type section height; equal depth, bearing-on, or different heights = no cut. Not a cope. Empty scope refuses. Copies instance parameters onto pieces unless copyParams is off. Params: beamIds[] optional (else scope), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200. Selects the new pieces after a write run.",
+                Description = "Split a strictly-shallower beam at a same-height pass-through with a strictly deeper main. Splits the shallower beam into two pieces at the crossing, no stub inside the main. Main means strictly deeper type section height; equal depth, bearing-on, or different heights = no cut. Not a cope. Empty scope refuses. Copies instance parameters onto pieces unless copyParams is off. Params: beamIds[] optional (else scope), scope selection|visible|all, continueFrom, dryRun boolean counts only without changing the model, uniqueMark boolean suffixes the new Marks, copyParams boolean, limit default 50 max 200, includeLinks boolean (default off) also uses loaded-link cutters; hosts stay in this model. Selects the new pieces after a write run.",
                 Parameters = new
                 {
                     type = "object",
@@ -215,7 +219,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                         dryRun = DryRunProperty(),
                         uniqueMark = UniqueMarkProperty(),
                         copyParams = CopyParamsProperty(),
-                        limit = LimitProperty()
+                        limit = LimitProperty(),
+                        includeLinks = IncludeLinksProperty()
                     },
                     required = Array.Empty<string>()
                 }
@@ -244,6 +249,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         DryRun = ToolPresets.IsDryRun(json),
         UniqueMark = args.Bool("uniqueMark", false),
         CopyParams = args.Bool("copyParams", true),
+        IncludeLinks = args.Bool("includeLinks", false),
         Scope = args.Scope(),
         ContinueFrom = args.ContinueFrom()
     };
@@ -256,7 +262,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static SplitRequestDto Request(
         SplitOptions options, IReadOnlyList<string>? hosts, IReadOnlyList<string>? cutters, IReadOnlyList<string>? categories)
         => new(hosts, cutters, categories, options.Scope, options.ContinueFrom, options.Limit,
-            options.DryRun, options.UniqueMark, options.CopyParams);
+            options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks);
 
     private static IReadOnlyList<string>? Filter(List<string> ids) => ids.Count == 0 ? null : ids;
 
@@ -273,6 +279,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         new PresetField { Id = "continueFrom", Label = "Continue from", Kind = PresetFieldKind.Number, Default = 0 },
         new PresetField { Id = "uniqueMark", Label = "Unique Marks (-1, -2, ...)", Kind = PresetFieldKind.Boolean, Default = false },
         new PresetField { Id = "copyParams", Label = "Copy instance parameters", Kind = PresetFieldKind.Boolean, Default = true },
+        new PresetField { Id = "includeLinks", Label = "Include linked cutters", Kind = PresetFieldKind.Boolean, Default = false },
         new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = SplitOptions.DefaultLimit },
         new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
     };
@@ -328,6 +335,11 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         description = "Optional. When false, new pieces keep their type defaults instead of the original's instance parameters. Default true."
     };
 
+    private static object IncludeLinksProperty() => new
+    {
+        type = "boolean",
+        description = "Optional. When true, cutting elements may also come from loaded Revit links. Hosts being split stay in this model. Default false."
+    };
     private static object LimitProperty() => new
     {
         type = "integer",

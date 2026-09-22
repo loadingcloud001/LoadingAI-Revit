@@ -2262,7 +2262,24 @@ public class FakeBridgeToolTests
         Assert.False(call.DryRun);
         Assert.False(call.UniqueMark);
         Assert.True(call.CopyParams);
-    }
+            Assert.False(call.IncludeLinks);
+        }
+
+        [Fact]
+        public async Task SplitBeams_IncludeLinks_OmittedOrFalseStaysOff_ExplicitTrueForwards()
+        {
+            var omitted = new FakeRevitBridge { HasActiveDocument = true };
+            await StructureCutsTool(omitted, "split_beams_by_columns").Handler("{}");
+            Assert.False(Assert.Single(omitted.SplitBeamsCalls).IncludeLinks);
+
+            var off = new FakeRevitBridge { HasActiveDocument = true };
+            await StructureCutsTool(off, "split_floors_by_beams").Handler("""{"includeLinks":false}""");
+            Assert.False(Assert.Single(off.SplitFloorsCalls).IncludeLinks);
+
+            var on = new FakeRevitBridge { HasActiveDocument = true };
+            await StructureCutsTool(on, "split_by_grids").Handler("""{"includeLinks":true}""");
+            Assert.True(Assert.Single(on.SplitByGridsCalls).IncludeLinks);
+        }
 
     [Fact]
     public async Task SplitFloors_MergesBeamAndColumnIdsIntoCutterList()
