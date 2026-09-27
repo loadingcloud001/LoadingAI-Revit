@@ -1,8 +1,5 @@
-using System.Text.Json;
-using Autodesk.Revit.DB;
 using LoadingAI.Plugins.OpeningTools;
 using LoadingAI.Core.Openings;
-using LoadingAI.Revit.Openings;
 using LoadingAI.Tests.Fakes;
 using LoadingAI.Tools;
 
@@ -91,6 +88,4 @@ public class OpeningToolsContractTests
     private static ToolEntry CreateTool(FakePluginContext context, string name)
         => new OpeningToolsPlugin().CreateTools(context).Single(t => t.Definition.Function.Name == name);
 }
-
-
 
