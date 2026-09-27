@@ -16,6 +16,6 @@ public sealed class PluginContextFactory : IPluginContextFactory
         _bridge = bridge;
     }
 
-    public IPluginContext Create(string pluginDir, bool requestFullAccess)
-        => new PluginContext(_bridge, pluginDir, requestFullAccess);
+    public IPluginContext Create(string pluginDir)
+        => new PluginContext(_bridge, pluginDir);
 }

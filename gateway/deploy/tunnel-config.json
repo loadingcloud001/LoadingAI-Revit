@@ -1,0 +1,16 @@
+{
+  "config": {
+    "ingress": [
+      {
+        "hostname": "gateway.loadingtechnology.app",
+        "service": "http://127.0.0.1:8787",
+        "originRequest": {
+          "connectTimeout": 10
+        }
+      },
+      {
+        "service": "http_status:404"
+      }
+    ]
+  }
+}

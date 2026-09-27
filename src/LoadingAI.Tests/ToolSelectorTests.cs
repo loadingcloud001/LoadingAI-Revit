@@ -1,3 +1,6 @@
+using System.IO;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using LoadingAI.Llm;
 
 namespace LoadingAI.Tests;
@@ -37,84 +40,227 @@ public class ToolSelectorTests
     }
 
     [Fact]
-    public void ChineseDelete_KeepsDeleteElements()
+    public void Delete_KeepsDeleteElements()
     {
         var tools = new List<ToolDefinition> { T("delete_elements", "Delete elements by Id") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "刪掉選取", 8);
+        var selected = ToolSelector.Select(tools, "delete the selection", 8);
         Assert.Contains(selected, t => t.Function.Name == "delete_elements");
     }
 
     [Fact]
-    public void ChineseSave_KeepsSaveDocument()
+    public void Save_KeepsSaveDocument()
     {
         var tools = new List<ToolDefinition> { T("save_document", "Save the Revit document") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "存檔", 8);
+        var selected = ToolSelector.Select(tools, "save the document", 8);
         Assert.Contains(selected, t => t.Function.Name == "save_document");
     }
 
     [Fact]
-    public void ChineseMove_KeepsMoveElements()
+    public void Move_KeepsMoveElements()
     {
         var tools = new List<ToolDefinition> { T("move_elements", "Move elements by vector (mm)") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "把選取的牆往 Y 移 300mm", 8);
+        var selected = ToolSelector.Select(tools, "move the selected walls 300mm along Y", 8);
         Assert.Contains(selected, t => t.Function.Name == "move_elements");
     }
 
     [Fact]
-    public void ChineseIsolate_KeepsIsolateInView()
+    public void Isolate_KeepsIsolateInView()
     {
         var tools = new List<ToolDefinition> { T("isolate_in_view", "Temporarily isolate elements") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "隔離這些", 8);
+        var selected = ToolSelector.Select(tools, "isolate these", 8);
         Assert.Contains(selected, t => t.Function.Name == "isolate_in_view");
     }
 
     [Fact]
-    public void ChineseRooms_KeepsGetRooms()
+    public void Rooms_KeepsGetRooms()
     {
         var tools = new List<ToolDefinition> { T("get_rooms", "List rooms with area") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "有哪些房間", 8);
+        var selected = ToolSelector.Select(tools, "what rooms are there", 8);
         Assert.Contains(selected, t => t.Function.Name == "get_rooms");
     }
 
     [Fact]
-    public void ChineseColorByParam_KeepsColorByParameter()
+    public void ColorByParam_KeepsColorByParameter()
     {
         var tools = new List<ToolDefinition> { T("color_by_parameter", "Color elements by any parameter") };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "依 Mark 上色", 8);
+        var selected = ToolSelector.Select(tools, "color by Mark", 8);
         Assert.Contains(selected, t => t.Function.Name == "color_by_parameter");
     }
 
     [Fact]
-    public void ChineseOpeningFromClash_KeepsCreateOpenings()
+    public void SplitBeams_KeepsSplitBeamsByColumns()
     {
         var tools = new List<ToolDefinition>
         {
-            T("aaa_first", "noise"),
-            T("create_openings_from_clash", "Place opening voids from MEP-host clash. Uses current selection."),
-            T("cut_hosts_by_openings", "Cut local hosts with opening voids. Uses current selection.")
+            T("split_beams_by_columns", "Split structural beams at columns")
         };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "用風管跟牆開洞", 1);
-        Assert.Contains(selected, t => t.Function.Name == "create_openings_from_clash");
+        var selected = ToolSelector.Select(tools, "split beams by columns", 8);
+        Assert.Contains(selected, t => t.Function.Name == "split_beams_by_columns");
     }
 
     [Fact]
-    public void ChineseCutByOpenings_KeepsCutHosts()
+    public void SplitFloors_KeepsSplitFloorsByBeams()
     {
         var tools = new List<ToolDefinition>
         {
-            T("aaa_first", "noise"),
-            T("create_openings_from_clash", "Place opening voids from MEP-host clash. Uses current selection."),
-            T("cut_hosts_by_openings", "Cut local hosts with opening voids. Uses current selection.")
+            T("split_floors_by_beams", "Split floors along beam edges")
         };
         for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
-        var selected = ToolSelector.Select(tools, "用開口切牆", 1);
-        Assert.Contains(selected, t => t.Function.Name == "cut_hosts_by_openings");
+        var selected = ToolSelector.Select(tools, "split floors by beams", 8);
+        Assert.Contains(selected, t => t.Function.Name == "split_floors_by_beams");
+    }
+
+    [Fact]
+    public void Formwork_KeepsCreateFormworkPanels()
+    {
+        var tools = new List<ToolDefinition> { T("create_formwork_panels", "Generate formwork DirectShape panels") };
+        for (int i = 0; i < 40; i++) tools.Add(T($"noise_{i}", "noise"));
+        var selected = ToolSelector.Select(tools, "create formwork", 8);
+        Assert.Contains(selected, t => t.Function.Name == "create_formwork_panels");
+    }
+
+    private static readonly string[] AlwaysKeep =
+    {
+        "get_model_summary", "get_selection_summary", "get_element_details"
+    };
+
+    [Fact]
+    public void RealSurface_UnrelatedPrompt_KeepsAlwaysKeepAndCap()
+    {
+        var tools = RealSurface();
+        Assert.True(tools.Count > ToolSelector.DefaultMax, $"real surface {tools.Count} should exceed DefaultMax");
+        var selected = ToolSelector.Select(tools, "hello there, just chatting");
+        Assert.True(selected.Count <= ToolSelector.DefaultMax);
+        Assert.Equal(ToolSelector.DefaultMax, selected.Count);
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(selected, t => t.Function.Name == name);
+    }
+
+    [Fact]
+    public void Recall_FirstRoundDropThenSwapIn_KeepsCapAndAlwaysKeep()
+    {
+        var catalog = RealSurface();
+        Assert.True(catalog.Count > ToolSelector.DefaultMax);
+        const string first = "hello there, just chatting";
+        const string later = "export a pdf of the sheets";
+        var firstRound = ToolSelector.Select(catalog, first);
+        Assert.DoesNotContain(firstRound, t => t.Function.Name == "export_pdf");
+        Assert.Equal(ToolSelector.DefaultMax, firstRound.Count);
+
+        var recalled = ToolSelector.Recall(catalog, firstRound, later);
+        Assert.True(recalled.Count <= ToolSelector.DefaultMax);
+        Assert.Equal(ToolSelector.DefaultMax, recalled.Count);
+        Assert.Contains(recalled, t => t.Function.Name == "export_pdf");
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(recalled, t => t.Function.Name == name);
+    }
+
+    [Fact]
+    public void Recall_EmptyLaterText_LeavesSelectionUnchanged()
+    {
+        var catalog = RealSurface();
+        var first = ToolSelector.Select(catalog, "hello there, just chatting");
+        var recalled = ToolSelector.Recall(catalog, first, "   ");
+        Assert.Equal(first.Select(t => t.Function.Name), recalled.Select(t => t.Function.Name));
+    }
+
+    [Fact]
+    public void Recall_DoesNotEvictAlwaysKeep()
+    {
+        var catalog = RealSurface();
+        var first = ToolSelector.Select(catalog, "hello there, just chatting");
+        var recalled = ToolSelector.Recall(catalog, first, "export a pdf of the sheets split beams by columns create formwork");
+        Assert.True(recalled.Count <= ToolSelector.DefaultMax);
+        foreach (var name in AlwaysKeep)
+            Assert.Contains(recalled, t => t.Function.Name == name);
+    }
+
+    [Fact]
+    public void ComposeRecallText_IncludesUserAndToolNames()
+    {
+        var history = new List<ChatMessage>
+        {
+            new() { Role = "system", Content = "sys" },
+            ChatMessage.FromText("user", "hello there, just chatting"),
+            new()
+            {
+                Role = "assistant",
+                Content = "I'll inspect first",
+                ToolCalls = new List<ToolCall>
+                {
+                    new() { Function = new ToolCallFunction { Name = "get_model_summary" } }
+                }
+            },
+            new() { Role = "tool", Name = "get_model_summary", Content = "Model has 12 sheets ready for export pdf" }
+        };
+        var text = AgentLoop.ComposeRecallText(history);
+        Assert.Contains("hello there", text);
+        Assert.Contains("get_model_summary", text);
+        Assert.Contains("export pdf", text);
+        Assert.DoesNotContain("sys", text);
+    }
+
+    [Theory]
+    [InlineData("split all beams by columns", "split_beams_by_columns")]
+    [InlineData("split the slab at the beams", "split_floors_by_beams")]
+    [InlineData("split walls by levels", "split_by_levels")]
+    [InlineData("split floors by grids", "split_by_grids")]
+    [InlineData("create formwork", "create_formwork_panels")]
+    [InlineData("export a pdf of the sheets", "export_pdf")]
+    [InlineData("purge unused families", "purge_unused")]
+    [InlineData("load this family into the model", "load_family")]
+    [InlineData("create a 3d view", "create_3d_view")]
+    [InlineData("what rooms are there", "get_rooms")]
+    [InlineData("color by Mark", "color_by_parameter")]
+    [InlineData("list sheets and views", "get_sheets_views")]
+    public void RealSurface_KeepsNamedTool(string prompt, string toolName)
+    {
+        var tools = RealSurface();
+        Assert.Contains(tools, t => t.Function.Name == toolName);
+        var selected = ToolSelector.Select(tools, prompt);
+        Assert.True(selected.Count <= ToolSelector.DefaultMax);
+        Assert.Contains(selected, t => t.Function.Name == toolName);
+    }
+
+    private static List<ToolDefinition> RealSurface()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var toolsDir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools");
+        foreach (var file in Directory.GetFiles(toolsDir, "*.cs", SearchOption.AllDirectories))
+        {
+            foreach (Match m in Regex.Matches(File.ReadAllText(file), @"Name\s*=\s*""([a-z0-9_]+)"""))
+                names.Add(m.Groups[1].Value);
+        }
+        foreach (var json in Directory.GetFiles(Path.Combine(RepoRoot(), "Plugins"), "plugin.json", SearchOption.AllDirectories))
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(json));
+            if (!doc.RootElement.TryGetProperty("tools", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var t in arr.EnumerateArray())
+            {
+                if (t.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } name)
+                    names.Add(name);
+            }
+        }
+        return names.Select(n => T(n)).ToList();
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }

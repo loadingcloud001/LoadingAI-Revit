@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>LoadingAI.Plugins.StructureCuts</AssemblyName>
+    <RootNamespace>LoadingAI.Plugins.StructureCuts</RootNamespace>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <PluginOutDir>$(AppData)\LoadingAI\Plugins\structure-cuts\</PluginOutDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
+    <MakeDir Directories="$(PluginOutDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(ProjectDir)plugin.json" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <Message Text="Copied structure-cuts plugin to $(PluginOutDir)" Importance="high" />
+  </Target>
+</Project>

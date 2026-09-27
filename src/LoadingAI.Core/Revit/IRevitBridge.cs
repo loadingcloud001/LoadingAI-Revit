@@ -19,6 +19,7 @@ public interface IRevitQuery
         string? family = null, string? category = null, string? typeName = null,
         CancellationToken ct = default);
     Task<IReadOnlyList<WarningDto>> GetWarningsAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<WarningItemDto>> GetWarningsRawAsync(int limit, CancellationToken ct = default);
     Task<IReadOnlyList<LevelDto>> GetLevelsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<GridDto>> GetGridsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<QuantityDto>> GetQuantitiesAsync(CancellationToken ct = default);
@@ -36,13 +37,41 @@ public interface IRevitQuery
         IReadOnlyList<string>? elementIds = null, CancellationToken ct = default);
     Task<ActiveViewDetailsDto?> GetActiveViewDetailsAsync(int limit = 200, CancellationToken ct = default);
     Task<IReadOnlyList<RoomDto>> GetRoomsAsync(string? levelName = null, int limit = 200, CancellationToken ct = default);
+
+    Task<WorksetListDto?> GetWorksetsAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<PhaseDto>> GetPhasesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<DesignOptionDto>> GetDesignOptionsAsync(CancellationToken ct = default);
+    Task<SheetsViewsDto?> GetSheetsViewsAsync(CancellationToken ct = default);
+    Task<FamilyTypeListDto?> GetFamilyTypesAsync(string? category = null, CancellationToken ct = default);
+    Task<MaterialListDto?> GetMaterialsAsync(CancellationToken ct = default);
+    Task<RoomAreaDto?> GetRoomAreaAsync(string? levelName = null, CancellationToken ct = default);
+    Task<ClashResultDto?> GetClashByBoundingBoxAsync(
+        string category1, string category2, int limit = 20, CancellationToken ct = default);
+    Task<ModelHealthDto?> GetModelHealthScoreAsync(CancellationToken ct = default);
+    Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default);
+
+    /// <summary>
+    /// Schedule table body cells. <paramref name="rowLimit"/> is clamped Adapter-side
+    /// (default 25, max 40) so the bound holds for any caller. Null when no document is
+    /// open; not-found and failures come back in <see cref="ScheduleDataDto.Error"/>.
+    /// </summary>
+    Task<ScheduleDataDto?> GetScheduleDataAsync(
+        string? scheduleId, string? scheduleName, int rowLimit, CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of host elements for the structure-cuts algorithms, selected by
+    /// <paramref name="scope"/> (<c>selection</c> / <c>visible</c> / <c>all</c>).
+    /// <paramref name="categories"/> empty falls back to every splittable host category.
+    /// </summary>
+    Task<ElementIdListDto?> CollectHostsAsync(
+        string scope, IReadOnlyList<string>? categories, int limit, int offset, CancellationToken ct = default);
 }
 
 /// <summary>
-/// Mutating / multi-step operations. Each command is funneled through the
-/// App's approval gate (confirm-then-run) in production.
+/// Temporary view visibility and graphic overrides (isolate / hide / reset / color).
+/// Overrides must run inside a Transaction.
 /// </summary>
-public interface IRevitCommand
+public interface IRevitViewCommand
 {
     Task<CommandResultDto> IsolateInViewAsync(
         IReadOnlyList<string>? elementIds = null,
@@ -57,6 +86,97 @@ public interface IRevitCommand
 
     Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
 
+    Task<CommandResultDto> OverrideColorInViewAsync(
+        IReadOnlyList<string>? elementIds = null,
+        string? category = null,
+        string? color = null,
+        bool reset = false,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ColorByConstructionScheduleAsync(
+        string startDate,
+        int intervalDays = 14,
+        IReadOnlyList<string>? categories = null,
+        string? palette = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ColorByParameterAsync(
+        string paramName,
+        string? category = null,
+        IReadOnlyList<string>? elementIds = null,
+        string? palette = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateSheetAsync(
+        string sheetNumber, string sheetName, string? titleBlockName = null,
+        CancellationToken ct = default);
+
+    /// <summary><paramref name="xMm"/> / <paramref name="yMm"/> are millimetres; Adapter converts.</summary>
+    Task<CommandResultDto> PlaceViewOnSheetAsync(
+        string viewId, string sheetId, double xMm = 0, double yMm = 0,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> DuplicateViewAsync(
+        string viewId, bool withDetailing = false,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> SetViewTemplateAsync(
+        string viewId, string? templateId = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> SetCropBoxAsync(
+        string viewId, bool enabled,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateDimensionBetweenWallsAsync(
+        string wallId1, string wallId2, string? viewId = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> TagAllInActiveViewAsync(
+        string category,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a category schedule. <paramref name="name"/> is a single token:
+    /// "&lt;category&gt;" creates "&lt;category&gt; Schedule", and
+    /// "&lt;category&gt;:&lt;schedule name&gt;" creates the schedule under the given name.
+    /// The category also resolves from the token's leading words, so "Door List" works.
+    /// </summary>
+    Task<ViewRefDto?> CreateScheduleAsync(
+        string name, IReadOnlyList<string> fields,
+        CancellationToken ct = default);
+
+    /// <summary>Create a floor plan on a level. <paramref name="levelIdOrName"/> blank picks the lowest level.</summary>
+    Task<ViewRefDto?> CreateFloorPlanAsync(
+        string levelIdOrName, string name,
+        CancellationToken ct = default);
+
+    /// <summary>Create a 3D view: isometric when <paramref name="isometric"/>, else perspective.</summary>
+    Task<ViewRefDto?> Create3DViewAsync(
+        string name, bool isometric,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Create a section view. <paramref name="min"/> / <paramref name="max"/> are the section
+    /// line end points in millimetres; <paramref name="viewDirection"/> is an axis token
+    /// (x / -y / z) and, when blank, the direction is derived from the line.
+    /// </summary>
+    Task<ViewRefDto?> CreateSectionViewAsync(
+        string name, PointMmDto min, PointMmDto max,
+        string? viewDirection, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create paths of travel in a floor plan. <paramref name="viewIdOrName"/> blank uses the
+    /// active view; the 5-pair cap is enforced Adapter-side.
+    /// </summary>
+    Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
+        string viewIdOrName, IReadOnlyList<PathPairDto> pairs,
+        CancellationToken ct = default);
+}
+
+/// <summary>Instance parameter writes, rename, bulk dates, and ParamExcel collect/set.</summary>
+public interface IRevitParamCommand
+{
     Task<CommandResultDto> SetParameterAsync(
         string elementId, string paramName, string value,
         CancellationToken ct = default);
@@ -65,12 +185,273 @@ public interface IRevitCommand
         IReadOnlyList<string> elementIds, string paramName, string value,
         CancellationToken ct = default);
 
+    Task<CommandResultDto> RenameElementsAsync(
+        IReadOnlyList<string> elementIds,
+        IReadOnlyList<string>? newNames = null,
+        string? newNamePattern = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ApplyConstructionDatesAsync(
+        string startDate,
+        int intervalDays = 14,
+        string? targetParam = null,
+        IReadOnlyList<string>? categories = null,
+        CancellationToken ct = default);
+
+    Task<ParamExportDto?> ExportParamsAsync(
+        string category,
+        IReadOnlyList<string> columns,
+        int limit = 200,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ImportParamsAsync(
+        string paramName,
+        IReadOnlyList<ParamImportRowDto> rows,
+        string sourcePath,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CopyParamsAsync(
+        string category,
+        string sourceParam,
+        string targetParam,
+        int limit = 200,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> ReplaceTextInParamAsync(
+        string category,
+        string paramName,
+        string pattern,
+        string replacement,
+        int limit = 200,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> NumberElementsAsync(
+        string? category,
+        string prefix,
+        int start,
+        int pad,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// Destructive element mutations (delete / move / type change / purge).
+/// </summary>
+public interface IRevitElementCommand
+{
     Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default);
 
     Task<CommandResultDto> MoveElementsAsync(
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default);
+
+    Task<CommandResultDto> ChangeElementTypeAsync(
+        string elementId, string? typeName = null, string? typeId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// <c>Document.GetUnusedElements</c>. When <paramref name="preview"/> is true
+    /// nothing is deleted and <see cref="PurgeUnusedResultDto.Sample"/> describes
+    /// the first few candidates.
+    /// </summary>
+    Task<PurgeUnusedResultDto> PurgeUnusedAsync(
+        bool preview = true, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Geometry create / transform. Coordinates are millimetres; the adapter
+/// converts to feet for the Revit API.
+/// </summary>
+public interface IRevitCreateCommand
+{
+    Task<CommandResultDto> CreateWallAsync(
+        string levelName,
+        double x1, double y1, double x2, double y2,
+        string? wallTypeName = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateFamilyInstanceAsync(
+        string symbolName,
+        double x, double y,
+        string? familyName = null,
+        string? levelName = null,
+        double z = 0,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> DuplicateElementAsync(
+        string elementId,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateFloorByOutlineAsync(
+        string levelName,
+        double x1, double y1, double x2, double y2,
+        string? floorTypeName = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateRoofAsync(
+        string levelName,
+        double x1, double y1, double x2, double y2,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateGridLevelAsync(
+        string kind,
+        string name,
+        double x1, double y1, double x2, double y2,
+        double elevation,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateFamilyInstanceArrayAsync(
+        string symbolName,
+        double startX, double startY, double endX, double endY,
+        int count,
+        string? levelName = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> RotateElementsAsync(
+        IReadOnlyList<string> elementIds,
+        double angleDegrees,
+        double? originX = null,
+        double? originY = null,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> MirrorElementsAsync(
+        IReadOnlyList<string> elementIds,
+        double x1, double y1, double x2, double y2,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> SplitWallAsync(
+        string wallId,
+        double x, double y,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> JoinGeometryAsync(
+        string elementId1,
+        string elementId2,
+        bool join = true,
+        CancellationToken ct = default);
+
+    Task<CommandResultDto> CreateTopographyAsync(
+        IReadOnlyList<PointMmDto> points,
+        string? levelName = null, string? levelId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Split structural framing at the columns that cross it. <c>HostIds</c> null means
+    /// every beam in <c>Scope</c>; <c>Cutters</c> null means the current selection.
+    /// </summary>
+    Task<SplitResultDto?> SplitBeamsByColumnsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Split a strictly shallower structural beam at a same-height pass-through of a
+    /// strictly deeper main. Not cope/notch. Empty <c>Scope</c> is refused; never
+    /// degrades to every beam in the model. Depth ranking is type nominal section
+    /// height only. One-sided framing is skipped, not stubbed.
+    /// </summary>
+    Task<SplitResultDto?> SplitSecondaryBeamsByMainBeamsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Split floors along the beams and columns that cross them, cutting an opening
+    /// where a column passes through. <c>Cutters</c> holds beams and columns together
+    /// and is separated by category Adapter-side.
+    /// </summary>
+    Task<SplitResultDto?> SplitFloorsByBeamsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the levels that cross them.</summary>
+    Task<SplitResultDto?> SplitByLevelsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Split walls, beams, columns and floors at the grids that cross them.</summary>
+    Task<SplitResultDto?> SplitByGridsAsync(SplitRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Bind the formwork shared parameters and create the panel schema. Run once per
+    /// project before generating panels.
+    /// </summary>
+    Task<FormworkSetupResultDto?> FormworkSetupAsync(FormworkSetupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Create DirectShape formwork panels from the linked (or host) structural elements
+    /// in <c>Ids</c>, or from the current selection when <c>Ids</c> is null.
+    /// </summary>
+    Task<FormworkPanelsResultDto?> CreateFormworkPanelsAsync(FormworkPanelsRequestDto request, CancellationToken ct = default);
+
+    /// <summary>Report or delete formwork panels by <c>Action</c>.</summary>
+    Task<CleanupResultDto?> CleanupFormworkAsync(CleanupRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Copy named parameters from each panel's parent host onto the matching <c>FW_*</c>
+    /// instance parameters. An empty <c>Names</c> lists the catalogue instead.
+    /// </summary>
+    Task<CopyParamsResultDto?> CopyFormworkParentParamsAsync(CopyParamsRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Plan voids where linked or local MEP solid-intersects the selected host.
+    /// Nearby same-host hits combine when leftover web cannot act as a pier.
+    /// Does not write. A section box is not a host.
+    /// </summary>
+    Task<OpeningPlanResultDto?> OpeningProbeClashAsync(OpeningClashRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Load the four opening families and place plus punch the probe result.
+    /// One undo group. Rolls back when fewer pieces than required, or when the family is missing.
+    /// </summary>
+    Task<OpeningPlaceResultDto?> PlaceOpeningsAsync(OpeningClashRequestDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Repair the void cut after a family reload. Linked hosts are skipped, not cut.
+    /// </summary>
+    Task<OpeningCutResultDto?> CutHostsByOpeningsAsync(OpeningCutRequestDto request, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Document-level writes. Do not wrap <c>Save</c> in a Transaction —
+/// Revit rejects that. <c>LoadFamily</c> does need a Transaction.
+/// Exports are not Transactions either. <c>directory</c> is always an
+/// absolute path already validated by the caller against
+/// <c>ExportPaths</c>; the adapter never touches the file system itself.
+/// </summary>
+public interface IRevitDocumentCommand
+{
+    Task<CommandResultDto> SaveDocumentAsync(CancellationToken ct = default);
+    Task<CommandResultDto> ReloadLinksAsync(CancellationToken ct = default);
+    Task<CommandResultDto> AssignWorksetAsync(
+        IReadOnlyList<string> elementIds,
+        string worksetName,
+        CancellationToken ct = default);
+    Task<CommandResultDto> LoadFamilyAsync(string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sheets (or the given views) to a combined/split PDF. <paramref name="fileName"/>
+    /// is sanitised against the model title when omitted.
+    /// </summary>
+    Task<CommandResultDto> ExportPdfAsync(
+        string directory,
+        IReadOnlyList<string>? sheetIds = null,
+        string? fileName = null,
+        bool combine = true,
+        CancellationToken ct = default);
+
+    /// <summary>Views (or the active view) to DWG, AutoCAD 2018 format.</summary>
+    Task<CommandResultDto> ExportDwgAsync(
+        string directory,
+        IReadOnlyList<string>? viewIds = null,
+        string? fileName = null,
+        CancellationToken ct = default);
+
+    /// <summary>Whole model to IFC. <paramref name="version"/> is an <c>IFCVersion</c> name, ignored when unknown.</summary>
+    Task<CommandResultDto> ExportIfcAsync(
+        string directory,
+        string? fileName = null,
+        string? version = null,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// Composite mutating contract. Each command is funneled through the
+/// App's approval gate (confirm-then-run) in production. Prefer the
+/// narrower capability interfaces in tool shells.
+/// </summary>
+public interface IRevitCommand : IRevitViewCommand, IRevitParamCommand, IRevitElementCommand, IRevitCreateCommand, IRevitDocumentCommand
+{
 }
 
 /// <summary>Unified bridge contract used by tools and the LLM layer.</summary>

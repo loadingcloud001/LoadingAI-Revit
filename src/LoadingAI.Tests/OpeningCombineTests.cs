@@ -1,4 +1,4 @@
-using LoadingAI.Plugins.OpeningTools;
+using LoadingAI.Core.Openings;
 
 namespace LoadingAI.Tests;
 

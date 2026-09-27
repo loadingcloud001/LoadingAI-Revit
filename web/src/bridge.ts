@@ -58,6 +58,15 @@ export type PluginInfo = {
   tools: PluginToolInfo[];
 };
 
+export type PluginLoadIssue = {
+  folder: string;
+  pluginId: string;
+  assembly: string;
+  summary: string;
+  detail: string;
+  hint: string;
+};
+
 export type Attachment = {
   id: string;
   name: string;
@@ -81,12 +90,15 @@ export type ToHost =
   | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
   | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
+  | { type: 'submitPreset'; toolCallId: string; approved: boolean; values?: Record<string, unknown> }
+  | { type: 'presetPick'; toolCallId: string; fieldId: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
   | { type: 'setPluginGroupEnabled'; pluginId: string; enabled: boolean }
   | { type: 'setPluginTierEnabled'; tier: string; enabled: boolean }
   | { type: 'saveToolSettings' }
   | { type: 'removePlugin'; pluginId: string }
   | { type: 'reloadPlugins' }
+  | { type: 'trustPlugin'; folder: string; assembly: string }
   | { type: 'listCheckpoints' }
   | { type: 'resumeCheckpoint'; id: string };
 
@@ -114,6 +126,17 @@ export type ContextPayload = {
   warningPreview?: string;
 };
 
+/** Host-owned run/tool progress. Idle when phase is idle. */
+export type ProgressPayload = {
+  phase: 'idle' | 'thinking' | 'tool' | 'complete' | 'cancelled' | 'error' | string;
+  label: string;
+  tool?: string;
+  percent?: number | null;
+  current?: number;
+  total?: number;
+  indeterminate?: boolean;
+};
+
 export type CheckpointInfo = { id: string; createdAt: string; mode?: string; preview: string; messageCount: number };
 
 export type ApprovalPayload = {
@@ -124,14 +147,63 @@ export type ApprovalPayload = {
   description?: string;
 };
 
+export type PresetFieldKind = 'String' | 'Number' | 'Boolean' | 'Select' | 'PickElements' | 'PickBox';
+
+export type PresetFieldPayload = {
+  id: string;
+  label: string;
+  kind: PresetFieldKind;
+  required?: boolean;
+  options?: string[];
+  category?: string;
+  prompt?: string;
+};
+
+export type PresetPayload = {
+  toolCallId: string;
+  toolName: string;
+  tier?: string;
+  description?: string;
+  fields: PresetFieldPayload[];
+  values?: Record<string, unknown>;
+};
+
+export type PresetPickResult = {
+  toolCallId: string;
+  fieldId: string;
+  result?: {
+    ok?: boolean;
+    cancelled?: boolean;
+    error?: string;
+    ids?: string[];
+    box?: { minMm?: number[]; maxMm?: number[] };
+  };
+  ok?: boolean;
+  error?: string;
+};
+
+export type QuotaPayload = {
+  providerId?: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  resetUtc?: string;
+  exhausted?: boolean;
+  ok?: boolean;
+  message?: string;
+};
+
 export type FromHost =
   | { type: 'status'; text: string }
   | { type: 'trace'; text: string }
   | { type: 'tool_call'; text: string }
   | { type: 'tool_result'; text: string }
   | { type: 'tool_approval'; approval: ApprovalPayload }
+  | { type: 'tool_preset'; preset: PresetPayload }
+  | { type: 'presetPickResult'; toolCallId: string; fieldId: string; result?: PresetPickResult['result']; ok?: boolean; error?: string }
   | { type: 'plan'; plan: PlanPayload }
   | { type: 'todo'; todos: TodoPayload[] }
+  | { type: 'progress'; progress: ProgressPayload }
   | { type: 'context'; context: ContextPayload }
   | { type: 'checkpoints'; checkpoints: CheckpointInfo[] }
   | { type: 'reasoning'; text: string; isStreaming?: boolean }
@@ -142,6 +214,7 @@ export type FromHost =
   | { type: 'testResult'; ok: boolean; message: string; providerId?: string; models?: string[] }
   | { type: 'models'; providerId: string; models: string[]; error?: string }
   | { type: 'plugins'; plugins: PluginInfo[] }
+  | { type: 'quota'; quota: QuotaPayload }
   | { type: 'history'; messages: { role: string; text: string; attachments?: Attachment[] }[] }
   | { type: 'error'; text: string }
   | { type: 'delta'; text: string };
@@ -189,6 +262,7 @@ export function postToHost(msg: ToHost) {
         ]
       };
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'settings', settings: mock } })), 100);
+      setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'quota', quota: { providerId: BUILTIN_PROVIDER_ID, limit: 100, used: 3, remaining: 97, ok: true, resetUtc: new Date(Date.now() + 86400000).toISOString() } } })), 140);
       const mockPresets: any[] = [
         { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKind: 'openai', group: 'cloud', icon: '◆', description: 'DeepSeek V3 / R1' },
         { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', apiKind: 'openai', group: 'gateway', icon: '◎', description: '300+ models gateway' },

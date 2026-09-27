@@ -1,0 +1,42 @@
+# Hardened connector unit, for when you would rather not have `cloudflared service install`
+# write its own unit. /etc/cloudflared/loadingai-tunnel.env must be root- or cloudflared-owned,
+# mode 600, and hold either
+#
+#   TUNNEL_TOKEN=<token from Zero Trust -> Networks -> Tunnels>
+#
+# for a dashboard-managed tunnel (the public hostname route lives in the dashboard), or
+#
+#   TUNNEL_ID=<tunnel uuid>
+#
+# for a locally-managed one, which also needs /etc/cloudflared/config.yml with the credentials file
+# and the ingress from tunnel-config.json.
+#
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared
+
+[Unit]
+Description=Cloudflare Tunnel for the LoadingAI gateway
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target loadingai-gateway.service
+Wants=network-online.target
+PartOf=loadingai-gateway.service
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+EnvironmentFile=/etc/cloudflared/loadingai-tunnel.env
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# cloudflared only needs to reach the gateway on loopback.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ricaun TestAdapter settings for local in-Revit runs.
+  NUnit.Application is ricaun.RevitTest.Console (leave empty to use the
+  packaged console). It is NOT Revit.exe.
+
+  Revit.exe is located by version (NUnit.Version) from Autodesk registry /
+  installed products. Non-default Program Files (for example F:\...) is
+  fine as long as Revit is registered.
+
+  Override at run time without editing this file:
+    $env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_VERSION = "2027"
+    $env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_OPEN = "true"
+    $env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_CLOSE = "true"
+    $env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_VERBOSITY = "2"
+-->
+<RunSettings>
+  <NUnit>
+    <Version>2027</Version>
+    <Language>ENU</Language>
+    <Open>true</Open>
+    <Close>true</Close>
+    <Timeout>10</Timeout>
+    <Verbosity>2</Verbosity>
+    <Metadata>true</Metadata>
+  </NUnit>
+</RunSettings>

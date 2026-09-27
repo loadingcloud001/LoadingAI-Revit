@@ -9,14 +9,16 @@
     {
       "name": "create_openings_from_clash",
       "tier": "L3",
-      "description": "Place and punch opening voids where linked or local MEP solid-intersects a selected wall/floor/beam/column/roof. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls/beams/columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors/roofs). Four .rfa next to the plugin; auto LoadFamily. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Result lists instance ids and XYZ; isolate those plus the host.",
-      "enabledByDefault": false
+      "description": "Place and punch opening voids where linked or local MEP solid-intersects a selected wall, floor, beam, column, or roof. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier. Stay separate if the remaining edge is too thin or the envelope exceeds two-thirds of the host length. Warn if combined width exceeds 700 mm. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls, beams, columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors, roofs). Four .rfa next to the plugin; auto-loaded on the host. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Linked MEP is found against that host; query tools cannot see it. Result lists instance ids and XYZ; isolate those plus the host, not only the wall. dryRun counts only and does not write. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit (default 50, cap 200), dryRun.",
+      "enabledByDefault": false,
+      "tags": ["structure", "write"]
     },
     {
       "name": "cut_hosts_by_openings",
       "tier": "L3",
-      "description": "Repair cut of local hosts with opening voids after a family reload. Linked hosts are skipped, not cut.",
-      "enabledByDefault": false
+      "description": "Repair the cut of local hosts with opening voids after a family reload. Happy path is create_openings_from_clash (place and punch). Uses current selection, openings tagged to the selected wall, floor, or beam, or all plugin openings. Linked hosts are skipped, not cut. Params: openingIds, hostIds.",
+      "enabledByDefault": false,
+      "tags": ["structure", "write"]
     }
   ],
   "verified": true

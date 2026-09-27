@@ -15,6 +15,29 @@
     <ProjectReference Include="..\LoadingAI\LoadingAI.csproj">
       <AdditionalProperties>SkipHostPluginBuild=true;SkipCopyAddin=true</AdditionalProperties>
     </ProjectReference>
+    <!-- Tool factories (QueryTools/ViewTools/ParamTools/AllTools) live in the
+         shipped core-tools plugin, so fake-bridge tests reference it directly. -->
+    <ProjectReference Include="..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\modeling-tools\ModelingToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\export-tools\ExportToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\view-tools\ViewToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\qs-formwork\QsFormworkPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Plugins\opening-tools\OpeningToolsPlugin.csproj">
+      <AdditionalProperties>SkipCopyAddin=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\Plugins\opening-tools\OpeningCombineMath.cs" Link="OpeningCombineMath.cs" />

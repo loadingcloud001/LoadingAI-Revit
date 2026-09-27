@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using LoadingAI.Revit;
 
@@ -34,10 +35,22 @@ public class AdapterContractTests
     [Fact]
     public void BridgeContract_SurfaceExists()
     {
-        // Compile-time guard that the unified contract inherits query + command.
+        // Compile-time guard: unified contract inherits query + capability slices.
         var interfaces = typeof(IRevitBridge).GetInterfaces();
         Assert.Contains(typeof(IRevitQuery), interfaces);
         Assert.Contains(typeof(IRevitCommand), interfaces);
+        Assert.Contains(typeof(IRevitViewCommand), interfaces);
+        Assert.Contains(typeof(IRevitParamCommand), interfaces);
+        Assert.Contains(typeof(IRevitElementCommand), interfaces);
+        Assert.Contains(typeof(IRevitCreateCommand), interfaces);
+        Assert.Contains(typeof(IRevitDocumentCommand), interfaces);
+
+        var commandBases = typeof(IRevitCommand).GetInterfaces();
+        Assert.Contains(typeof(IRevitViewCommand), commandBases);
+        Assert.Contains(typeof(IRevitParamCommand), commandBases);
+        Assert.Contains(typeof(IRevitElementCommand), commandBases);
+        Assert.Contains(typeof(IRevitCreateCommand), commandBases);
+        Assert.Contains(typeof(IRevitDocumentCommand), commandBases);
     }
 
     [Fact]
@@ -48,5 +61,31 @@ public class AdapterContractTests
         Assert.Contains("\"IsVisible\":false", json);
         var back = JsonSerializer.Deserialize<ViewInfoDto>(json)!;
         Assert.False(back.IsVisible);
+    }
+
+    [Fact]
+    public void RevitBridge_Execute_DoesNotDropWaitersOnActionFailure()
+    {
+        // Empty catch around queued actions left RunAsync sitting until DefaultTimeout.
+        // Execute must drain leftovers so each Enqueue wrapper can TrySetException.
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        Assert.DoesNotContain("try { a(app); }", src);
+        Assert.DoesNotContain("catch { }", src);
+        Assert.Contains("tcs.TrySetException", src);
+        Assert.Contains("bridge.action_failed", src);
+        Assert.Contains("DrainTo", src);
+        Assert.Contains("DefaultTimeout", src);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }

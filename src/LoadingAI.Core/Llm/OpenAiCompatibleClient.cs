@@ -206,8 +206,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
     {
         var url = BuildModelsUrl(provider.BaseUrl);
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        if (!string.IsNullOrWhiteSpace(provider.ApiKey))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(req, provider);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(15));
         using var resp = await _http.SendAsync(req, cts.Token);
@@ -295,9 +294,23 @@ public sealed class OpenAiCompatibleClient : IDisposable
         List<ToolDefinition>? tools,
         Action<string>? onDelta,
         CancellationToken ct = default)
+        => await ChatAsync(provider, messages, tools, onDelta, null, ct);
+
+    public async Task<ChatCompletionResponse> ChatAsync(
+        ProviderConfig provider,
+        List<ChatMessage> messages,
+        List<ToolDefinition>? tools,
+        Action<string>? onDelta,
+        Action<string>? onReasoning,
+        CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(provider.ApiKey) && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        if (!DefaultLlm.IsBuiltin(provider.Id)
+            && string.IsNullOrWhiteSpace(provider.ApiKey)
+            && !provider.BaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Provider '{provider.Name}' has no API key. Please add it in settings.");
+
+        if (DefaultLlm.IsBuiltin(provider.Id) && !DefaultLlm.DirectUpstreamEnabled && BuiltinQuota.Ticket == null)
+            throw new InvalidOperationException($"{DefaultLlm.DisplayName} has no active request ticket. Send your message again to start a new request.");
 
         var kind = ResolveApiKind(provider);
         if (kind == "anthropic")
@@ -306,16 +319,11 @@ public sealed class OpenAiCompatibleClient : IDisposable
         if (kind == "responses" || IsResponsesModel(provider.Model))
         {
             var resp = await ResponsesOnceAsync(provider, messages, tools, ct);
-            if (onDelta != null)
-            {
-                var text = LlmJson.GetContentString(resp.Choices?.FirstOrDefault()?.Message?.Content);
-                if (!string.IsNullOrEmpty(text))
-                    try { onDelta(text); } catch { }
-            }
+            EmitStrippedOnce(resp, onDelta, onReasoning);
             return resp;
         }
 
-        if (onDelta != null)
+        if (onDelta != null || onReasoning != null)
         {
             var streamed = false;
             try
@@ -323,8 +331,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
                 return await ChatStreamAsync(provider, messages, tools, chunk =>
                 {
                     streamed = true;
-                    onDelta(chunk);
-                }, ct);
+                    try { onDelta?.Invoke(chunk); } catch { }
+                }, onReasoning, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch when (!streamed)
@@ -334,7 +342,30 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
-        return await ChatOnceAsync(provider, messages, tools, timeoutCts.Token);
+        var once = await ChatOnceAsync(provider, messages, tools, timeoutCts.Token);
+        EmitStrippedOnce(once, onDelta, onReasoning);
+        return once;
+    }
+
+    /// <summary>
+    /// Non-stream replies still dump the full content; strip think tags so they never reach chat
+    /// and route inner think to the Think panel when a host post exists.
+    /// </summary>
+    private static void EmitStrippedOnce(
+        ChatCompletionResponse resp,
+        Action<string>? onDelta,
+        Action<string>? onReasoning)
+    {
+        var msg = resp.Choices?.FirstOrDefault()?.Message;
+        if (msg == null) return;
+        var raw = LlmJson.GetContentString(msg.Content);
+        if (string.IsNullOrEmpty(raw)) return;
+        var stripped = ThinkTagStripper.Strip(raw);
+        msg.Content = stripped.Visible;
+        if (!string.IsNullOrEmpty(stripped.Visible) && onDelta != null)
+            try { onDelta(stripped.Visible); } catch { }
+        if (!string.IsNullOrEmpty(stripped.Reasoning) && onReasoning != null)
+            try { onReasoning(stripped.Reasoning); } catch { }
     }
 
     private async Task<ChatCompletionResponse> ChatOnceAsync(
@@ -358,7 +389,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
 
         using var resp = await _http.SendAsync(httpReq, ct);
         var body = await resp.Content.ReadAsStringAsync();
@@ -374,7 +405,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
             }
             catch { }
             LogHttpFailure("chat.once", provider, messages, tools, json, (int)resp.StatusCode, body);
-            if ((int)resp.StatusCode == 401) throw new HttpRequestException($"Provider '{provider.Name}' key invalid or expired (401): {err}. Open Settings and check your API key.");
+            if ((int)resp.StatusCode == 401 && !DefaultLlm.IsBuiltin(provider.Id)) throw new HttpRequestException($"Provider '{provider.Name}' key invalid or expired (401): {err}. Open Settings and check your API key.");
             throw new HttpRequestException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {err}");
         }
 
@@ -414,7 +445,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
@@ -565,6 +596,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         List<ChatMessage> messages,
         List<ToolDefinition>? tools,
         Action<string> onDelta,
+        Action<string>? onReasoning,
         CancellationToken ct)
     {
         var url = BuildUrl(provider.BaseUrl);
@@ -582,7 +614,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+        ApplyAuth(httpReq, provider);
         httpReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
         using var resp = await _http.SendAsync(httpReq, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -602,6 +634,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
         var contentSb = new StringBuilder();
         var toolCallsAccum = new StreamToolCallAccumulator();
+        var thinkStrip = new ThinkTagStripper();
         string? finishReason = null;
         string? role = "assistant";
 
@@ -632,12 +665,27 @@ public sealed class OpenAiCompatibleClient : IDisposable
             var deltaContent = LlmJson.GetContentString(delta.Content);
             if (!string.IsNullOrEmpty(deltaContent))
             {
-                contentSb.Append(deltaContent);
-                try { onDelta(deltaContent); } catch { }
+                var stripped = thinkStrip.Push(deltaContent);
+                if (!string.IsNullOrEmpty(stripped.Visible))
+                {
+                    contentSb.Append(stripped.Visible);
+                    try { onDelta(stripped.Visible); } catch { }
+                }
+                if (!string.IsNullOrEmpty(stripped.Reasoning) && onReasoning != null)
+                    try { onReasoning(stripped.Reasoning); } catch { }
             }
 
             try { toolCallsAccum.ApplyChunk(data); } catch { }
         }
+
+        var flushed = thinkStrip.Flush();
+        if (!string.IsNullOrEmpty(flushed.Visible))
+        {
+            contentSb.Append(flushed.Visible);
+            try { onDelta(flushed.Visible); } catch { }
+        }
+        if (!string.IsNullOrEmpty(flushed.Reasoning) && onReasoning != null)
+            try { onReasoning(flushed.Reasoning); } catch { }
 
         var finalMsg = new ChatMessage { Role = role ?? "assistant", Content = contentSb.ToString() };
         if (toolCallsAccum.Calls.Count > 0)
@@ -703,6 +751,103 @@ public sealed class OpenAiCompatibleClient : IDisposable
             });
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Credentials for one request. The built-in provider authenticates with the
+    /// anonymous device id plus the ticket from its last send; every other
+    /// provider uses its own bearer key.
+    /// </summary>
+    private static void ApplyAuth(HttpRequestMessage req, ProviderConfig provider)
+    {
+        if (DefaultLlm.IsBuiltin(provider.Id))
+        {
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.ClientHeader, BuiltinQuota.ClientToken);
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
+            var ticket = BuiltinQuota.Ticket;
+            if (!string.IsNullOrWhiteSpace(ticket))
+                req.Headers.TryAddWithoutValidation(BuiltinQuota.TicketHeader, ticket);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(provider.ApiKey))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", provider.ApiKey);
+    }
+
+    /// <summary>Spends one free request for this device and keeps the returned ticket.</summary>
+    public Task<QuotaStatus> ConsumeBuiltinQuotaAsync(CancellationToken ct = default)
+        => SendQuotaAsync(HttpMethod.Post, ct);
+
+    /// <summary>Reads the remaining free allowance without spending it.</summary>
+    public Task<QuotaStatus> PeekBuiltinQuotaAsync(CancellationToken ct = default)
+        => SendQuotaAsync(HttpMethod.Get, ct);
+
+    private async Task<QuotaStatus> SendQuotaAsync(HttpMethod method, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(method, BuildQuotaUrl(DefaultLlm.GatewayBaseUrl));
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.ClientHeader, BuiltinQuota.ClientToken);
+            req.Headers.TryAddWithoutValidation(BuiltinQuota.DeviceHeader, BuiltinQuota.DeviceId);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(20));
+            using var resp = await _http.SendAsync(req, cts.Token);
+            var body = await resp.Content.ReadAsStringAsync();
+            var status = ParseQuota(body) ?? new QuotaStatus();
+
+            if (method == HttpMethod.Post)
+            {
+                if (resp.IsSuccessStatusCode) BuiltinQuota.SetTicket(status.Ticket);
+                else BuiltinQuota.ClearTicket();
+            }
+
+            if (resp.IsSuccessStatusCode)
+            {
+                status.Ok = true;
+                return status;
+            }
+
+            status.Ok = false;
+            status.Exhausted = string.Equals(status.Error?.Code, "daily_limit", StringComparison.OrdinalIgnoreCase)
+                || (int)resp.StatusCode == 429;
+            status.Message = status.Exhausted
+                ? BuiltinQuota.LimitMessage(status)
+                : !string.IsNullOrWhiteSpace(status.Error?.Message)
+                    ? status.Error!.Message!
+                    : $"{DefaultLlm.DisplayName} gateway error (HTTP {(int)resp.StatusCode}). Try again, or add your own API key in Settings.";
+            return status;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return QuotaUnreachable($"{DefaultLlm.DisplayName} gateway timed out. Check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            return QuotaUnreachable($"{DefaultLlm.DisplayName} gateway unreachable: {ex.Message}");
+        }
+    }
+
+    private static QuotaStatus QuotaUnreachable(string message)
+        => new() { Ok = false, Message = message };
+
+    private static QuotaStatus? ParseQuota(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try { return JsonSerializer.Deserialize<QuotaStatus>(body); }
+        catch { return null; }
+    }
+
+    private static string BuildQuotaUrl(string baseUrl)
+    {
+        var url = (baseUrl ?? "").Trim().TrimEnd('/');
+        if (url.Length == 0) return "/v1/quota";
+        if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/chat/completions".Length);
+        else if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/responses".Length);
+        else if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase))
+            url = url.Substring(0, url.Length - "/messages".Length);
+        return url + "/quota";
     }
 
     private static string BuildUrl(string baseUrl)

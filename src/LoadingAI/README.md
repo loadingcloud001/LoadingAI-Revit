@@ -18,11 +18,11 @@ In-process add-in for Autodesk Revit **2024–2027** (anchor 2027):
 
 ```ps
 cd web; npm install; npm run build
-dotnet test LoadingAI.sln -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
 dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=2027
 ```
 
-Pass `-p:RevitVersion=2024` (or 2025 / 2026) to target another year. Post-build copies DLL + `Web/dist` to `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\` and the `.addin` next to it. Pack without touching AppData:
+Pass `-p:RevitVersion=2024` (or 2025 / 2026) to target another year. Post-build copies DLL + `Web/dist` to `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\` and the `.addin` next to it. The same CopyAddin run re-asserts per-user Always Load and signs the AppData DLL (`scripts/trust-addin.ps1`) so Revit does not re-prompt after a rebuild. `-p:SkipTrustAddin=true` skips that. Pack without touching AppData:
 
 ```ps
 pwsh scripts/pack-addin.ps1 -RevitVersion 2024
@@ -39,15 +39,21 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2024
 web/                         Vite + React
 src/LoadingAI/
   App.cs                     IExternalApplication
-  Ui/HostPage.xaml(.cs)      WebView2 host + bridge
-  Tools/AllTools.cs          helpers + CreateAll
-  Tools/Core/*               core query/view/param
-  Tools/Compat/*             pyRevit/Dynamo-shaped tools
+  Ui/HostPage.xaml(.cs)      WPF shell (WebView2 + message switch)
+  Ui/WebHostBridge.cs        WebView2 post/receive
+  Ui/ChatSession.cs          agent run, tools, turn TransactionGroup
+  Ui/ApprovalGate.cs         L3 confirm + chat presets
+  Tools/AllTools.cs          host parse wrappers (ParseCategory/ParseEid)
+  Tools/ToolGuards.cs        host-owned guards applied on load
   Plugins/Core/*             loader (ALC; LoadFrom on net48) + contract
 src/LoadingAI.Core/          agent, DTO, no RevitAPI
-src/LoadingAI.Tests/         xunit
+src/LoadingAI.Tests/         xunit (Fake IRevitBridge + contracts; hosted CI)
+src/LoadingAI.RevitTests/    NUnit in-Revit (local Revit 2027 / ricaun; not hosted CI)
 Plugins/example.hello/       sample plugin
+Plugins/core-tools/          shipped Bridge-only: query/view/param/geometry + compat (63)
 Plugins/export-tools/        PDF/DWG/IFC export + purge
 Plugins/view-tools/          schedules, floor/3D/section views, path of travel
 Plugins/modeling-tools/      load_family, change_element_type, create_topography
+Plugins/structure-cuts/      split_beams_by_columns, split_floors_by_beams, split_by_levels, split_by_grids
+Plugins/qs-formwork/         formwork_setup, create_formwork_panels, cleanup_formwork, copy_formwork_parent_params
 ```

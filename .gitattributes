@@ -1,0 +1,5 @@
+# These are consumed by Linux (systemd, bash, a 600 env file). Keep them LF even
+# on a Windows checkout, where core.autocrlf would otherwise write CRLF and leave
+# a stray \r in every value and shebang.
+*.sh text eol=lf
+gateway/deploy/* text eol=lf

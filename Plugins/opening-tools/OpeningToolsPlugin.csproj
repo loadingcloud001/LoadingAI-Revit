@@ -10,35 +10,18 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="LoadingAI_Opening_Horizontal_Rectangle.rfa" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="LoadingAI_Opening_Horizontal_Circle.rfa" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="LoadingAI_Opening_Vertical_Rectangle.rfa" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="LoadingAI_Opening_Vertical_Circle.rfa" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="*.rfa" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
       <Private>false</Private>
     </ProjectReference>
-    <ProjectReference Include="..\..\src\LoadingAI.RevitUtil\LoadingAI.RevitUtil.csproj">
-      <Private>false</Private>
-    </ProjectReference>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)">
-      <Private>false</Private>
-      <ExcludeAssets>runtime</ExcludeAssets>
-    </PackageReference>
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)">
-      <Private>false</Private>
-      <ExcludeAssets>runtime</ExcludeAssets>
-    </PackageReference>
   </ItemGroup>
   <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(PluginOutDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)plugin.json" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(ProjectDir)LoadingAI_Opening_Horizontal_Rectangle.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)LoadingAI_Opening_Horizontal_Rectangle.rfa')" />
-    <Copy SourceFiles="$(ProjectDir)LoadingAI_Opening_Horizontal_Circle.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)LoadingAI_Opening_Horizontal_Circle.rfa')" />
-    <Copy SourceFiles="$(ProjectDir)LoadingAI_Opening_Vertical_Rectangle.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)LoadingAI_Opening_Vertical_Rectangle.rfa')" />
-    <Copy SourceFiles="$(ProjectDir)LoadingAI_Opening_Vertical_Circle.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)LoadingAI_Opening_Vertical_Circle.rfa')" />
+    <Copy SourceFiles="$(ProjectDir)*.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
     <Message Text="Copied opening-tools plugin to $(PluginOutDir)" Importance="high" />
   </Target>

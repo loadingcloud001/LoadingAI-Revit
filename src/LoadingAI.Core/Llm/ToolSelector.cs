@@ -2,56 +2,225 @@ namespace LoadingAI.Llm;
 
 public static class ToolSelector
 {
-    public const int DefaultMax = 20;
+    public const int DefaultMax = 24;
 
     private static readonly HashSet<string> AlwaysKeep = new(StringComparer.OrdinalIgnoreCase)
     {
-        "get_model_summary", "find_elements_by_filter", "get_wall_metrics",
-        "get_active_view_info", "get_element_details", "get_quantities",
-        "get_levels_and_grids", "quantity_takeoff_by_category",
-        "hide_in_view", "isolate_in_view", "reset_temporary_view",
-        "get_visible_elements_in_view", "get_selection_summary",
-        "get_warnings", "delete_elements", "move_elements", "save_document",
-        "create_wall", "set_comments_on_selection",
-        "get_rooms", "get_sheets_views", "color_by_parameter",
-        "create_openings_from_clash", "cut_hosts_by_openings"
+        "get_model_summary", "get_selection_summary", "get_element_details"
     };
 
-    private static readonly (string Needle, string Token)[] Aliases =
+    private static readonly HashSet<string> Preferred = new(StringComparer.OrdinalIgnoreCase)
     {
-        ("刪", "delete"), ("删", "delete"), ("移除", "delete"),
-        ("移動", "move"), ("移动", "move"), ("移 ", "move"),
-        ("存檔", "save"), ("存档", "save"),
-        ("建牆", "wall"), ("建墙", "wall"),
-        ("警告", "warning"),
-        ("隔離", "isolate"), ("隔离", "isolate"),
-        ("房間", "room"), ("房间", "room"),
-        ("圖紙", "sheet"), ("图纸", "sheet"),
-        ("上色", "color"), ("顏色", "color"), ("颜色", "color"),
-        ("開口", "opening"), ("开洞", "opening"), ("開洞", "opening"),
-        ("切洞", "cut"), ("切牆", "cut"), ("切墙", "cut"),
+        "get_wall_metrics", "get_quantities", "get_levels_and_grids",
+        "quantity_takeoff_by_category", "get_warnings", "create_wall",
+        "set_comments_on_selection", "get_rooms", "get_sheets_views",
+        "color_by_parameter"
     };
 
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
+        => Select(tools, userText, null, max);
+
+    public static List<ToolDefinition> Select(
+        IEnumerable<LoadingAI.Tools.ToolEntry> entries,
+        string userText,
+        int max = DefaultMax)
+    {
+        var list = entries as IList<LoadingAI.Tools.ToolEntry> ?? entries.ToList();
+        var defs = list.Select(e => e.Definition).ToList();
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in list)
+        {
+            var name = e.Definition.Function.Name ?? "";
+            if (name.Length == 0 || e.Tags.Count == 0 || map.ContainsKey(name)) continue;
+            map[name] = e.Tags;
+        }
+        return Select(defs, userText, map, max);
+    }
+
+    public static List<ToolDefinition> Select(
+        IReadOnlyList<ToolDefinition> tools,
+        string userText,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? tagMap,
+        int max = DefaultMax)
     {
         if (tools.Count <= max) return tools.ToList();
         var lower = (userText ?? "").ToLowerInvariant();
-        var ranked = tools
-            .Select(t => (Tool: t, Score: Score(t, lower)))
+        var active = ActiveTags(lower);
+        var guaranteed = tools.Where(t => AlwaysKeep.Contains(t.Function.Name ?? "")).ToList();
+        var remainingSlots = Math.Max(0, max - guaranteed.Count);
+        var fill = tools
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? ""))
+            .Select(t => (Tool: t, Score: Score(t, lower, TagsFor(t.Function.Name, tagMap), active)))
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Tool.Function.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(max)
-            .Select(x => x.Tool)
+            .Take(remainingSlots)
+            .Select(x => x.Tool);
+        return guaranteed.Concat(fill).ToList();
+    }
+
+    /// <summary>
+    /// Re-score dropped catalog tools against later-round text and swap the lowest
+    /// non-AlwaysKeep slots. Size stays &lt;= <paramref name="max"/>. Does not raise the cap.
+    /// Empty later text returns <paramref name="current"/> unchanged.
+    /// </summary>
+    public static List<ToolDefinition> Recall(
+        IEnumerable<LoadingAI.Tools.ToolEntry> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        int max = DefaultMax)
+    {
+        var list = catalog as IList<LoadingAI.Tools.ToolEntry> ?? catalog.ToList();
+        var defs = list.Select(e => e.Definition).ToList();
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in list)
+        {
+            var name = e.Definition.Function.Name ?? "";
+            if (name.Length == 0 || e.Tags.Count == 0 || map.ContainsKey(name)) continue;
+            map[name] = e.Tags;
+        }
+        return Recall(defs, current, laterText, map, max);
+    }
+
+    public static List<ToolDefinition> Recall(
+        IReadOnlyList<ToolDefinition> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        int max = DefaultMax)
+        => Recall(catalog, current, laterText, null, max);
+
+    public static List<ToolDefinition> Recall(
+        IReadOnlyList<ToolDefinition> catalog,
+        IReadOnlyList<ToolDefinition> current,
+        string laterText,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? tagMap,
+        int max = DefaultMax)
+    {
+        if (current == null || current.Count == 0)
+            return Select(catalog, laterText ?? "", tagMap, max);
+        if (string.IsNullOrWhiteSpace(laterText))
+            return current.ToList();
+        if (catalog.Count <= max)
+            return catalog.ToList();
+
+        var later = laterText.ToLowerInvariant();
+        var active = ActiveTags(later);
+        int Later(ToolDefinition t)
+            => Score(t, later, TagsFor(t.Function.Name, tagMap), active, includeBase: false);
+
+        var currentNames = new HashSet<string>(
+            current.Select(t => t.Function.Name ?? ""),
+            StringComparer.OrdinalIgnoreCase);
+        var guaranteed = catalog.Where(t => AlwaysKeep.Contains(t.Function.Name ?? "")).ToList();
+        var remainingSlots = Math.Max(0, max - guaranteed.Count);
+        var fill = current
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? ""))
             .ToList();
-        return ranked;
+        if (fill.Count > remainingSlots)
+        {
+            fill = fill
+                .OrderByDescending(Later)
+                .ThenBy(t => t.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(remainingSlots)
+                .ToList();
+        }
+
+        var incoming = catalog
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? "") && !currentNames.Contains(t.Function.Name ?? ""))
+            .Select(t => (Tool: t, Score: Later(t)))
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Tool.Function.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var cand in incoming)
+        {
+            if (fill.Count < remainingSlots)
+            {
+                fill.Add(cand.Tool);
+                continue;
+            }
+            if (fill.Count == 0) break;
+            var victim = fill
+                .Select(t => (Tool: t, Score: Later(t)))
+                .OrderBy(x => x.Score)
+                .ThenByDescending(x => x.Tool.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .First();
+            if (cand.Score <= victim.Score) break;
+            fill.RemoveAll(t => string.Equals(t.Function.Name, victim.Tool.Function.Name, StringComparison.OrdinalIgnoreCase));
+            fill.Add(cand.Tool);
+        }
+
+        if (fill.Count > remainingSlots)
+        {
+            fill = fill
+                .OrderByDescending(Later)
+                .ThenBy(t => t.Function.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(remainingSlots)
+                .ToList();
+        }
+        return guaranteed.Concat(fill).ToList();
     }
 
     public static int Score(ToolDefinition t, string lowerUser)
+        => Score(t, lowerUser, InferTags(t.Function.Name), ActiveTags(lowerUser));
+
+    public static IReadOnlyList<string> InferTags(string? name)
+    {
+        var n = (name ?? "").ToLowerInvariant();
+        if (n.Length == 0) return Array.Empty<string>();
+        var tags = new List<string>();
+        if (n.StartsWith("get_", StringComparison.Ordinal)
+            || n.StartsWith("find_", StringComparison.Ordinal)
+            || n.StartsWith("audit_", StringComparison.Ordinal)
+            || n == "sync_info"
+            || n.Contains("takeoff")
+            || n == "hello")
+            tags.Add("query");
+        if (n.Contains("view") || n.Contains("color") || n.Contains("isolate") || n.Contains("hide")
+            || n.Contains("crop") || n.Contains("template") || n.Contains("sheet") || n.Contains("schedule")
+            || n.Contains("tag_all") || n.Contains("dimension") || n.Contains("path_of_travel"))
+            tags.Add("view");
+        if (n.StartsWith("export_", StringComparison.Ordinal) || n == "purge_unused")
+            tags.Add("export");
+        if (n.Contains("split_beams") || n.Contains("split_floors") || n.Contains("formwork") || n.Contains("structure"))
+            tags.Add("structure");
+        if (n.StartsWith("set_", StringComparison.Ordinal) || n.StartsWith("batch_", StringComparison.Ordinal)
+            || n.StartsWith("create_", StringComparison.Ordinal) || n.StartsWith("move_", StringComparison.Ordinal)
+            || n.StartsWith("delete_", StringComparison.Ordinal) || n.StartsWith("save_", StringComparison.Ordinal)
+            || n.StartsWith("rename_", StringComparison.Ordinal) || n.StartsWith("apply_", StringComparison.Ordinal)
+            || n.StartsWith("duplicate_", StringComparison.Ordinal) || n.StartsWith("rotate_", StringComparison.Ordinal)
+            || n.StartsWith("mirror_", StringComparison.Ordinal) || n.StartsWith("split_", StringComparison.Ordinal)
+            || n.StartsWith("join_", StringComparison.Ordinal) || n.StartsWith("import_", StringComparison.Ordinal)
+            || n.StartsWith("copy_", StringComparison.Ordinal) || n.StartsWith("replace_", StringComparison.Ordinal)
+            || n.StartsWith("numbering_", StringComparison.Ordinal) || n.StartsWith("load_", StringComparison.Ordinal)
+            || n.StartsWith("change_", StringComparison.Ordinal) || n.StartsWith("workset_", StringComparison.Ordinal)
+            || n.StartsWith("reload_", StringComparison.Ordinal) || n.StartsWith("override_", StringComparison.Ordinal)
+            || n.StartsWith("color_by", StringComparison.Ordinal) || n.StartsWith("isolate_", StringComparison.Ordinal)
+            || n.StartsWith("hide_", StringComparison.Ordinal)
+            || n == "purge_unused" || n == "cleanup_formwork" || n == "place_view_on_sheet"
+            || n == "tag_all" || n == "path_of_travel" || n == "formwork_setup"
+            || n == "reset_temporary_view")
+            tags.Add("write");
+        if (n.Contains("excel") || n.Contains("workset") || n.Contains("clash")
+            || n.Contains("numbering") || n.Contains("replace_text") || n.Contains("copy_params")
+            || n.Contains("join_geometry") || n.Contains("design_option")
+            || n.Contains("family_instance_array"))
+            tags.Add("compat");
+        return tags.Count == 0 ? Array.Empty<string>() : tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static int Score(ToolDefinition t, string lowerUser, IReadOnlyList<string> tags, HashSet<string> activeTags, bool includeBase = true)
     {
         var n = (t.Function.Name ?? "").ToLowerInvariant();
         var d = (t.Function.Description ?? "").ToLowerInvariant();
         int score = 0;
-        if (AlwaysKeep.Contains(n)) score += 100;
+        if (includeBase)
+        {
+            if (AlwaysKeep.Contains(n)) score += 100;
+            if (Preferred.Contains(n)) score += 40;
+        }
+        if (activeTags.Count > 0 && tags.Count > 0 && tags.Any(tag => activeTags.Contains(tag)))
+            score += 50;
         if (!string.IsNullOrEmpty(lowerUser) && lowerUser.Contains(n)) score += 80;
         var tokens = n.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (var tok in tokens)
@@ -66,15 +235,41 @@ public static class ToolSelector
             if (n.Contains(kw)) score += 15;
             else if (d.Contains(kw)) score += 8;
         }
-        foreach (var (needle, token) in Aliases)
-        {
-            if (!lowerUser.Contains(needle.ToLowerInvariant()) && !lowerUser.Contains(needle)) continue;
-            if (n.Contains(token) || d.Contains(token)) score += 40;
-        }
-        // "移 300" / "往 Y 移" — single 移 is too short for Keywords
-        if ((lowerUser.Contains("移") || lowerUser.Contains("move")) && (n.Contains("move") || d.Contains("move")))
-            score += 40;
         return score;
+    }
+
+    private static IReadOnlyList<string> TagsFor(string? name, IReadOnlyDictionary<string, IReadOnlyList<string>>? tagMap)
+    {
+        if (!string.IsNullOrEmpty(name) && tagMap != null && tagMap.TryGetValue(name!, out var declared) && declared.Count > 0)
+            return declared;
+        return InferTags(name);
+    }
+
+    private static HashSet<string> ActiveTags(string lower)
+    {
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (ContainsAny(lower, "summary", "detail", "rooms", "list ", "how many", "what ", "count", "warning", "quantity", "takeoff", "selection"))
+            tags.Add("query");
+        if (ContainsAny(lower, "view", "isolate", "hide", "color", "sheet", "schedule", "crop", "template", "3d", "section", "tag "))
+            tags.Add("view");
+        if (ContainsAny(lower, "delete", "move", "create", "save", "rename", "rotate", "mirror", "join", "import", "set ", "load "))
+            tags.Add("write");
+        if (ContainsAny(lower, "export", "pdf", "dwg", "ifc", "purge", "excel", "csv"))
+            tags.Add("export");
+        if (ContainsAny(lower, "split", "beam", "column", "slab", "formwork", "structure", "panel"))
+            tags.Add("structure");
+        if (ContainsAny(lower, "excel", "workset", "clash", "compat"))
+            tags.Add("compat");
+        return tags;
+    }
+
+    private static bool ContainsAny(string lower, params string[] needles)
+    {
+        foreach (var n in needles)
+        {
+            if (lower.Contains(n)) return true;
+        }
+        return false;
     }
 
     private static readonly string[] Keywords =
@@ -85,6 +280,7 @@ public static class ToolSelector
         "schedule","tag","dimension","crop","template","comment","delete","move","hide","isolate",
         "link","rvt","revit","cad","dwg","pdf","family","type","instance","selection","element",
         "category","visible","active","temporary","override","reset","save","warning",
-        "opening","cut","clash","void"
+        "formwork","split","beam","column","slab","opening","rebar","panel","structure",
+        "storey","story"
     };
 }

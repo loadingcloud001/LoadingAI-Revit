@@ -51,7 +51,7 @@ if (-not (Test-Path (Join-Path $Web "index.html"))) {
 }
 Copy-Item $Web (Join-Path $Stage "LoadingAI\Web\dist") -Recurse
 
-foreach ($p in @("export-tools", "view-tools", "modeling-tools", "opening-tools")) {
+foreach ($p in @("core-tools", "export-tools", "view-tools", "modeling-tools", "structure-cuts", "qs-formwork", "opening-tools")) {
     $pluginRoot = Join-Path $Root "Plugins\$p"
     $bin = Join-Path $pluginRoot "bin\$Configuration"
     $dll = Get-ChildItem $bin -Filter "LoadingAI.Plugins.*.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -60,8 +60,14 @@ foreach ($p in @("export-tools", "view-tools", "modeling-tools", "opening-tools"
     New-Item -ItemType Directory -Path $dest | Out-Null
     Copy-Item $dll.FullName $dest
     Copy-Item (Join-Path $pluginRoot "plugin.json") $dest
-    Get-ChildItem $pluginRoot -Filter *.rfa -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $dest }
+    Get-ChildItem $pluginRoot -Filter "*.rfa" -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName $dest }
 }
+
+# Host pack uses SkipHostPluginBuild, so RecordShippedHashes did not run.
+# Hash staged plugin DLLs into the add-in folder or a zip install fail-closes on shipped tools.
+$stagedDlls = @(Get-ChildItem (Join-Path $Stage "Plugins") -Recurse -Filter "LoadingAI.Plugins.*.dll" | Select-Object -ExpandProperty FullName)
+if ($stagedDlls.Count -lt 7) { throw "Expected 7 staged plugin DLLs for plugin-shipped-hashes.json, got $($stagedDlls.Count)" }
+& (Join-Path $PSScriptRoot "record-shipped-plugin-hashes.ps1") -OutPath (Join-Path $Stage "LoadingAI\plugin-shipped-hashes.json") -Dlls $stagedDlls
 
 $install = @"
 # LoadingAI for Revit — install into %AppData% (no admin).

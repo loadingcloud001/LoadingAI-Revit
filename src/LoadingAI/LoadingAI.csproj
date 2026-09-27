@@ -37,6 +37,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\core-tools\CoreToolsPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\core-tools\LoadingAI.Plugins.CoreTools.dll</Dll>
+    </ShippedPlugin>
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\export-tools\ExportToolsPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\export-tools\LoadingAI.Plugins.ExportTools.dll</Dll>
     </ShippedPlugin>
@@ -45,6 +48,12 @@
     </ShippedPlugin>
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\modeling-tools\ModelingToolsPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\modeling-tools\LoadingAI.Plugins.ModelingTools.dll</Dll>
+    </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\structure-cuts\StructureCutsPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\structure-cuts\LoadingAI.Plugins.StructureCuts.dll</Dll>
+    </ShippedPlugin>
+    <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\qs-formwork\QsFormworkPlugin.csproj">
+      <Dll>$(AppData)\LoadingAI\Plugins\qs-formwork\LoadingAI.Plugins.QsFormwork.dll</Dll>
     </ShippedPlugin>
     <ShippedPlugin Include="$(MSBuildThisFileDirectory)..\..\Plugins\opening-tools\OpeningToolsPlugin.csproj">
       <Dll>$(AppData)\LoadingAI\Plugins\opening-tools\LoadingAI.Plugins.OpeningTools.dll</Dll>
@@ -59,6 +68,16 @@
     <Error Condition="'@(_MissingPlugin)' != ''" Text="Shipped plugin was not deployed: @(_MissingPlugin->'%(Dll)')" />
   </Target>
 
+  <!-- One host copy-after target: SHA-256 of the seven CopyPlugin DLLs next to LoadingAI.dll.
+       Empty AppData plugin-allowlist.json must not lock these out. SkipHostPluginBuild skips this. -->
+  <Target Name="RecordShippedHashes" AfterTargets="BuildShippedPlugins" BeforeTargets="CopyAddin" Condition="'$(SkipHostPluginBuild)' != 'true'">
+    <PropertyGroup>
+      <_RecordHashesScript>$(MSBuildThisFileDirectory)..\..\scripts\record-shipped-plugin-hashes.ps1</_RecordHashesScript>
+      <_ShippedHashesPath>$(TargetDir)plugin-shipped-hashes.json</_ShippedHashesPath>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RecordHashesScript)&quot; -OutPath &quot;$(_ShippedHashesPath)&quot; @(ShippedPlugin->'-Dlls &quot;%(Dll)&quot;', ' ')" />
+  </Target>
+
   <Target Name="CopyAddin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">
     <MakeDir Directories="$(RevitAddinDir)" />
     <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" />
@@ -66,6 +85,7 @@
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).deps.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).deps.json')" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\LoadingAI.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(TargetDir)plugin-shipped-hashes.json" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)plugin-shipped-hashes.json')" />
     <!-- copy all runtime deps (Toolkit etc) -->
     <ItemGroup>
       <_Deps Include="$(TargetDir)*.dll" Exclude="$(TargetDir)$(AssemblyName).dll;$(TargetDir)RevitAPI.dll;$(TargetDir)RevitAPIUI.dll" />
@@ -77,6 +97,17 @@
     </PropertyGroup>
     <Copy SourceFiles="$(_WebView2Loader)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" Condition="'$(_WebView2Loader)' != ''" />
     <Message Text="Copied $(TargetPath) + deps + .addin to $(RevitAddinDir) and Addins\$(RevitVersion)\" Importance="high" />
+  </Target>
+
+  <!-- Per-user Always Load + Authenticode on the AppData DLL so Revit does not
+       re-prompt after CopyAddin. Off in CI (SkipCopyAddin). Opt out locally
+       with -p:SkipTrustAddin=true. Script never writes HKLM or a machine path. -->
+  <Target Name="TrustAddin" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true' And '$(SkipTrustAddin)' != 'true'">
+    <PropertyGroup>
+      <_TrustScript>$(MSBuildThisFileDirectory)..\..\scripts\trust-addin.ps1</_TrustScript>
+    </PropertyGroup>
+    <!-- pwsh (7+): Windows PowerShell 5.1 often has no Cert: drive. CI never hits this. -->
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(_TrustScript)&quot; -RevitVersion $(RevitVersion) -DllPath &quot;$(RevitAddinDir)$(AssemblyName).dll&quot;" IgnoreExitCode="true" />
   </Target>
 
   <Target Name="CopyWeb" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true' And Exists('$(MSBuildProjectDirectory)\Web\dist\index.html')">

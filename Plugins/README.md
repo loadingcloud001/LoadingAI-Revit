@@ -2,8 +2,10 @@
 
 This folder documents the runtime plugin directory, not the repo source.
 
-Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll`
-Dev location (optional, copied on build if exists): `src/LoadingAI/Plugins/dev/<pluginId>/`
+Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll` — hash-gated, see **Load gate** below.
+Dev location: `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Not hash-gated. Create the folder and copy the plugin into it by hand; no build step does that, and a plugin put anywhere else under `Addins\<year>\` is never scanned.
+
+Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach Confirm L3. Put the plugin in `LoadingAI\Plugins\dev` beside the installed `LoadingAI.dll`, or record its SHA-256 in the AppData allowlist. A trust-prompt flow for drop-ins is stage 2 and is not implemented yet.
 
 Each plugin folder example:
 
@@ -31,14 +33,38 @@ Plugins/hello/
 ```
 
 - `verified:true` = merged via PR and reviewed.
-- `verified:false` = local drop, shown in **Settings** as unverified.
+- `verified:false` = built outside the repo, shown in **Settings** as unverified. Display-only: this field is **not** the load gate, the DLL hash is. `"verified":true` on an unknown hash still refuses to load.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggle in Web requires no restart, adding/removing DLL requires restart (AppDomain lock).
-- csproj must ProjectReference `LoadingAI.Core` (and `LoadingAI.RevitUtil` if FullAccess). Never reference the host `LoadingAI.csproj`.
+- csproj must ProjectReference `LoadingAI.Core` — and nothing else. Never reference the host `LoadingAI.csproj`, `LoadingAI.RevitUtil`, or the Nice3point RevitAPI packages (no shipped plugin does).
 
 See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/` for a minimal Bridge-only example.
 
+Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. Confirm merges form values over AI args; L3 still shows the native TaskDialog.
+
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
-- `Plugins/export-tools/` — `export_pdf`, `export_dwg`, `export_ifc`, `purge_unused`
-- `Plugins/view-tools/` — `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
-- `Plugins/modeling-tools/` — `load_family`, `change_element_type`, `create_topography`
-- `Plugins/opening-tools/` — `create_openings_from_clash`, `cut_hosts_by_openings`
+- `Plugins/core-tools/` — Bridge-only query/view/param/geometry/document (L3 off by default)
+- `Plugins/export-tools/` — Bridge-only `export_pdf`, `export_dwg`, `export_ifc` (L1), `purge_unused` (L3)
+- `Plugins/view-tools/` — Bridge-only `create_schedule`, `get_schedule_data`, `create_floor_plan`, `create_3d_view`, `create_section_view`, `path_of_travel`
+- `Plugins/modeling-tools/` — Bridge-only `load_family`, `change_element_type`, `create_topography`
+- `Plugins/structure-cuts/` — Bridge-only `split_beams_by_columns`, `split_floors_by_beams`, `split_by_levels`, `split_by_grids` (2.0.1; L3 default off). Hosts are collected host-side from `scope=selection|visible|all`, so chat never has to paste hundreds of ids; `IRevitQuery.CollectHostsAsync` exposes the same page to callers that want it directly. See **structure-cuts** below and `Plugins/structure-cuts/README.md`.
+- `Plugins/qs-formwork/` — Bridge-only `formwork_setup`, `create_formwork_panels`, `cleanup_formwork`, `copy_formwork_parent_params` (L3 default off). Panel geometry is generated host-side (`IRevitCreateCommand.Formwork*Async`) with the algorithms in `src/LoadingAI/Revit/Formwork/`, so chat passes ids + millimetres, not a `Document`. See `Plugins/qs-formwork/README.md`.
+- `Plugins/opening-tools/` — Bridge-only `create_openings_from_clash`, `cut_hosts_by_openings` (1.0.0; L3 default off). Place and punch voids where linked or local MEP solid-intersects a selected wall, floor, beam, column, or roof. Nearby same-host hits combine when leftover web cannot act as a pier; stay separate if the remaining edge is too thin or the envelope exceeds two-thirds of the host length. Warn if combined width exceeds 700 mm. Four `.rfa` ship next to the plugin and load on the host. A section box is not a host. Linked hosts are skipped on the repair cut. `dryRun` counts only. See ADR-0012.
+
+## structure-cuts
+
+| Preset | Kind | Default | Effect |
+|---|---|---|---|
+| beams / floors / columns / elements / levels / grids | PickElements | selection | empty pick uses `scope` (selection, visible, or all) |
+| `scope` | Select | selection | collect hosts from selection, the active view, or the whole model |
+| `continueFrom` | Number | 0 | skip this many matching hosts so a capped run can continue (`nextOffset`) |
+| `categories` | Select | all four | walls, columns, beams, floors (Naviate-style tools only) |
+| `limit` | Number | 50 | caps how many input elements one run touches (clamped 1–200) |
+| `dryRun` | Boolean | off | counts splits/openings without touching the model; the host skips the L3 write Confirm for it |
+| `uniqueMark` | Boolean | off | keeps the original Mark on the first piece and appends `-1`, `-2`, … to the rest (blank stays blank) |
+| `copyParams` | Boolean | on | copies the original's copyable instance parameters onto the pieces the re-creation fallback makes |
+
+- Every split tool runs in an outer transaction and puts each member back if it fails: each member gets its own sub-transaction, so one host that cannot be split leaves the others alone. A write run selects the new pieces; a dry run never opens a transaction. Empty host ids use `scope` instead of forcing chat to paste hundreds of ids; a capped run reports `nextOffset` for `continueFrom`.
+- `split_beams_by_columns` splits a member with Revit's own `FamilyInstance.Split` only when `CanNativeSplit` (unjoined line/arc, not grouped, not pinned). Grouped, pinned, joined, or non-line/arc members recreate the location curve instead — native Split on those is a Revit 2024–2027 process abort that SubTransaction cannot catch. Write transactions swallow warnings so one member does not abort the batch. `copyParams` only has work to do on the re-creation fallback. Cuts are taken highest first off the live location curve; endpoints are snapshotted before Split so the invalidated LocationCurve is never reused. A split that does not land where it was asked to is rolled back and that member is re-created piece by piece instead. The report says how many members each path handled and how many dependent elements the re-created ones carry.
+- Beam splitting uses the real column footprint (shadow on a horizontal plane, then face, base loop, bounding box) instead of the bounding box alone — hollow columns cut on their outer ring only, and round columns are tessellated. Curved beams are split along their own curve rather than across a single chord.
+- `split_floors_by_beams` only replaces floors it can rebuild: a shape edited slab, a slab with no upward planar face and a slab it cannot rebuild to match its slope are left untouched and counted under their own name — never re-created with wrong geometry. Existing floor openings are preserved, and a column footprint that falls outside the floor outline is skipped. Beam cut lines are clipped to the floor outline and nudged 1 mm past it so the cut always passes clean through.
+- A single-plane sloped slab keeps its slope: each piece is built in a horizontal plane at that piece's lowest point and the tilt is carried by a slope arrow, because Revit only accepts profile loops parallel to the XY plane. After a piece is built its own face is read back and compared with the original's, and a piece that does not match is thrown away with the original left as it was.

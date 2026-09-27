@@ -14,17 +14,20 @@ public class ToolCatalogContractTests
         Assert.DoesNotContain("Name = \"list_phases\"", src);
         Assert.Contains("Name = \"load_family\"", src);
         Assert.Contains("Name = \"change_element_type\"", src);
+        Assert.Contains("Name = \"create_topography\"", src);
+        Assert.DoesNotContain("IRevitFullAccess", src);
+        Assert.DoesNotContain("Autodesk.Revit", src);
     }
 
     [Fact]
     public void CoreKeepsCanonicalWriteTools()
     {
-        var param = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "ParamTools.cs"));
-        var geo = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Core", "GeometryTools.cs"));
-        var health = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "Compat", "QueryHealthTools.cs"));
+        var param = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "ParamTools.cs"));
+        var geo = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "GeometryTools.cs"));
+        var query = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "core-tools", "Core", "QueryTools.cs"));
         Assert.Contains("Name = \"set_parameter_by_id\"", param);
         Assert.Contains("Name = \"create_family_instance\"", geo);
-        Assert.Contains("Name=\"get_phases\"", health);
+        Assert.Contains("Name = \"get_phases\"", query);
     }
 
     [Fact]
@@ -32,11 +35,13 @@ public class ToolCatalogContractTests
     {
         foreach (var rel in new[]
         {
-            "src/LoadingAI/Tools/Core/QueryTools.cs",
-            "src/LoadingAI/Tools/Core/GeometryTools.cs",
-            "src/LoadingAI/Tools/Compat/GeometryCreateTools.cs",
+            "Plugins/core-tools/Core/QueryTools.cs",
+            "Plugins/core-tools/Core/GeometryTools.cs",
             "Plugins/view-tools/ViewToolsPlugin.cs",
             "Plugins/modeling-tools/ModelingToolsPlugin.cs",
+            "Plugins/structure-cuts/StructureCutsPlugin.cs",
+            "Plugins/qs-formwork/QsFormworkPlugin.cs",
+            "Plugins/opening-tools/OpeningToolsPlugin.cs",
         })
         {
             var src = File.ReadAllText(Path.Combine(RepoRoot(), rel.Replace('/', Path.DirectorySeparatorChar)));

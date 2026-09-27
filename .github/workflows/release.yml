@@ -40,16 +40,15 @@ jobs:
       - name: Restore
         run: dotnet restore LoadingAI.sln -p:RevitVersion=${{ matrix.revit }}
 
-      - name: Require default model key
-        env:
-          LOADINGAI_DEFAULT_KEY: ${{ secrets.LOADINGAI_DEFAULT_KEY }}
-        shell: pwsh
-        run: if (-not $env:LOADINGAI_DEFAULT_KEY) { throw 'LOADINGAI_DEFAULT_KEY is empty' }
-
       - name: Build
-        env:
-          LOADINGAI_DEFAULT_KEY: ${{ secrets.LOADINGAI_DEFAULT_KEY }}
         run: dotnet build LoadingAI.sln -c Release -p:RevitVersion=${{ matrix.revit }} --no-restore -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true -m:1
+
+      - name: Assert no upstream key is compiled in
+        shell: pwsh
+        run: |
+          if (Test-Path 'src/LoadingAI.Core/Llm/DefaultLlmKey.g.cs') {
+            throw 'DefaultLlmKey.g.cs must not exist in a release build — the upstream key belongs in the gateway secret.'
+          }
 
       - name: Pack zip
         shell: pwsh

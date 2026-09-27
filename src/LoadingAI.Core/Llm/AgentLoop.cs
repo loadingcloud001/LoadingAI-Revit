@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LoadingAI.Progress;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -28,8 +29,10 @@ public sealed class AgentLoop
     {
         _client = client;
         _registry = registry;
-        _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+        _history.Add(new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
     }
+
+    public string? EnvironmentWarnings { get; set; }
 
     public void ReplaceRegistry(ToolRegistry registry) => _registry = registry;
 
@@ -43,7 +46,7 @@ public sealed class AgentLoop
         lock (_historyLock)
         {
             _history.Clear();
-            _history.Add(new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+            _history.Add(new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
         }
         lock (_todoLock) _todos.Clear();
     }
@@ -57,7 +60,7 @@ public sealed class AgentLoop
             _history.Clear();
             _history.AddRange(messages);
             if (_history.Count == 0 || _history[0].Role != "system")
-                _history.Insert(0, new ChatMessage { Role = "system", Content = BaseSystemPrompt });
+                _history.Insert(0, new ChatMessage { Role = "system", Content = ComposeBasePrompt() });
         }
     }
 
@@ -97,6 +100,31 @@ public sealed class AgentLoop
         Action<string>? onDelta,
         Action<IReadOnlyList<TodoItem>>? onTodo,
         CancellationToken ct = default)
+        => await RunAsync(provider, userMsg, mode, toolExecutor, onTrace, onDelta, onTodo, null, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        Action<IReadOnlyList<TodoItem>>? onTodo,
+        Action<ProgressSnapshot>? onProgress,
+        CancellationToken ct = default)
+        => await RunAsync(provider, userMsg, mode, toolExecutor, onTrace, onDelta, onTodo, onProgress, null, ct);
+
+    public async Task<string> RunAsync(
+        ProviderConfig provider,
+        ChatMessage userMsg,
+        string? mode,
+        Func<string, string, Task<string>> toolExecutor,
+        Action<string> onTrace,
+        Action<string>? onDelta,
+        Action<IReadOnlyList<TodoItem>>? onTodo,
+        Action<ProgressSnapshot>? onProgress,
+        Action<string>? onReasoning,
+        CancellationToken ct = default)
     {
         lock (_historyLock)
         {
@@ -106,34 +134,36 @@ public sealed class AgentLoop
         var userTextForSelect = LlmJson.GetContentString(userMsg.Content);
         try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
-        var allTools = _registry.GetToolDefinitions();
+        IEnumerable<ToolEntry> catalogQuery = _registry.Entries;
         if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
-            var l1Names = new HashSet<string>(_registry.Entries
-                .Where(e => e.Tier == ToolTier.L1)
-                .Select(e => e.Definition.Function.Name), StringComparer.OrdinalIgnoreCase);
-            allTools = allTools.Where(t => l1Names.Contains(t.Function.Name)).ToList();
+            catalogQuery = catalogQuery.Where(e => e.Tier == ToolTier.L1);
         }
-        var selected = ToolSelector.Select(allTools, userTextForSelect);
-        var tools = selected.Count == 0 ? null : selected;
-        var sys = BuildSystemPrompt(selected);
-        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
-            sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
-        else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
-            sys = "ASK MODE — read-only: you may use L1 inspect tools to answer. Do not modify the model. Be concise.\n" + sys;
-        else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
-            sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
-        lock (_historyLock)
-        {
-            if (_history.Count > 0 && _history[0].Role == "system")
-                _history[0].Content = sys;
-        }
+        var catalog = catalogQuery as IList<ToolEntry> ?? catalogQuery.ToList();
+        var selected = ToolSelector.Select(catalog, userTextForSelect);
+        List<ToolDefinition>? tools = selected.Count == 0 ? null : selected;
+        ApplySystemPrompt(mode, selected);
 
         const int MaxRounds = 64;
+        void Report(ProgressSnapshot snap)
+        {
+            try { onProgress?.Invoke(snap); } catch { }
+        }
+
         for (int round = 0; round < MaxRounds; round++)
         {
             ct.ThrowIfCancellationRequested();
+            Report(ProgressSnapshot.Thinking(round + 1));
+
+            if (round > 0)
+            {
+                List<ChatMessage> recallSnap;
+                lock (_historyLock) recallSnap = new List<ChatMessage>(_history);
+                selected = ToolSelector.Recall(catalog, selected, ComposeRecallText(recallSnap));
+                tools = selected.Count == 0 ? null : selected;
+                ApplySystemPrompt(mode, selected);
+            }
 
             List<ChatMessage> snapshot;
             lock (_historyLock) snapshot = new List<ChatMessage>(_history);
@@ -141,7 +171,7 @@ public sealed class AgentLoop
             ChatCompletionResponse resp;
             try
             {
-                resp = await _client.ChatAsync(provider, snapshot, tools, onDelta, ct);
+                resp = await _client.ChatAsync(provider, snapshot, tools, onDelta, onReasoning, ct);
             }
             catch (OperationCanceledException)
             {
@@ -193,6 +223,11 @@ public sealed class AgentLoop
                 }
             }
 
+            var strippedContent = ThinkTagStripper.Strip(LlmJson.GetContentString(msgOut.Content));
+            msgOut.Content = strippedContent.Visible;
+            if (!string.IsNullOrEmpty(strippedContent.Reasoning))
+                try { onReasoning?.Invoke(strippedContent.Reasoning); } catch { }
+
             lock (_historyLock)
             {
                 _history.Add(new ChatMessage
@@ -205,7 +240,7 @@ public sealed class AgentLoop
 
             if (msgOut.ToolCalls == null || msgOut.ToolCalls.Count == 0)
             {
-                var text = LlmJson.GetContentString(msgOut.Content);
+                var text = strippedContent.Visible;
                 if (string.IsNullOrWhiteSpace(text) && choice?.FinishReason == "tool_calls")
                     text = "";
                 // if plan mode, try to create todos from text
@@ -238,8 +273,12 @@ public sealed class AgentLoop
                 }).ToList()
             });
 
+            var callTotal = msgOut.ToolCalls.Count;
+            var callIndex = 0;
             foreach (var tc in msgOut.ToolCalls)
             {
+                callIndex++;
+                Report(ProgressSnapshot.ForTool(tc.Function.Name, callIndex, callTotal));
                 string toolResult;
                 bool isError = false;
                 try
@@ -287,7 +326,63 @@ public sealed class AgentLoop
         return abort;
     }
 
-    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools)
+    private void ApplySystemPrompt(string? mode, IReadOnlyList<ToolDefinition> selected)
+    {
+        var sys = BuildSystemPrompt(selected, EnvironmentWarnings);
+        if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
+            sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
+        else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
+            sys = "ASK MODE — read-only: you may use L1 inspect tools to answer. Do not modify the model. Be concise.\n" + sys;
+        else if (string.Equals(mode, "build", StringComparison.OrdinalIgnoreCase))
+            sys = "BUILD MODE — you may use all tools (L1/L2/L3) to execute the task. Confirm destructive actions via tools.\n" + sys;
+        lock (_historyLock)
+        {
+            if (_history.Count > 0 && _history[0].Role == "system")
+                _history[0].Content = sys;
+        }
+    }
+
+    /// <summary>
+    /// Later-round hint for <see cref="ToolSelector.Recall"/>: user text plus recent tool names and results.
+    /// </summary>
+    public static string ComposeRecallText(IReadOnlyList<ChatMessage> history)
+    {
+        var parts = new List<string>();
+        var toolNames = new List<string>();
+        var toolSnips = new List<string>();
+        foreach (var m in history)
+        {
+            if (string.Equals(m.Role, "system", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                var text = LlmJson.GetContentString(m.Content);
+                if (!string.IsNullOrWhiteSpace(text)) parts.Add(text);
+            }
+            if (m.ToolCalls != null)
+            {
+                foreach (var tc in m.ToolCalls)
+                {
+                    var n = tc.Function?.Name;
+                    if (!string.IsNullOrWhiteSpace(n)) toolNames.Add(n!);
+                }
+            }
+            if (string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(m.Name)) toolNames.Add(m.Name!);
+                var body = LlmJson.GetContentString(m.Content);
+                if (!string.IsNullOrWhiteSpace(body))
+                    toolSnips.Add(body.Length > 240 ? body.Substring(0, 240) : body);
+            }
+        }
+        if (toolNames.Count > 4) toolNames = toolNames.Skip(toolNames.Count - 4).ToList();
+        if (toolSnips.Count > 2) toolSnips = toolSnips.Skip(toolSnips.Count - 2).ToList();
+        if (toolNames.Count > 0) parts.Add(string.Join(" ", toolNames));
+        parts.AddRange(toolSnips);
+        return string.Join("\n", parts);
+    }
+
+    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools, string? environmentWarnings = null)
     {
         var lines = tools.Select(t =>
         {
@@ -297,7 +392,17 @@ public sealed class AgentLoop
             else if (desc.Length > 160) desc = desc.Substring(0, 157) + "...";
             return $"- {t.Function.Name}: {desc}";
         });
-        return BaseSystemPrompt + "\n# Tools\n" + string.Join("\n", lines);
+        var prompt = BaseSystemPrompt + AppendWarnings(environmentWarnings) + "\n# Tools\n" + string.Join("\n", lines);
+        return prompt;
+    }
+
+    private string ComposeBasePrompt() => BaseSystemPrompt + AppendWarnings(EnvironmentWarnings);
+
+    private static string AppendWarnings(string? environmentWarnings)
+    {
+        if (string.IsNullOrWhiteSpace(environmentWarnings)) return "";
+        return "\nThese plugins failed to load: " + environmentWarnings.Trim() +
+               " — tell the user; do not claim the capability does not exist.";
     }
 
     private static bool IsJsonObjectOrArray(string? raw)
