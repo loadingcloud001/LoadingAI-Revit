@@ -28,7 +28,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Place and punch opening voids where linked or local MEP solid-intersects a selected wall, floor, beam, column, or roof. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier. Stay separate if the remaining edge is too thin or the envelope exceeds two-thirds of the host length. Warn if combined width exceeds 700 mm. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls, beams, columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors, roofs). Four .rfa next to the plugin; auto-loaded on the host. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Linked MEP is found against that host; query tools cannot see it. Result lists instance ids and XYZ; isolate those plus the host, not only the wall. dryRun counts only and does not write. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit (default 50, cap 200), dryRun.",
+                Description = "Create and cut openings where linked or local MEP solid-intersects a selected wall, floor, beam, column, or roof. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier. Stay separate if the remaining edge is too thin or the envelope exceeds two-thirds of the host length. Warn if combined width exceeds 700 mm. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls, beams, columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors, roofs). Four .rfa next to the plugin; auto-loaded on the host. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Linked MEP is found against that host; query tools cannot see it. Result lists instance ids and XYZ; isolate those plus the host, not only the wall. dryRun reports scope and counts with No model changes. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit (default 50, cap 200), dryRun.",
                 Parameters = new
                 {
                     type = "object",
@@ -77,15 +77,15 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             return plan == null
                 ? ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted)
                 : plan.Error == null
-                    ? ToolExecutionResult.Succeeded(plan.Report + " Dry run — no write.", ToolWriteCertainty.NoWrite)
-                    : ToolExecutionResult.Failed(JoinReport(plan.Error, plan.Report), ToolWriteCertainty.NoWrite);
+                    ? ToolExecutionResult.Succeeded(OpeningResultText.ForDryRun(plan), ToolWriteCertainty.NoWrite)
+                    : ToolExecutionResult.Failed(OpeningResultText.ForDryRun(plan), ToolWriteCertainty.NoWrite);
         }
 
         var placed = await context.Bridge.PlaceOpeningsAsync(request);
         if (placed == null)
             return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
 
-        var text = JoinReport(placed.Error, placed.Report);
+        var text = OpeningResultText.ForPlace(placed);
         var committed = placed.Placed > 0;
         if (placed.Placed > 0 && (placed.Failed > 0 || placed.Error != null))
             return ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, placed.Placed, placed.Failed);
@@ -107,7 +107,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "cut_hosts_by_openings",
-                Description = "Repair the cut of local hosts with opening voids after a family reload. Happy path is create_openings_from_clash (place and punch). Uses current selection, openings tagged to the selected wall, floor, or beam, or all plugin openings. Linked hosts are skipped, not cut. Params: openingIds, hostIds.",
+                Description = "Repair local host cuts after an opening family reload. Happy path is create_openings_from_clash (place and punch). Uses current selection, openings tagged to the selected wall, floor, or beam, or all plugin openings. Linked hosts are skipped, not cut. Params: openingIds, hostIds.",
                 Parameters = new
                 {
                     type = "object",
@@ -134,7 +134,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
         if (result == null)
             return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
 
-        var text = JoinReport(result.Error, result.Report);
+        var text = OpeningResultText.ForCut(result);
         var committed = result.Cut > 0;
         if (result.Cut > 0 && (result.Failed > 0 || result.Error != null))
             return ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, result.Cut, result.Failed);
@@ -146,13 +146,6 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             result.Cut,
             result.Failed);
     }
-
-    private static string JoinReport(string? error, string report)
-        => string.IsNullOrWhiteSpace(error)
-            ? report
-            : string.IsNullOrWhiteSpace(report)
-                ? error
-                : error + "\n" + report;
 
     private readonly struct Args
     {
@@ -218,4 +211,5 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
         }
     }
 }
+
 
