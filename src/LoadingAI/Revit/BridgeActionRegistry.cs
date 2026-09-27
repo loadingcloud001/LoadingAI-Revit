@@ -100,8 +100,10 @@ public sealed class BridgeActionRegistry
     public void MarkAbandoned(string id, string? error, DateTime? updatedUtc = null)
         => Update(id, updatedUtc, entry =>
         {
-            entry.State = BridgeActionState.Abandoned;
             entry.WasAbandoned = true;
+            if (IsTerminal(entry.State))
+                return;
+            entry.State = BridgeActionState.Abandoned;
             entry.Error = error;
         });
 
@@ -148,6 +150,9 @@ public sealed class BridgeActionRegistry
     {
         foreach (var pair in _entries.Where(p => IsTerminal(p.Value.State) && now - p.Value.UpdatedUtc > MaxAge).ToList())
             _entries.Remove(pair.Key);
+
+        while (_order.Count > 0 && !_entries.ContainsKey(_order.Peek()))
+            _order.Dequeue();
 
         if (_entries.Count <= MaxRecords)
             return;

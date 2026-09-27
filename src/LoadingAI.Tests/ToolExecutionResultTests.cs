@@ -17,6 +17,12 @@ public class ToolExecutionResultTests
         };
 
     [Fact]
+    public void NoWriteSuccessIsSafeForEarlierTurnWrites()
+    {
+        var result = ToolExecutionResult.Succeeded("nothing to change", ToolWriteCertainty.NoWrite);
+        Assert.True(result.IsSafeToAssimilate);
+    }
+    [Fact]
     public async Task LegacyReadHandlerIsSucceededNoWrite()
     {
         var entry = Entry(ToolTier.L1, _ => Task.FromResult("ok"));
@@ -112,6 +118,3 @@ public class ToolExecutionResultTests
         Assert.Contains("boom", result.Text);
     }
 }
-
-
-

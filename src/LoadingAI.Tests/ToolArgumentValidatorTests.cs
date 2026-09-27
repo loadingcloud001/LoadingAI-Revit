@@ -98,6 +98,15 @@ public class ToolArgumentValidatorTests
     }
 
     [Fact]
+    public void AcceptsAnyTypeDeclaredInTypeArray()
+    {
+        var schema = Schema("""{"type":"object","properties":{"value":{"type":["string","null"]}}}""");
+        Assert.True(ToolArgumentValidator.Validate(schema, """{"value":"text"}""", out _, out _));
+        Assert.True(ToolArgumentValidator.Validate(schema, """{"value":null}""", out _, out _));
+        Assert.False(ToolArgumentValidator.Validate(schema, """{"value":42}""", out _, out var error));
+        Assert.Equal("value: expected string, null.", error);
+    }
+    [Fact]
     public void AcceptsAnonymousSchemaObject()
     {
         object schema = new

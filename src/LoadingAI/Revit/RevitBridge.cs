@@ -113,7 +113,13 @@ public sealed class RevitBridge : IDisposable
         var raise = _externalEvent.Raise();
         if (raise == ExternalEventRequest.Denied || raise == ExternalEventRequest.TimedOut)
         {
-            _actions.TryCancelQueued(actionId, $"Revit ExternalEvent not accepted ({raise}).");
+            if (!_actions.TryCancelQueued(actionId, $"Revit ExternalEvent not accepted ({raise})."))
+            {
+                _actions.MarkAbandoned(actionId, $"Revit ExternalEvent rejected after the action started ({raise}).");
+                reg?.Dispose();
+                throw new BridgeOperationUnknownException(actionId, "Revit rejected the event after the operation may have started. Do not retry automatically.");
+            }
+
             reg?.Dispose();
             DebugLog.Write("bridge.raise_denied", new { raise = raise.ToString(), executing = _executing, actionId });
             throw new InvalidOperationException($"Revit ExternalEvent not accepted ({raise}). Close any open dialog and retry.");

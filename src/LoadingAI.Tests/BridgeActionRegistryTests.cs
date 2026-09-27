@@ -46,6 +46,20 @@ public class BridgeActionRegistryTests
     }
 
     [Fact]
+    public void LateAbandonDoesNotOverwriteCompletedOutcome()
+    {
+        var registry = new BridgeActionRegistry();
+        var id = registry.Begin();
+        registry.MarkRunning(id);
+        registry.MarkSucceeded(id);
+        registry.MarkAbandoned(id, "late cancellation");
+
+        var snapshot = registry.Get(id);
+        Assert.Equal(BridgeActionState.Succeeded, snapshot.State);
+        Assert.True(snapshot.WasAbandoned);
+        Assert.Null(snapshot.Error);
+    }
+    [Fact]
     public void CannotCancelActionThatStarted()
     {
         var registry = new BridgeActionRegistry();
@@ -94,4 +108,3 @@ public class BridgeActionRegistryTests
     }
 
 }
-

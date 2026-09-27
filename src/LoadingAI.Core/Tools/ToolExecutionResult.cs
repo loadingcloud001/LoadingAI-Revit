@@ -29,8 +29,8 @@ public sealed record ToolExecutionResult(
     int FailedCount = 0)
 {
     public bool IsSafeToAssimilate =>
-        (Status == ToolExecutionStatus.Succeeded || Status == ToolExecutionStatus.Partial)
-        && WriteCertainty == ToolWriteCertainty.Committed;
+        (Status == ToolExecutionStatus.Succeeded && WriteCertainty is ToolWriteCertainty.NoWrite or ToolWriteCertainty.Committed)
+        || (Status == ToolExecutionStatus.Partial && WriteCertainty == ToolWriteCertainty.Committed);
 
     public static ToolExecutionResult Succeeded(
         string text,

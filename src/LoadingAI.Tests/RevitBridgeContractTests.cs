@@ -98,6 +98,14 @@ public class RevitBridgeContractTests
     }
 
     [Fact]
+    public void RaiseDeniedWhenAlreadyRunning_ReportsUnknownOutcome()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "public Task RunAsync(Action<UIApplication> action");
+        Assert.Contains("if (!_actions.TryCancelQueued(actionId", runAsync);
+        Assert.Contains("throw new BridgeOperationUnknownException(actionId", runAsync);
+    }
+    [Fact]
     public void SameThreadExecutionAlsoRecordsActionOutcome()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));

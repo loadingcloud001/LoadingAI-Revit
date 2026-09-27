@@ -96,14 +96,12 @@ public static class ToolArgumentValidator
             return true;
 
         var expectedTypes = ReadTypes(schema);
-        foreach (var expected in expectedTypes)
+        if (expectedTypes.Count > 0 && !expectedTypes.Any(expected => MatchesType(value, expected)))
         {
-            if (!MatchesType(value, expected))
-            {
-                error = $"{PathLabel(path)}: expected {expected}.";
-                return false;
-            }
+            error = $"{PathLabel(path)}: expected {string.Join(", ", expectedTypes)}.";
+            return false;
         }
+
 
         if (schema.TryGetProperty("enum", out var enumValues) && enumValues.ValueKind == JsonValueKind.Array)
         {
