@@ -75,7 +75,7 @@
       <_RecordHashesScript>$(MSBuildThisFileDirectory)..\..\scripts\record-shipped-plugin-hashes.ps1</_RecordHashesScript>
       <_ShippedHashesPath>$(TargetDir)plugin-shipped-hashes.json</_ShippedHashesPath>
     </PropertyGroup>
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RecordHashesScript)&quot; -OutPath &quot;$(_ShippedHashesPath)&quot; @(ShippedPlugin->'-Dlls &quot;%(Dll)&quot;', ' ')" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RecordHashesScript)&quot; -OutPath &quot;$(_ShippedHashesPath)&quot; @(ShippedPlugin->'&quot;%(Dll)&quot;', ' ')" />
   </Target>
 
   <Target Name="CopyAddin" AfterTargets="Build" Condition="'$(SkipCopyAddin)' != 'true'">

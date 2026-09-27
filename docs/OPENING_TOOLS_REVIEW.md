@@ -50,4 +50,11 @@ PR #25 predates the Bridge-only architecture in ADR-0012. Current `main` already
 - Focused xUnit tests for input contracts, family-name contracts, structured Bridge outcome projection, and result formatting.
 - Full `src/LoadingAI.Tests` suite.
 - `npm ci` and `npm run build` in `web/`.
-- Revit 2024–2027 smoke testing remains a documented manual gate.
+- Revit 2027 live smoke testing is covered below; Revit 2024–2026 remain a runtime availability gate.
+
+## Runtime verification — 2026-09-28
+
+- Revit 2027.2 live smoke passed in `src/LoadingAI.RevitTests/OpeningToolsInRevitTests.cs`: shipped hash-gate discovery, dry-run planning, one real conduit/wall place-and-punch, and repair-cut after a removed void relationship.
+- The live write probes use `TransactionGroup.RollBack`; no fixture model changes persist.
+- Local host deployment now copies the four shipped `.rfa` files and records all seven shipped plugin hashes. `scripts/pack-addin.ps1 -SkipBuild` produced a zip containing the Opening Tools DLL, manifest, four families, and `plugin-shipped-hashes.json`.
+- Remaining gate: only Revit 2027 is installed locally. Revit 2024–2026 remain build/CI compatibility checks until those runtimes are available for the same live smoke.
