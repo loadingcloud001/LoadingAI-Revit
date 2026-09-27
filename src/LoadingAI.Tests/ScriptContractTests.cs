@@ -32,15 +32,19 @@ public class ScriptContractTests
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
-            psi.ArgumentList.Add("-NoProfile");
-            psi.ArgumentList.Add("-ExecutionPolicy");
-            psi.ArgumentList.Add("Bypass");
-            psi.ArgumentList.Add("-File");
-            psi.ArgumentList.Add(Path.Combine(root, "scripts", "record-shipped-plugin-hashes.ps1"));
-            psi.ArgumentList.Add("-OutPath");
-            psi.ArgumentList.Add(output);
-            psi.ArgumentList.Add(first);
-            psi.ArgumentList.Add(second);
+            var script = Path.Combine(root, "scripts", "record-shipped-plugin-hashes.ps1");
+            psi.Arguments = string.Join(" ", new[]
+            {
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                Quote(script),
+                "-OutPath",
+                Quote(output),
+                Quote(first),
+                Quote(second),
+            });
 
             using var process = Process.Start(psi)!;
             var stdout = process.StandardOutput.ReadToEnd();
@@ -58,8 +62,8 @@ public class ScriptContractTests
             Directory.Delete(temp, true);
         }
     }
-    [Fact]
 
+    [Fact]
     public void PackAddin_BuildsSerializedAndShipsLoader()
     {
         var ps1 = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "pack-addin.ps1"));
@@ -215,6 +219,9 @@ public class ScriptContractTests
             Assert.Contains("Condition=\"'$(SkipCopyAddin)' != 'true'\"", csproj);
         }
     }
+
+    private static string Quote(string value)
+        => "\"" + value.Replace("\"", "\\\"") + "\"";
 
     private static string RepoRoot()
     {
