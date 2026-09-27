@@ -124,4 +124,7 @@
     <EmbeddedResource Include="Resources\Ribbon16.png" LogicalName="LoadingAI.Resources.Ribbon16.png" />
   </ItemGroup>
 
+  <ItemGroup><InternalsVisibleTo Include="LoadingAI.Tests" /></ItemGroup>
 </Project>
+
+

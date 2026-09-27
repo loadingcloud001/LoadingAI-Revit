@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LoadingAI.Core.Openings;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Revit;
@@ -36,7 +37,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                         mepIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                         hostIds = new { type = "array", items = new { type = "string" }, description = "Wall, floor, beam, column, or roof ids. If omitted, current selection must include a host, MEP, or a Revit link." },
                         shape = new { type = "string", @enum = new[] { "rectangle", "circle", "auto" } },
-                        clearanceMm = new { type = "number", description = "Default 25." },
+                        clearanceMm = new { type = "number", minimum = 0, description = "Default 25." },
                         familyName = new { type = "string" },
                         levelName = new { type = "string" },
                         limit = new { type = "integer", minimum = 1, maximum = 200, description = "Default 50, hard cap 200." },
@@ -56,12 +57,16 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
         var limit = args.Int("limit", 50);
         if (limit < 1) limit = 50;
         if (limit > 200) limit = 200;
+        var familyName = args.Str("familyName");
+        if (!OpeningFamilyRules.IsAllowedFamilyName(familyName, out var familyError))
+            return ToolExecutionResult.Failed("Invalid arguments: " + familyError, ToolWriteCertainty.NotCommitted);
+
         var request = new OpeningClashRequestDto(
             args.Strings("mepIds"),
             args.Strings("hostIds"),
             args.Str("shape") ?? "auto",
             args.Dbl("clearanceMm", 25),
-            args.Str("familyName"),
+            familyName,
             args.Str("levelName"),
             limit,
             args.Bool("dryRun"));
@@ -213,3 +218,4 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
         }
     }
 }
+

@@ -1,5 +1,6 @@
 using System.IO;
 using Autodesk.Revit.DB;
+using LoadingAI.Core.Openings;
 
 namespace LoadingAI.Revit.Openings;
 
@@ -14,10 +15,7 @@ internal static class OpeningFamilyContract
     public const string LegacyFamilyName = "LoadingAI_Opening";
 
     public static bool IsPluginFamily(string? familyName)
-    {
-        if (string.IsNullOrWhiteSpace(familyName)) return false;
-        return familyName.StartsWith("LoadingAI_Opening", StringComparison.OrdinalIgnoreCase);
-    }
+        => OpeningFamilyRules.IsKnownPluginFamily(familyName);
 
     public static bool IsVerticalHost(Element host) => host is Floor || host is RoofBase;
 
@@ -65,6 +63,7 @@ internal static class OpeningFamilyContract
 
     public static FamilySymbol? Find(Document doc, string? familyName, string shape, Element? host)
     {
+        if (!OpeningFamilyRules.IsAllowedFamilyName(familyName, out _)) return null;
         var wanted = host != null
             ? FamilyNameFor(host, familyName, shape)
             : (string.IsNullOrWhiteSpace(familyName)
@@ -86,6 +85,7 @@ internal static class OpeningFamilyContract
     public static bool TryLoad(Document doc, string familyName)
     {
         if (FindNamed(doc, familyName, "") != null) return true;
+        if (!OpeningFamilyRules.IsSupportedAutoLoadFamily(familyName)) return false;
         var path = ResolveRfa(familyName);
         if (path == null) return false;
         try
@@ -104,6 +104,7 @@ internal static class OpeningFamilyContract
     /// </summary>
     static string? ResolveRfa(string familyName)
     {
+        if (!OpeningFamilyRules.IsSupportedAutoLoadFamily(familyName)) return null;
         var file = familyName + ".rfa";
         foreach (var dir in CandidateDirs())
         {
@@ -166,3 +167,5 @@ internal static class OpeningFamilyContract
                ?? named[0];
     }
 }
+
+

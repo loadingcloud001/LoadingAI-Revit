@@ -57,11 +57,20 @@ public sealed class ToolEntry
     public Func<string, Task<ToolExecutionResult>>? StructuredHandler { get; init; }
     public async Task<ToolExecutionResult> ExecuteAsync(string argsJson)
     {
+        if (!ToolArgumentValidator.Validate(
+                Definition.Function.Parameters,
+                argsJson,
+                out var normalizedJson,
+                out var validationError))
+            return ToolExecutionResult.Failed(
+                "Invalid arguments: " + validationError,
+                ToolWriteCertainty.NotCommitted);
+
         try
         {
             return StructuredHandler != null
-                ? await StructuredHandler(argsJson)
-                : ToolExecutionResult.FromLegacy(await Handler(argsJson), Tier);
+                ? await StructuredHandler(normalizedJson)
+                : ToolExecutionResult.FromLegacy(await Handler(normalizedJson), Tier);
         }
         catch (BridgeOperationUnknownException ex)
         {
@@ -84,3 +93,4 @@ public sealed class ToolEntry
     /// </summary>
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
 }
+

@@ -2,6 +2,7 @@ using System.Globalization;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
+using LoadingAI.Core.Openings;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -11,6 +12,9 @@ namespace LoadingAI.Revit.Openings;
 internal static class PlaceOpenings
 {
     internal static readonly TimeSpan ClashTimeout = TimeSpan.FromMinutes(10);
+
+    internal static List<ClashHit> FilterByLevel(IReadOnlyList<ClashHit> hits, ElementId? forcedLevelId)
+        => OpeningLevelFilter.FilterByKey(hits, h => h.LevelId.ToString(), forcedLevelId?.ToString());
 
     /// <summary>Probe plus combine. No transaction. Used by dryRun and by the plan slice.</summary>
     public static OpeningPlanResultDto Plan(
@@ -23,12 +27,16 @@ internal static class PlaceOpenings
         string? levelName,
         int limit)
     {
+        ElementId? forcedLevelId = null;
         if (!string.IsNullOrWhiteSpace(levelName))
         {
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
             var names = levels.Select(l => l.Name).ToList();
             var resolved = LevelNames.Resolve(levelName, names);
             if (resolved == null)
+                return new OpeningPlanResultDto(LevelNames.NotFound(levelName, names), 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
+            forcedLevelId = levels.FirstOrDefault(l => l.Name.Equals(resolved, StringComparison.OrdinalIgnoreCase))?.Id;
+            if (forcedLevelId == null)
                 return new OpeningPlanResultDto(LevelNames.NotFound(levelName, names), 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
         }
 
@@ -39,8 +47,9 @@ internal static class PlaceOpenings
             return new OpeningPlanResultDto("Please select MEP elements first.", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
 
         var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        hits = FilterByLevel(hits, forcedLevelId);
         if (hits.Count == 0)
-            return new OpeningPlanResultDto("No MEP-host clash found (bbox then solid intersect).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
+            return new OpeningPlanResultDto("No MEP-host clash found at the requested scope (bbox then solid intersect).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
         hits = OpeningCombine.Apply(doc, hits, out var combine);
         var planned = hits.Select(h => new OpeningPlanHitDto(
             h.HostId.ToString(),
@@ -84,8 +93,9 @@ internal static class PlaceOpenings
             return "Please select MEP elements first.";
 
         var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        hits = FilterByLevel(hits, forced?.Id);
         if (hits.Count == 0)
-            return "No MEP-host clash found (bbox then solid intersect).";
+            return "No MEP-host clash found at the requested scope (bbox then solid intersect).";
         hits = OpeningCombine.Apply(doc, hits, out var combine);
 
         var placed = 0;
@@ -343,7 +353,10 @@ internal static class PlaceOpenings
         {
             try { if (!fi.IsValidObject) continue; }
             catch { continue; }
-            if (!OpeningFamilyContract.IsPluginFamily(fi.Symbol?.FamilyName)) continue;
+            var familyName = fi.Symbol?.FamilyName;
+            var tagged = OpeningFamilyContract.Has(fi, "OP_SourceId")
+                || OpeningFamilyContract.Has(fi, "OP_HostId");
+            if (!OpeningFamilyContract.IsPluginFamily(familyName) && !tagged) continue;
             var key = OpeningFamilyContract.OpValue(fi, "OP_Key");
             if (!string.IsNullOrEmpty(key)) keys.Add(key);
             var src = OpeningFamilyContract.OpValue(fi, "OP_SourceId");
@@ -619,3 +632,6 @@ internal static class PlaceOpenings
         comments.Set(string.IsNullOrWhiteSpace(cur) ? bit : cur + "; " + bit);
     }
 }
+
+
+
