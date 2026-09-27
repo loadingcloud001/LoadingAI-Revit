@@ -32,10 +32,10 @@
 - Consumes: current `main` containing ADR-0012, safety control-plane, and structured tool results.
 - Produces: an updated `feat/opening-plugin` worktree based on current `main` with the existing PR identity preserved.
 
-- [ ] **Step 1:** Check out `feat/opening-plugin` and verify the working tree is clean.
-- [ ] **Step 2:** Merge current `main` into `feat/opening-plugin`; resolve conflicts in favor of Bridge-only plugin code while preserving Opening Tools fixes that remain relevant.
-- [ ] **Step 3:** Run `dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true`.
-- [ ] **Step 4:** Commit the branch refresh.
+- [x] **Step 1:** Check out `feat/opening-plugin` and verify the working tree is clean.
+- [x] **Step 2:** Merge current `main` into `feat/opening-plugin`; resolve conflicts in favor of Bridge-only plugin code while preserving Opening Tools fixes that remain relevant.
+- [x] **Step 3:** Run `dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true`.
+- [x] **Step 4:** Commit the branch refresh.
 
 ### Task 2: Enforce Opening Input and Scope Contracts
 
@@ -49,12 +49,12 @@
 - Consumes: `OpeningClashRequestDto`, `ToolArgumentValidator`, `LevelNames.Resolve`.
 - Produces: `OpeningFamilyContract.IsSupportedAutoLoadFamily(string)`, strict handler argument parsing, and plan/place level filtering.
 
-- [ ] **Step 1:** Add failing tests for malformed JSON, invalid shape/clearance/limit, unsafe family names, broad family matching, custom tagged openings, and dry-run/write level agreement.
-- [ ] **Step 2:** Run the focused test file and verify the expected failures.
-- [ ] **Step 3:** Implement strict handler parsing and narrow family contracts.
-- [ ] **Step 4:** Filter plan and place paths through the same resolved level scope.
-- [ ] **Step 5:** Run focused tests and the full suite.
-- [ ] **Step 6:** Commit input and scope hardening.
+- [x] **Step 1:** Add failing tests for malformed JSON, invalid shape/clearance/limit, unsafe family names, broad family matching, custom tagged openings, and dry-run/write level agreement.
+- [x] **Step 2:** Run the focused test file and verify the expected failures.
+- [x] **Step 3:** Implement strict handler parsing and narrow family contracts.
+- [x] **Step 4:** Filter plan and place paths through the same resolved level scope.
+- [x] **Step 5:** Run focused tests and the full suite.
+- [x] **Step 6:** Commit input and scope hardening.
 
 ### Task 3: Preserve Structured Opening Outcomes Across the Bridge
 
@@ -68,13 +68,13 @@
 - Consumes: existing `OpeningPlaceResultDto`, `OpeningPlanResultDto`, `OpeningCutResultDto`.
 - Produces: host-run methods returning those DTOs directly or through a dedicated host outcome record; no report regex projection.
 
-- [ ] **Step 1:** Add failing tests that placement and cut counts/ids are carried from structured execution outcomes and that no report-string projection is used.
-- [ ] **Step 2:** Run focused tests and verify failure.
-- [ ] **Step 3:** Make `PlaceOpenings.Run` and `CutLocal.Run` return structured outcomes.
-- [ ] **Step 4:** Map those outcomes in `AdapterRevitBridge`; remove `ProjectPlace` regex parsing.
-- [ ] **Step 5:** Preserve human-readable `Report` and `Error` fields.
-- [ ] **Step 6:** Run focused tests and the full suite.
-- [ ] **Step 7:** Commit structured outcome propagation.
+- [x] **Step 1:** Add failing tests that placement and cut counts/ids are carried from structured execution outcomes and that no report-string projection is used.
+- [x] **Step 2:** Run focused tests and verify failure.
+- [x] **Step 3:** Make `PlaceOpenings.Run` and `CutLocal.Run` return structured outcomes.
+- [x] **Step 4:** Map those outcomes in `AdapterRevitBridge`; remove `ProjectPlace` regex parsing.
+- [x] **Step 5:** Preserve human-readable `Report` and `Error` fields.
+- [x] **Step 6:** Run focused tests and the full suite.
+- [x] **Step 7:** Commit structured outcome propagation.
 
 ### Task 4: Improve Opening Tools UX Copy and Results
 
@@ -87,12 +87,12 @@
 - Consumes: `ToolExecutionResult`, structured opening DTOs.
 - Produces: concise tool descriptions and result summaries suitable for the existing ToolCard.
 
-- [ ] **Step 1:** Add failing tests for concise dry-run, success, partial, failure, and skip result formatting.
-- [ ] **Step 2:** Run focused tests and verify failure.
-- [ ] **Step 3:** Rewrite Opening Tools descriptions and result text with summary-first formatting.
-- [ ] **Step 4:** Keep full details available below the summary and preserve error text.
-- [ ] **Step 5:** Run focused tests and the full suite.
-- [ ] **Step 6:** Commit UX copy and result formatting.
+- [x] **Step 1:** Add failing tests for concise dry-run, success, partial, failure, and skip result formatting.
+- [x] **Step 2:** Run focused tests and verify failure.
+- [x] **Step 3:** Rewrite Opening Tools descriptions and result text with summary-first formatting.
+- [x] **Step 4:** Keep full details available below the summary and preserve error text.
+- [x] **Step 5:** Run focused tests and the full suite.
+- [x] **Step 6:** Commit UX copy and result formatting.
 
 ### Task 5: Verify and Prepare PR #25
 
@@ -104,8 +104,8 @@
 - Consumes: Tasks 1-4.
 - Produces: verified branch ready for PR update and merge request.
 
-- [ ] **Step 1:** Run the full xUnit suite.
-- [ ] **Step 2:** Run `npm ci` and `npm run build` in `web/`.
-- [ ] **Step 3:** Review the final diff for accidental shared Plugin Shelf or unrelated changes.
-- [ ] **Step 4:** Record remaining Revit 2024–2027 smoke-test limitations.
-- [ ] **Step 5:** Request code review, fix actionable findings, then ask the user before pushing and merging.
+- [x] **Step 1:** Run the full xUnit suite.
+- [x] **Step 2:** Run `npm ci` and `npm run build` in `web/`.
+- [x] **Step 3:** Review the final diff for accidental shared Plugin Shelf or unrelated changes.
+- [x] **Step 4:** Record remaining Revit 2024–2027 smoke-test limitations.
+- [x] **Step 5:** Request code review, fix actionable findings, then ask the user before pushing and merging.
