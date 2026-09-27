@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
+using LoadingAI.Core.Openings;
 using LoadingAI.Llm;
 using LoadingAI.Revit.Formwork;
 using LoadingAI.Revit.Openings;
@@ -3320,10 +3321,10 @@ public sealed class AdapterRevitBridge : IRevitBridge
                 }
                 try
                 {
-                    var report = PlaceOpenings.Run(
+                    var work = PlaceOpenings.Run(
                         doc, uidoc, request.MepIds, request.HostIds, request.Shape,
                         request.ClearanceMm, request.FamilyName, request.LevelName, request.Limit);
-                    return ProjectPlace(report);
+                    return OpeningOutcomeMapper.ToPlaceDto(work);
                 }
                 catch (Exception ex)
                 {
@@ -3343,8 +3344,8 @@ public sealed class AdapterRevitBridge : IRevitBridge
                     return new OpeningCutResultDto("Please open a model first.", 0, 0, 0, 0);
                 try
                 {
-                    var report = CutLocal.Run(doc, uidoc, request.OpeningIds, request.HostIds);
-                    return new OpeningCutResultDto(report, 0, 0, 0, 0);
+                    var work = CutLocal.Run(doc, uidoc, request.OpeningIds, request.HostIds);
+                    return OpeningOutcomeMapper.ToCutDto(work);
                 }
                 catch (Exception ex)
                 {
@@ -3353,19 +3354,6 @@ public sealed class AdapterRevitBridge : IRevitBridge
             },
             null,
             ct);
-
-    static OpeningPlaceResultDto ProjectPlace(string report)
-    {
-        var ids = new List<string>();
-        var points = new List<string>();
-        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-            report, @"(\d+)\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+) ft\)"))
-        {
-            ids.Add(m.Groups[1].Value);
-            points.Add($"{m.Groups[2].Value},{m.Groups[3].Value},{m.Groups[4].Value}");
-        }
-        return new OpeningPlaceResultDto(report, ids.Count, ids.Count, 0, 0, 0, ids, points);
-    }
 
     private async Task<TDto?> RunOpening<TDto>(
         Func<UIApplication, TDto> run,
@@ -3675,3 +3663,5 @@ public sealed class AdapterRevitBridge : IRevitBridge
         return new Color(255, 0, 0);
     }
 }
+
+

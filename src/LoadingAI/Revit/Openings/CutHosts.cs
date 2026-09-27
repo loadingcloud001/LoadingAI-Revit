@@ -1,5 +1,6 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using LoadingAI.Core.Openings;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Revit.Openings;
@@ -9,7 +10,7 @@ internal static class CutLocal
 {
     const string LinkedSkip = "host is linked — not cut";
 
-    public static string Run(
+    public static OpeningCutWorkResult Run(
         Document doc,
         UIDocument uidoc,
         IReadOnlyList<string> openingIds,
@@ -20,7 +21,7 @@ internal static class CutLocal
             openings = OpeningsForHosts(doc, Seeds(doc, uidoc, openingIds, hostIds));
         if (openings.Count == 0)
             openings = AllPluginOpenings(doc);
-        if (openings.Count == 0) return "Please select opening instances first.";
+        if (openings.Count == 0) return new OpeningCutWorkResult("Please select opening instances first.", 0, 0, 0, 0, "Please select opening instances first.");
         var hostsHint = ResolveHosts(doc, hostIds);
 
         var cut = 0;
@@ -71,12 +72,12 @@ internal static class CutLocal
         catch (Exception ex)
         {
             if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-            return "Failed: " + ex.Message;
+            return new OpeningCutWorkResult("Failed: " + ex.Message, 0, 0, 0, 0, ex.Message);
         }
 
         var msg = $"Cut {cut}. Skipped linked: {linked}. Skipped cannot-cut: {cannot}. Failed {failed}.";
         if (linked > 0) msg += " " + LinkedSkip;
-        return msg;
+        return new OpeningCutWorkResult(msg, cut, linked, cannot, failed);
     }
 
     /// <summary>
@@ -243,3 +244,4 @@ internal static class CutLocal
     static IEnumerable<Solid> Solids(Element el)
         => OpeningGeo.Solids(el, includeNonVisible: true); // IncludeNonVisibleObjects = true
 }
+

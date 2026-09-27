@@ -64,7 +64,7 @@ internal static class PlaceOpenings
             planned.Count, combine.Clusters, combine.Large, planned);
     }
 
-    public static string Run(
+    public static OpeningPlaceWorkResult Run(
         Document doc,
         UIDocument uidoc,
         IReadOnlyList<string> mepIds,
@@ -81,21 +81,21 @@ internal static class PlaceOpenings
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
             var names = levels.Select(l => l.Name).ToList();
             var resolved = LevelNames.Resolve(levelName, names);
-            if (resolved == null) return LevelNames.NotFound(levelName, names);
+            if (resolved == null) return NoWrite(LevelNames.NotFound(levelName, names), LevelNames.NotFound(levelName, names));
             forced = levels.FirstOrDefault(l => l.Name.Equals(resolved, StringComparison.OrdinalIgnoreCase));
-            if (forced == null) return LevelNames.NotFound(levelName, names);
+            if (forced == null) return NoWrite(LevelNames.NotFound(levelName, names), LevelNames.NotFound(levelName, names));
         }
 
         var scope = OpeningProbe.ScopeFail(doc, uidoc, mepIds, hostIds);
-        if (scope != null) return scope;
+        if (scope != null) return NoWrite(scope, scope);
 
         if (!OpeningProbe.AnyMep(doc, uidoc, mepIds, hostIds))
-            return "Please select MEP elements first.";
+            return NoWrite("Please select MEP elements first.", "Please select MEP elements first.");
 
         var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
         hits = FilterByLevel(hits, forced?.Id);
         if (hits.Count == 0)
-            return "No MEP-host clash found at the requested scope (bbox then solid intersect).";
+            return NoWrite("No MEP-host clash found at the requested scope (bbox then solid intersect).");
         hits = OpeningCombine.Apply(doc, hits, out var combine);
 
         var placed = 0;
@@ -103,6 +103,8 @@ internal static class PlaceOpenings
         var skipped = 0;
         var punched = 0;
         var placedAt = new List<string>();
+        var instanceIds = new List<string>();
+        var points = new List<string>();
         var pending = new List<Pending>();
         var placedKeys = new HashSet<string>(StringComparer.Ordinal);
         var placedSrcHost = new HashSet<string>(StringComparer.Ordinal);
@@ -115,7 +117,7 @@ internal static class PlaceOpenings
             if (loadFail != null)
             {
                 tx.RollBack();
-                return loadFail;
+                return NoWrite(loadFail, loadFail);
             }
             foreach (var hit in hits)
             {
@@ -181,7 +183,7 @@ internal static class PlaceOpenings
         catch (Exception ex)
         {
             if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-            return $"Failed: {ex.Message}";
+            return NoWrite($"Failed: {ex.Message}", ex.Message);
         }
 
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
@@ -201,9 +203,13 @@ internal static class PlaceOpenings
         var placeType = pending.Count > 0
             ? pending[0].Inst.Symbol?.Family.FamilyPlacementType.ToString() ?? "OneLevelBased"
             : "OneLevelBased";
-        return $"Placed {placed} opening(s) in the active document ({famLabel}, {placeType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}";
+        return new OpeningPlaceWorkResult(
+            $"Placed {placed} opening(s) in the active document ({famLabel}, {placeType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}",
+            placed, punched, failed, skipped, 0, instanceIds, points);
     }
 
+    static OpeningPlaceWorkResult NoWrite(string report, string? error = null)
+        => new(report, 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), error);
     struct Pending
     {
         public FamilyInstance Inst;
@@ -632,6 +638,8 @@ internal static class PlaceOpenings
         comments.Set(string.IsNullOrWhiteSpace(cur) ? bit : cur + "; " + bit);
     }
 }
+
+
 
 
 
