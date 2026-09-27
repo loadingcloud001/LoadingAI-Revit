@@ -307,6 +307,7 @@ public static class PluginLoader
             {
                 Definition = e.Definition,
                 Handler = e.Handler,
+                StructuredHandler = e.StructuredHandler,
                 RequiresWriteConfirm = e.RequiresWriteConfirm,
                 Tier = e.Tier,
                 Presets = e.Presets,

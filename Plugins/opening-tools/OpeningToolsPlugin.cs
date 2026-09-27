@@ -35,42 +35,63 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                     {
                         mepIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                         hostIds = new { type = "array", items = new { type = "string" }, description = "Wall, floor, beam, column, or roof ids. If omitted, current selection must include a host, MEP, or a Revit link." },
-                        shape = new { type = "string", description = "rectangle | circle | auto" },
+                        shape = new { type = "string", @enum = new[] { "rectangle", "circle", "auto" } },
                         clearanceMm = new { type = "number", description = "Default 25." },
                         familyName = new { type = "string" },
                         levelName = new { type = "string" },
-                        limit = new { type = "integer", description = "Default 50, hard cap 200." },
+                        limit = new { type = "integer", minimum = 1, maximum = 200, description = "Default 50, hard cap 200." },
                         dryRun = new { type = "boolean", description = "Count only. Does not place or punch." }
                     },
                     required = Array.Empty<string>()
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var limit = args.Int("limit", 50);
-            if (limit < 1) limit = 50;
-            if (limit > 200) limit = 200;
-            var request = new OpeningClashRequestDto(
-                args.Strings("mepIds"),
-                args.Strings("hostIds"),
-                args.Str("shape") ?? "auto",
-                args.Dbl("clearanceMm", 25),
-                args.Str("familyName"),
-                args.Str("levelName"),
-                limit,
-                args.Bool("dryRun"));
-            if (args.Bool("dryRun"))
-            {
-                var plan = await context.Bridge.OpeningProbeClashAsync(request);
-                if (plan == null) return "Please open a model first.";
-                return plan.Error ?? $"{plan.Report} Dry run — no write.";
-            }
-            var placed = await context.Bridge.PlaceOpeningsAsync(request);
-            return placed?.Error ?? placed?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteCreateOpeningsFromClashAsync(context, json)).Text,
+        StructuredHandler = json => ExecuteCreateOpeningsFromClashAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ExecuteCreateOpeningsFromClashAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var limit = args.Int("limit", 50);
+        if (limit < 1) limit = 50;
+        if (limit > 200) limit = 200;
+        var request = new OpeningClashRequestDto(
+            args.Strings("mepIds"),
+            args.Strings("hostIds"),
+            args.Str("shape") ?? "auto",
+            args.Dbl("clearanceMm", 25),
+            args.Str("familyName"),
+            args.Str("levelName"),
+            limit,
+            args.Bool("dryRun"));
+
+        if (request.DryRun)
+        {
+            var plan = await context.Bridge.OpeningProbeClashAsync(request);
+            return plan == null
+                ? ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted)
+                : plan.Error == null
+                    ? ToolExecutionResult.Succeeded(plan.Report + " Dry run — no write.", ToolWriteCertainty.NoWrite)
+                    : ToolExecutionResult.Failed(JoinReport(plan.Error, plan.Report), ToolWriteCertainty.NoWrite);
+        }
+
+        var placed = await context.Bridge.PlaceOpeningsAsync(request);
+        if (placed == null)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
+
+        var text = JoinReport(placed.Error, placed.Report);
+        var committed = placed.Placed > 0;
+        if (placed.Placed > 0 && (placed.Failed > 0 || placed.Error != null))
+            return ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, placed.Placed, placed.Failed);
+        if (placed.Failed > 0 || placed.Error != null)
+            return ToolExecutionResult.Failed(text, committed ? ToolWriteCertainty.Committed : ToolWriteCertainty.NotCommitted, placed.Placed, placed.Failed);
+        return ToolExecutionResult.Succeeded(
+            text,
+            committed ? ToolWriteCertainty.Committed : ToolWriteCertainty.NoWrite,
+            placed.Placed,
+            placed.Failed);
+    }
 
     private static ToolEntry CutHostsByOpenings(IPluginContext context) => new()
     {
@@ -94,15 +115,39 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var result = await context.Bridge.CutHostsByOpeningsAsync(new OpeningCutRequestDto(
-                args.Strings("openingIds"),
-                args.Strings("hostIds")));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteCutHostsByOpeningsAsync(context, json)).Text,
+        StructuredHandler = json => ExecuteCutHostsByOpeningsAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ExecuteCutHostsByOpeningsAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var result = await context.Bridge.CutHostsByOpeningsAsync(new OpeningCutRequestDto(
+            args.Strings("openingIds"),
+            args.Strings("hostIds")));
+
+        if (result == null)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
+
+        var text = JoinReport(result.Error, result.Report);
+        var committed = result.Cut > 0;
+        if (result.Cut > 0 && (result.Failed > 0 || result.Error != null))
+            return ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, result.Cut, result.Failed);
+        if (result.Failed > 0 || result.Error != null)
+            return ToolExecutionResult.Failed(text, committed ? ToolWriteCertainty.Committed : ToolWriteCertainty.NotCommitted, result.Cut, result.Failed);
+        return ToolExecutionResult.Succeeded(
+            text,
+            committed ? ToolWriteCertainty.Committed : ToolWriteCertainty.NoWrite,
+            result.Cut,
+            result.Failed);
+    }
+
+    private static string JoinReport(string? error, string report)
+        => string.IsNullOrWhiteSpace(error)
+            ? report
+            : string.IsNullOrWhiteSpace(report)
+                ? error
+                : error + "\n" + report;
 
     private readonly struct Args
     {
@@ -158,7 +203,8 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                 if (item.ValueKind == JsonValueKind.String)
                 {
                     var s = item.GetString();
-                    if (s is { Length: > 0 }) list.Add(s);
+                    if (s is { Length: > 0 })
+                        list.Add(s);
                 }
                 else if (item.ValueKind == JsonValueKind.Number)
                     list.Add(item.ToString());

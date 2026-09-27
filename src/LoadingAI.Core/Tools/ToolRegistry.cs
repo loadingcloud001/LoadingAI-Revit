@@ -53,6 +53,25 @@ public sealed class ToolEntry
 {
     public ToolDefinition Definition { get; init; } = new();
     public Func<string, Task<string>> Handler { get; init; } = _ => Task.FromResult("");
+    /// <summary>Optional authoritative result path. Legacy string handlers remain supported.</summary>
+    public Func<string, Task<ToolExecutionResult>>? StructuredHandler { get; init; }
+    public async Task<ToolExecutionResult> ExecuteAsync(string argsJson)
+    {
+        try
+        {
+            return StructuredHandler != null
+                ? await StructuredHandler(argsJson)
+                : ToolExecutionResult.FromLegacy(await Handler(argsJson), Tier);
+        }
+        catch (BridgeOperationUnknownException ex)
+        {
+            return ToolExecutionResult.Unknown(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return ToolExecutionResult.Failed($"Tool {Definition.Function.Name} failed: {ex.Message}");
+        }
+    }
     public bool RequiresWriteConfirm { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
     /// <summary>
