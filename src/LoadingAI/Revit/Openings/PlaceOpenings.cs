@@ -2,6 +2,7 @@ using System.Globalization;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
+using LoadingAI.Core.Openings;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
@@ -11,6 +12,9 @@ namespace LoadingAI.Revit.Openings;
 internal static class PlaceOpenings
 {
     internal static readonly TimeSpan ClashTimeout = TimeSpan.FromMinutes(10);
+
+    internal static List<ClashHit> FilterByLevel(IReadOnlyList<ClashHit> hits, ElementId? forcedLevelId)
+        => OpeningLevelFilter.FilterByKey(hits, h => h.LevelId.ToString(), forcedLevelId?.ToString());
 
     /// <summary>Probe plus combine. No transaction. Used by dryRun and by the plan slice.</summary>
     public static OpeningPlanResultDto Plan(
@@ -23,12 +27,16 @@ internal static class PlaceOpenings
         string? levelName,
         int limit)
     {
+        ElementId? forcedLevelId = null;
         if (!string.IsNullOrWhiteSpace(levelName))
         {
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
             var names = levels.Select(l => l.Name).ToList();
             var resolved = LevelNames.Resolve(levelName, names);
             if (resolved == null)
+                return new OpeningPlanResultDto(LevelNames.NotFound(levelName, names), 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
+            forcedLevelId = levels.FirstOrDefault(l => l.Name.Equals(resolved, StringComparison.OrdinalIgnoreCase))?.Id;
+            if (forcedLevelId == null)
                 return new OpeningPlanResultDto(LevelNames.NotFound(levelName, names), 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
         }
 
@@ -38,9 +46,10 @@ internal static class PlaceOpenings
         if (!OpeningProbe.AnyMep(doc, uidoc, mepIds, hostIds))
             return new OpeningPlanResultDto("Please select MEP elements first.", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
 
-        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit, forcedLevelId);
+        hits = FilterByLevel(hits, forcedLevelId);
         if (hits.Count == 0)
-            return new OpeningPlanResultDto("No MEP-host clash found (bbox then solid intersect).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
+            return new OpeningPlanResultDto("No MEP-host clash found at the requested scope (bbox then solid intersect).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
         hits = OpeningCombine.Apply(doc, hits, out var combine);
         var planned = hits.Select(h => new OpeningPlanHitDto(
             h.HostId.ToString(),
@@ -55,7 +64,7 @@ internal static class PlaceOpenings
             planned.Count, combine.Clusters, combine.Large, planned);
     }
 
-    public static string Run(
+    public static OpeningPlaceWorkResult Run(
         Document doc,
         UIDocument uidoc,
         IReadOnlyList<string> mepIds,
@@ -72,20 +81,21 @@ internal static class PlaceOpenings
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
             var names = levels.Select(l => l.Name).ToList();
             var resolved = LevelNames.Resolve(levelName, names);
-            if (resolved == null) return LevelNames.NotFound(levelName, names);
+            if (resolved == null) return NoWrite(LevelNames.NotFound(levelName, names), LevelNames.NotFound(levelName, names));
             forced = levels.FirstOrDefault(l => l.Name.Equals(resolved, StringComparison.OrdinalIgnoreCase));
-            if (forced == null) return LevelNames.NotFound(levelName, names);
+            if (forced == null) return NoWrite(LevelNames.NotFound(levelName, names), LevelNames.NotFound(levelName, names));
         }
 
         var scope = OpeningProbe.ScopeFail(doc, uidoc, mepIds, hostIds);
-        if (scope != null) return scope;
+        if (scope != null) return NoWrite(scope, scope);
 
         if (!OpeningProbe.AnyMep(doc, uidoc, mepIds, hostIds))
-            return "Please select MEP elements first.";
+            return NoWrite("Please select MEP elements first.", "Please select MEP elements first.");
 
-        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit, forced?.Id);
+        hits = FilterByLevel(hits, forced?.Id);
         if (hits.Count == 0)
-            return "No MEP-host clash found (bbox then solid intersect).";
+            return NoWrite("No MEP-host clash found at the requested scope (bbox then solid intersect).");
         hits = OpeningCombine.Apply(doc, hits, out var combine);
 
         var placed = 0;
@@ -93,6 +103,8 @@ internal static class PlaceOpenings
         var skipped = 0;
         var punched = 0;
         var placedAt = new List<string>();
+        var instanceIds = new List<string>();
+        var points = new List<string>();
         var pending = new List<Pending>();
         var placedKeys = new HashSet<string>(StringComparer.Ordinal);
         var placedSrcHost = new HashSet<string>(StringComparer.Ordinal);
@@ -105,7 +117,7 @@ internal static class PlaceOpenings
             if (loadFail != null)
             {
                 tx.RollBack();
-                return loadFail;
+                return NoWrite(loadFail, loadFail);
             }
             foreach (var hit in hits)
             {
@@ -171,7 +183,7 @@ internal static class PlaceOpenings
         catch (Exception ex)
         {
             if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-            return $"Failed: {ex.Message}";
+            return NoWrite($"Failed: {ex.Message}", ex.Message);
         }
 
         var hostList = string.Join(", ", hits.Select(h => h.HostId.ToString()).Distinct());
@@ -191,9 +203,13 @@ internal static class PlaceOpenings
         var placeType = pending.Count > 0
             ? pending[0].Inst.Symbol?.Family.FamilyPlacementType.ToString() ?? "OneLevelBased"
             : "OneLevelBased";
-        return $"Placed {placed} opening(s) in the active document ({famLabel}, {placeType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}";
+        return new OpeningPlaceWorkResult(
+            $"Placed {placed} opening(s) in the active document ({famLabel}, {placeType}) on host(s) {hostList}.{where} Punched {punched}. Failed {failed}.{extra}",
+            placed, punched, failed, skipped, 0, instanceIds, points);
     }
 
+    static OpeningPlaceWorkResult NoWrite(string report, string? error = null)
+        => new(report, 0, 0, 0, 0, 0, Array.Empty<string>(), Array.Empty<string>(), error);
     struct Pending
     {
         public FamilyInstance Inst;
@@ -343,7 +359,10 @@ internal static class PlaceOpenings
         {
             try { if (!fi.IsValidObject) continue; }
             catch { continue; }
-            if (!OpeningFamilyContract.IsPluginFamily(fi.Symbol?.FamilyName)) continue;
+            var familyName = fi.Symbol?.FamilyName;
+            var tagged = OpeningFamilyContract.Has(fi, "OP_SourceId")
+                || OpeningFamilyContract.Has(fi, "OP_HostId");
+            if (!OpeningFamilyContract.IsPluginFamily(familyName) && !tagged) continue;
             var key = OpeningFamilyContract.OpValue(fi, "OP_Key");
             if (!string.IsNullOrEmpty(key)) keys.Add(key);
             var src = OpeningFamilyContract.OpValue(fi, "OP_SourceId");

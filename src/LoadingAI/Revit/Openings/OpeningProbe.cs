@@ -65,7 +65,8 @@ internal static class OpeningProbe
         IReadOnlyList<string> hostIds,
         double clearanceFt,
         string shape,
-        int limit)
+        int limit,
+        ElementId? levelId = null)
     {
         var meps = ResolveMep(doc, uidoc, mepIds, hostIds);
         var hosts = ResolveHosts(doc, uidoc, hostIds);
@@ -95,6 +96,7 @@ internal static class OpeningProbe
 
             foreach (var host in candidates)
             {
+                if (levelId != null && host.LevelId != levelId) continue;
                 if (hits.Count >= limit) break;
                 if (Equals(host.Document, mep.Element.Document) && host.Id == mep.Element.Id) continue;
                 if (!IsHost(host)) continue;
