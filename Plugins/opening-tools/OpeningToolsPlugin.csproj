@@ -10,7 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="*.rfa" CopyToOutputDirectory="PreserveNewest" />
+    <OpeningFamily Include="*.rfa" />
+    <None Include="@(OpeningFamily)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
@@ -21,7 +22,7 @@
     <MakeDir Directories="$(PluginOutDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)plugin.json" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(ProjectDir)*.rfa" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(OpeningFamily)" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginOutDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
     <Message Text="Copied opening-tools plugin to $(PluginOutDir)" Importance="high" />
   </Target>

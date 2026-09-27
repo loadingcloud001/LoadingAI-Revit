@@ -9,9 +9,14 @@ GitHub-hosted `windows-latest` cannot start `Revit.exe`. CI builds this project 
 `revit.runsettings` pins `NUnit.Version=2027`, `Open=true`, `Close=true`. ricaun locates `Revit.exe` from Autodesk registry (default `C:\Program Files\...` or a custom volume such as `F:\Program Files\Autodesk\Revit 2027`). Do **not** put a machine-specific `Revit.exe` path in the committed runsettings — `NUnit.Application` is ricaun's console, not Revit.
 
 ```powershell
+# Refresh the installed host + shipped plugin hash set first.
+dotnet build src/LoadingAI/LoadingAI.csproj -c Release `
+  -p:RevitVersion=2027 -p:SkipTrustAddin=true -m:1
+$env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1"
+$env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_LANGUAGE = "ENU"
 dotnet test src/LoadingAI.RevitTests/LoadingAI.RevitTests.csproj -c Release `
   -p:ForceRevitTests=true -p:RevitVersion=2027 `
-  -p:SkipHostPluginBuild=true
+  -p:SkipHostPluginBuild=true -p:SkipTrustAddin=true
 ```
 
 Do **not** pass `-p:SkipCopyAddin=true` for this run. Revit loads `%AppData%\Autodesk\Revit\Addins\2027\LoadingAI\LoadingAI.dll` at startup. If that copy is older than the test build, you get `MissingMethodException` on `RevitBridge.AttachCurrentThread`. CopyAddin deploys the just-built host so the in-process bind matches.
@@ -19,6 +24,8 @@ Do **not** pass `-p:SkipCopyAddin=true` for this run. Revit loads `%AppData%\Aut
 CopyAddin then runs `scripts/trust-addin.ps1` (unless `-p:SkipTrustAddin=true`). That is **local-dev only**: HKCU `CodeSigning` DWORD `1` for AddInId `8F2C4E2A-9B3D-4E2A-A5F1-7D1A3B9C0E12`, plus Authenticode on the AppData DLL and a CurrentUser **Trusted Publishers** cert (`CN=LoadingAI Local Dev`). Unsigned Always Load is GUID-only; Revit still re-prompts when the DLL hash changes. Do **not** disable add-in security globally. Hosted CI uses `SkipCopyAddin`, so it never signs or writes HKCU. Close Revit before rebuild if the AppData DLL is locked.
 
 `ForceRevitTests=true` flips `IsTestProject` on. Without it, `dotnet test LoadingAI.sln` will not launch Revit.
+
+For this machine's Revit 2027/ricalun 1.11.1 combination, keep `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`; otherwise the adapter's assembly resolver can recurse through satellite resources and report `Stack overflow` before discovering tests. To attach to a model that is already open, set `RICAUN_REVITTEST_TESTADAPTER_NUNIT_OPEN=false` and `...NUNIT_CLOSE=false` and run the same command. The Opening Tools slice is `OpeningToolsInRevitTests`: discovery/hash gate, dry-run, live place+punch, and repair-cut, all write probes rolled back.
 
 Optional env overrides (prefix `RICAUN_REVITTEST_TESTADAPTER_`):
 

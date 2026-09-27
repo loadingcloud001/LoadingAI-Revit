@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Xunit;
 
 namespace LoadingAI.Tests;
@@ -11,6 +13,53 @@ namespace LoadingAI.Tests;
 public class ScriptContractTests
 {
     [Fact]
+    public void RecordShippedHashesScript_AcceptsAllPluginPathsAsPositionalArguments()
+    {
+        var root = RepoRoot();
+        var temp = Path.Combine(Path.GetTempPath(), "LoadingAI.RecordShippedHashes." + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var first = Path.Combine(temp, "first plugin.dll");
+            var second = Path.Combine(temp, "second plugin.dll");
+            var output = Path.Combine(temp, "hashes.json");
+            File.WriteAllBytes(first, new byte[] { 1 });
+            File.WriteAllBytes(second, new byte[] { 2 });
+
+            var psi = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-ExecutionPolicy");
+            psi.ArgumentList.Add("Bypass");
+            psi.ArgumentList.Add("-File");
+            psi.ArgumentList.Add(Path.Combine(root, "scripts", "record-shipped-plugin-hashes.ps1"));
+            psi.ArgumentList.Add("-OutPath");
+            psi.ArgumentList.Add(output);
+            psi.ArgumentList.Add(first);
+            psi.ArgumentList.Add(second);
+
+            using var process = Process.Start(psi)!;
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            Assert.True(process.ExitCode == 0, stdout + Environment.NewLine + stderr);
+            using var json = JsonDocument.Parse(File.ReadAllText(output));
+            var hashes = json.RootElement.EnumerateArray().Select(x => x.GetString()).ToList();
+            Assert.Equal(2, hashes.Count);
+            Assert.All(hashes, h => Assert.Matches("^[0-9a-f]{64}$", h));
+        }
+        finally
+        {
+            Directory.Delete(temp, true);
+        }
+    }
+    [Fact]
+
     public void PackAddin_BuildsSerializedAndShipsLoader()
     {
         var ps1 = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "pack-addin.ps1"));
@@ -132,6 +181,17 @@ public class ScriptContractTests
         var ts = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "bridge.ts"));
         Assert.Contains("public const string Id = \"loadingai\"", cs);
         Assert.Contains("export const BUILTIN_PROVIDER_ID = 'loadingai'", ts);
+    }
+
+    [Fact]
+    public void OpeningPlugin_CopyTargetCopiesFamiliesThroughAnItemGroup()
+    {
+        var csproj = File.ReadAllText(Path.Combine(
+            RepoRoot(), "Plugins", "opening-tools", "OpeningToolsPlugin.csproj"));
+
+        Assert.Contains("<OpeningFamily Include=\"*.rfa\" />", csproj);
+        Assert.Contains("SourceFiles=\"@(OpeningFamily)\"", csproj);
+        Assert.DoesNotContain("SourceFiles=\"$(ProjectDir)*.rfa\"", csproj);
     }
 
     [Fact]
