@@ -640,6 +640,3 @@ internal static class PlaceOpenings
 }
 
 
-
-
-

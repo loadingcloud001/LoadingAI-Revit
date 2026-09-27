@@ -168,4 +168,3 @@ internal static class OpeningFamilyContract
     }
 }
 
-
