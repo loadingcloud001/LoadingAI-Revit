@@ -1,5 +1,6 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using LoadingAI.Tools;
 
 namespace LoadingAI.Revit;
 
@@ -7,6 +8,7 @@ public sealed class RevitBridge : IDisposable
 {
     private readonly ExternalEvent _externalEvent;
     private readonly BridgeHandler _handler;
+    private readonly BridgeActionRegistry _actions = new();
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
@@ -57,28 +59,52 @@ public sealed class RevitBridge : IDisposable
 
     public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout, CancellationToken ct = default)
     {
+        var actionId = _actions.Begin();
+
         if (_uiThreadId != 0
             && Environment.CurrentManagedThreadId == _uiThreadId
             && RevitContext.UiApplication is { } current)
         {
-            try { return func(current); }
-            catch (Exception ex) { return await Task.FromException<T>(ex); }
+            _actions.MarkRunning(actionId);
+            try
+            {
+                var direct = func(current);
+                _actions.MarkSucceeded(actionId);
+                return direct;
+            }
+            catch (Exception ex)
+            {
+                _actions.MarkFailed(actionId, ex.Message);
+                throw;
+            }
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         IDisposable? reg = null;
         if (ct.CanBeCanceled)
-            reg = ct.Register(() => tcs.TrySetCanceled(ct));
+        {
+            reg = ct.Register(() =>
+            {
+                _actions.MarkAbandoned(actionId, "Caller cancelled before the Revit action completed.");
+                tcs.TrySetCanceled(ct);
+            });
+        }
 
         _handler.Enqueue(app =>
         {
+            if (_actions.TryGet(actionId, out var pending) && pending.State == BridgeActionState.Cancelled)
+                return;
+
+            _actions.MarkRunning(actionId);
             try
             {
                 var result = func(app);
+                _actions.MarkSucceeded(actionId);
                 tcs.TrySetResult(result);
             }
             catch (Exception ex)
             {
+                _actions.MarkFailed(actionId, ex.Message);
                 tcs.TrySetException(ex);
             }
         });
@@ -87,29 +113,54 @@ public sealed class RevitBridge : IDisposable
         var raise = _externalEvent.Raise();
         if (raise == ExternalEventRequest.Denied || raise == ExternalEventRequest.TimedOut)
         {
+            if (!_actions.TryCancelQueued(actionId, $"Revit ExternalEvent not accepted ({raise})."))
+            {
+                _actions.MarkAbandoned(actionId, $"Revit ExternalEvent rejected after the action started ({raise}).");
+                reg?.Dispose();
+                throw new BridgeOperationUnknownException(actionId, "Revit rejected the event after the operation may have started. Do not retry automatically.");
+            }
+
             reg?.Dispose();
-            DebugLog.Write("bridge.raise_denied", new { raise = raise.ToString(), executing = _executing });
+            DebugLog.Write("bridge.raise_denied", new { raise = raise.ToString(), executing = _executing, actionId });
             throw new InvalidOperationException($"Revit ExternalEvent not accepted ({raise}). Close any open dialog and retry.");
         }
 
-        using var timeoutCts = new CancellationTokenSource(timeout);
-        var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout, timeoutCts.Token));
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout));
         reg?.Dispose();
         if (completed != tcs.Task)
         {
+            _actions.MarkAbandoned(actionId, $"Caller stopped waiting after {timeout.TotalSeconds:0}s.");
             DebugLog.Write("bridge.timeout", new
             {
                 timeoutSec = timeout.TotalSeconds,
                 elapsedMs = (DateTime.UtcNow - started).TotalMilliseconds,
                 executing = _executing,
-                raise = raise.ToString()
+                raise = raise.ToString(),
+                actionId
             });
-            throw new TimeoutException(_executing
-                ? $"Revit is still running the operation after {timeout.TotalSeconds:0}s (large exports can take several minutes). Wait for it to finish, then retry."
-                : "Revit did not start the request in time. Close modal dialogs and retry.");
+            throw new BridgeOperationUnknownException(
+                actionId,
+                _executing
+                    ? $"Revit is still running the operation after {timeout.TotalSeconds:0}s. Do not retry until its outcome is known."
+                    : "Revit did not complete the request in time. The queued operation may still run; do not retry automatically.");
         }
-        return await tcs.Task;
+
+        try
+        {
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+        {
+            _actions.MarkAbandoned(actionId, "Caller cancelled before the Revit action completed.");
+            throw new BridgeOperationUnknownException(
+                actionId,
+                "Caller cancelled while the Revit action may still run. Do not retry automatically.",
+                ex);
+        }
     }
+
+    public bool TryGetAction(string id, out BridgeActionSnapshot snapshot)
+        => _actions.TryGet(id, out snapshot);
 
     public Task RunAsync(Action<UIApplication> action, CancellationToken ct = default)
         => RunAsync(app => { action(app); return true; }, ct);

@@ -438,6 +438,13 @@ internal sealed class ChatSession
             return hint;
         }
 
+        if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var validationError))
+        {
+            var invalid = $"Tool argument error: {validationError}";
+            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(invalid))); } catch { }
+            return $"Tool argument error: {validationError}";
+        }
+
         if (ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson))
         {
             var preset = await _approvals.AwaitPresetAsync(entry, name, argsJson);
@@ -448,6 +455,12 @@ internal sealed class ChatSession
                 return preset.message;
             }
             argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
+            if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var presetValidationError))
+            {
+                var invalid = $"Tool argument error: {presetValidationError}";
+                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(invalid))); } catch { }
+                return invalid;
+            }
             // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
             if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
             {
@@ -497,18 +510,21 @@ internal sealed class ChatSession
             await bridge.EnsureTurnGroupAsync(_cts?.Token ?? default);
         }
 
-        string result;
-        try
-        {
-            ProgressReporter.Current.Report($"Running {name}");
-            result = await entry.Handler(argsJson);
-        }
-        catch (Exception ex) { result = $"Tool {name} failed: {ex.Message}"; }
+        ProgressReporter.Current.Report($"Running {name}");
+        var execution = await entry.ExecuteAsync(argsJson);
+        var result = execution.Text;
 
-        if (IsCancelResult(result) || (isWrite && result.StartsWith($"Tool {name} failed:", StringComparison.Ordinal)))
+        if (isWrite)
+        {
+            if (execution.WriteCertainty == ToolWriteCertainty.Committed)
+                _turnWrote = true;
+            if (!execution.IsSafeToAssimilate)
+                MarkTurnFailedIfGroupActive();
+        }
+        else if (execution.Status is ToolExecutionStatus.Failed or ToolExecutionStatus.Cancelled or ToolExecutionStatus.Unknown)
+        {
             MarkTurnFailedIfGroupActive();
-        else if (isWrite)
-            _turnWrote = true;
+        }
 
         try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} result: {result}"))); } catch { }
 

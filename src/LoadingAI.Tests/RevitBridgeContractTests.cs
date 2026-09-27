@@ -74,6 +74,57 @@ public class RevitBridgeContractTests
         Assert.Contains("Assimilate", src);
     }
 
+    [Fact]
+    public void RunAsync_TracksActionAndReportsUnknownOutcomeAfterCallerStopsWaiting()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "public Task RunAsync(Action<UIApplication> action");
+
+        Assert.Contains("var actionId = _actions.Begin();", runAsync);
+        Assert.Contains("_actions.MarkRunning(actionId);", runAsync);
+        Assert.Contains("_actions.MarkSucceeded(actionId);", runAsync);
+        Assert.Contains("_actions.MarkFailed(actionId", runAsync);
+        Assert.Contains("_actions.MarkAbandoned(actionId", runAsync);
+        Assert.Contains("BridgeOperationUnknownException", runAsync);
+        Assert.Contains("TryGetAction", src);
+    }
+
+    [Fact]
+    public void RaiseDenied_CancelsQueuedActionInsteadOfLeavingItRunnable()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "public Task RunAsync(Action<UIApplication> action");
+        Assert.Contains("_actions.TryCancelQueued(actionId", runAsync);
+    }
+
+    [Fact]
+    public void RaiseDeniedWhenAlreadyRunning_ReportsUnknownOutcome()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "public Task RunAsync(Action<UIApplication> action");
+        Assert.Contains("if (!_actions.TryCancelQueued(actionId", runAsync);
+        Assert.Contains("throw new BridgeOperationUnknownException(actionId", runAsync);
+    }
+    [Fact]
+    public void SameThreadExecutionAlsoRecordsActionOutcome()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var runAsync = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "var tcs = new TaskCompletionSource<T>");
+        Assert.Contains("_actions.Begin();", runAsync);
+        Assert.Contains("_actions.MarkRunning(actionId);", runAsync);
+        Assert.Contains("_actions.MarkSucceeded(actionId);", runAsync);
+        Assert.Contains("_actions.MarkFailed(actionId", runAsync);
+    }
+
+    [Fact]
+    public void ChatSession_UnknownWriteForcesRollback()
+    {
+        var src = UiSrc();
+        Assert.Contains("!execution.IsSafeToAssimilate", src);
+        Assert.Contains("ToolExecutionStatus.Unknown", src);
+        Assert.Contains("MarkTurnFailedIfGroupActive();", src);
+        Assert.DoesNotContain("result.StartsWith($\"Tool {name} failed:\"", src);
+    }
     private static string UiSrc()
     {
         var dir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui");

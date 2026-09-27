@@ -14,6 +14,7 @@ public static class ToolGuards
             return entry;
 
         var inner = entry.Handler;
+        var structured = entry.StructuredHandler;
         var name = entry.Definition.Function.Name;
         return new ToolEntry
         {
@@ -38,10 +39,28 @@ public static class ToolGuards
                 });
                 if (!ok) return "Cancelled by user.";
                 return await inner(json);
-            }
+            },
+            StructuredHandler = structured == null
+                ? null
+                : async argsJson =>
+                {
+                    var preview = argsJson.Length > 400 ? argsJson.Substring(0, 400) + "..." : argsJson;
+                    bool ok = await bridge.RunAsync(uiApp =>
+                    {
+                        var td = new TaskDialog("LoadingAI for Revit")
+                        {
+                            MainInstruction = $"Run {name}?",
+                            MainContent = preview + "\n\nThis will create an undoable transaction.",
+                            CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                            DefaultButton = TaskDialogResult.No
+                        };
+                        return td.Show() == TaskDialogResult.Yes;
+                    });
+                    if (!ok) return ToolExecutionResult.Cancelled("Cancelled by user.");
+                    return await structured(argsJson);
+                }
         };
     }
-
     public static IEnumerable<ToolEntry> ApplyAll(IEnumerable<ToolEntry> entries, RevitBridge bridge)
         => entries.Select(e => ApplyConfirm(e, bridge));
 }

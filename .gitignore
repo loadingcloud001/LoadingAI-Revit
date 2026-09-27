@@ -20,6 +20,7 @@ src/LoadingAI.Core/Llm/DefaultLlmKey.g.cs
 # --- Revit / Autodesk artifacts (wherever they land) ---
 *.rvt
 *.rfa
+!Plugins/opening-tools/*.rfa
 *.rte
 *.0001.rvt
 *.0*.rvt

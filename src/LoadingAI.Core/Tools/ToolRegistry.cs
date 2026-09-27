@@ -53,6 +53,34 @@ public sealed class ToolEntry
 {
     public ToolDefinition Definition { get; init; } = new();
     public Func<string, Task<string>> Handler { get; init; } = _ => Task.FromResult("");
+    /// <summary>Optional authoritative result path. Legacy string handlers remain supported.</summary>
+    public Func<string, Task<ToolExecutionResult>>? StructuredHandler { get; init; }
+    public async Task<ToolExecutionResult> ExecuteAsync(string argsJson)
+    {
+        if (!ToolArgumentValidator.Validate(
+                Definition.Function.Parameters,
+                argsJson,
+                out var normalizedJson,
+                out var validationError))
+            return ToolExecutionResult.Failed(
+                "Invalid arguments: " + validationError,
+                ToolWriteCertainty.NotCommitted);
+
+        try
+        {
+            return StructuredHandler != null
+                ? await StructuredHandler(normalizedJson)
+                : ToolExecutionResult.FromLegacy(await Handler(normalizedJson), Tier);
+        }
+        catch (BridgeOperationUnknownException ex)
+        {
+            return ToolExecutionResult.Unknown(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return ToolExecutionResult.Failed($"Tool {Definition.Function.Name} failed: {ex.Message}");
+        }
+    }
     public bool RequiresWriteConfirm { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
     /// <summary>
