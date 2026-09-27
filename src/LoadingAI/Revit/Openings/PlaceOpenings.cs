@@ -46,7 +46,7 @@ internal static class PlaceOpenings
         if (!OpeningProbe.AnyMep(doc, uidoc, mepIds, hostIds))
             return new OpeningPlanResultDto("Please select MEP elements first.", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
 
-        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit, forcedLevelId);
         hits = FilterByLevel(hits, forcedLevelId);
         if (hits.Count == 0)
             return new OpeningPlanResultDto("No MEP-host clash found at the requested scope (bbox then solid intersect).", 0, 0, 0, Array.Empty<OpeningPlanHitDto>());
@@ -92,7 +92,7 @@ internal static class PlaceOpenings
         if (!OpeningProbe.AnyMep(doc, uidoc, mepIds, hostIds))
             return NoWrite("Please select MEP elements first.", "Please select MEP elements first.");
 
-        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit);
+        var hits = OpeningProbe.Find(doc, uidoc, mepIds, hostIds, Metric.MmToFt(clearanceMm), shape, limit, forced?.Id);
         hits = FilterByLevel(hits, forced?.Id);
         if (hits.Count == 0)
             return NoWrite("No MEP-host clash found at the requested scope (bbox then solid intersect).");

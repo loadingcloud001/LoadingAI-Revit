@@ -1,3 +1,4 @@
+using System.IO;
 using LoadingAI.Plugins.OpeningTools;
 using LoadingAI.Core.Openings;
 using LoadingAI.Tests.Fakes;
@@ -79,6 +80,20 @@ public class OpeningToolsContractTests
         Assert.Equal("wanted", hit.Item1);
     }
 
+    [Fact]
+    public void LevelFilterRunsBeforeLimitIsConsumed()
+    {
+        var probe = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "Openings", "OpeningProbe.cs"));
+        var findStart = probe.IndexOf("List<ClashHit> Find(", StringComparison.Ordinal);
+        var hostLoop = probe.IndexOf("foreach (var host in candidates)", findStart, StringComparison.Ordinal);
+        var levelGuard = probe.IndexOf("if (levelId != null && host.LevelId != levelId) continue;", hostLoop, StringComparison.Ordinal);
+        var limitGuard = probe.IndexOf("if (hits.Count >= limit) break;", hostLoop, StringComparison.Ordinal);
+
+        Assert.True(findStart >= 0);
+        Assert.True(hostLoop > findStart);
+        Assert.True(levelGuard > hostLoop);
+        Assert.True(limitGuard > levelGuard);
+    }
     private static (FakeRevitBridge Bridge, FakePluginContext Context) Setup()
     {
         var bridge = new FakeRevitBridge { HasActiveDocument = true };
@@ -87,4 +102,15 @@ public class OpeningToolsContractTests
 
     private static ToolEntry CreateTool(FakePluginContext context, string name)
         => new OpeningToolsPlugin().CreateTools(context).Single(t => t.Definition.Function.Name == name);
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln");
+    }
 }
