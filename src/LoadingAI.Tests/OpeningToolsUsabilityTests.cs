@@ -94,4 +94,3 @@ public class OpeningToolsUsabilityTests
         throw new DirectoryNotFoundException("Could not find LoadingAI.sln");
     }
 }
-

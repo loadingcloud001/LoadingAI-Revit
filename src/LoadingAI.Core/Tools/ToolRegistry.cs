@@ -93,4 +93,3 @@ public sealed class ToolEntry
     /// </summary>
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
 }
-

@@ -422,4 +422,3 @@ public class UsabilityContractTests
         throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }
-

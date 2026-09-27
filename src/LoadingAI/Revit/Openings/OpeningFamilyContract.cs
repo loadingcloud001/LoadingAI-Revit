@@ -167,4 +167,3 @@ internal static class OpeningFamilyContract
                ?? named[0];
     }
 }
-

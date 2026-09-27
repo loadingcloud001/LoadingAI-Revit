@@ -88,4 +88,3 @@ public class OpeningToolsContractTests
     private static ToolEntry CreateTool(FakePluginContext context, string name)
         => new OpeningToolsPlugin().CreateTools(context).Single(t => t.Definition.Function.Name == name);
 }
-

@@ -244,4 +244,3 @@ internal static class CutLocal
     static IEnumerable<Solid> Solids(Element el)
         => OpeningGeo.Solids(el, includeNonVisible: true); // IncludeNonVisibleObjects = true
 }
-

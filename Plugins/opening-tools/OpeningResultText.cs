@@ -51,4 +51,3 @@ public static class OpeningResultText
                 ? error
                 : error + "\n" + report;
 }
-

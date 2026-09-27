@@ -3663,4 +3663,3 @@ public sealed class AdapterRevitBridge : IRevitBridge
         return new Color(255, 0, 0);
     }
 }
-

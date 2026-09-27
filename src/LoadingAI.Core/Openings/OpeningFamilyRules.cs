@@ -45,4 +45,3 @@ public static class OpeningFamilyRules
         return false;
     }
 }
-

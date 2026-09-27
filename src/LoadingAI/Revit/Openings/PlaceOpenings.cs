@@ -638,5 +638,3 @@ internal static class PlaceOpenings
         comments.Set(string.IsNullOrWhiteSpace(cur) ? bit : cur + "; " + bit);
     }
 }
-
-

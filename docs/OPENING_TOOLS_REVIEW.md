@@ -1,6 +1,6 @@
 # Opening Tools Review and Hardening Specification
 
-**Status:** Approved for implementation on 2026-09-27  
+**Status:** Approved for implementation on 2026-09-27
 **Scope:** `Plugins/opening-tools`, `src/LoadingAI/Revit/Openings`, their Bridge DTO projection, focused tests, and Opening Tools-facing copy. The shared Plugin Shelf remains unchanged.
 
 ## Problem
