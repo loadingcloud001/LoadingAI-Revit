@@ -109,7 +109,7 @@ public class OpeningToolsInRevitTests
     public void DryRun_PlansRealConduitWallClash_WithoutWriting()
     {
         var doc = _uiApp.ActiveUIDocument.Document;
-        var before = OpeningInstances(doc).Select(x => x.Id).ToHashSet();
+        var before = new HashSet<ElementId>(OpeningInstances(doc).Select(x => x.Id));
 
         using var group = new TransactionGroup(doc, "LoadingAI.RevitTests opening-tools dry-run");
         group.Start();
@@ -134,7 +134,7 @@ public class OpeningToolsInRevitTests
             Assert.That(result.ChangedCount, Is.Zero);
             if (!result.Text.Contains("Planned 1 opening(s).")) Assert.Fail(result.Text + Environment.NewLine + FixtureDiagnostics(doc, fixture));
             Assert.That(result.Text, Does.Contain("No model changes."), result.Text);
-            Assert.That(OpeningInstances(doc).Select(x => x.Id).ToHashSet(), Is.EquivalentTo(before));
+            Assert.That(new HashSet<ElementId>(OpeningInstances(doc).Select(x => x.Id)), Is.EquivalentTo(before));
         }
         finally
         {
@@ -146,7 +146,7 @@ public class OpeningToolsInRevitTests
     public void Write_PlacesAndPunchesRealClash_ThenRollsBack()
     {
         var doc = _uiApp.ActiveUIDocument.Document;
-        var before = OpeningInstances(doc).Select(x => x.Id).ToHashSet();
+        var before = new HashSet<ElementId>(OpeningInstances(doc).Select(x => x.Id));
 
         using var group = new TransactionGroup(doc, "LoadingAI.RevitTests opening-tools write");
         group.Start();
@@ -187,14 +187,14 @@ public class OpeningToolsInRevitTests
 
         Assert.That(doc.GetElement(wallId), Is.Null);
         Assert.That(doc.GetElement(conduitId), Is.Null);
-        Assert.That(OpeningInstances(doc).Select(x => x.Id).ToHashSet(), Is.EquivalentTo(before));
+        Assert.That(new HashSet<ElementId>(OpeningInstances(doc).Select(x => x.Id)), Is.EquivalentTo(before));
     }
 
     [Test]
     public void RepairCut_RestoresLostVoidCut_ThenRollsBack()
     {
         var doc = _uiApp.ActiveUIDocument.Document;
-        var before = OpeningInstances(doc).Select(x => x.Id).ToHashSet();
+        var before = new HashSet<ElementId>(OpeningInstances(doc).Select(x => x.Id));
 
         using var group = new TransactionGroup(doc, "LoadingAI.RevitTests opening-tools repair-cut");
         group.Start();
@@ -338,5 +338,15 @@ public class OpeningToolsInRevitTests
             })
             .ToList();
 
-    private sealed record WallAndConduit(Wall Wall, Conduit Conduit);
+    private sealed class WallAndConduit
+    {
+        public WallAndConduit(Wall wall, Conduit conduit)
+        {
+            Wall = wall;
+            Conduit = conduit;
+        }
+
+        public Wall Wall { get; }
+        public Conduit Conduit { get; }
+    }
 }
