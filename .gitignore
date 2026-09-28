@@ -39,3 +39,9 @@ Samples/
 Steel Connections SDK/
 Structural Analysis SDK/
 Revit_temp/
+
+# --- local agent/editor state ---
+/.kilo/
+/.codex/
+/.idea/
+/.vscode/
