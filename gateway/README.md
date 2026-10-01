@@ -163,7 +163,7 @@ Set in `/etc/loadingai-gateway.env` (see `deploy/env.example`):
 | `MINIMAX_API_KEY` | – | upstream key. Rotate it if it was ever stored anywhere else |
 | `TICKET_SECRET` | _required_ | 32 random bytes; signs tickets. Never derived from `MINIMAX_API_KEY` |
 | `MINIMAX_BASE_URL` | `https://api.minimaxi.com/v1` | upstream base, includes `/v1` |
-| `MINIMAX_MODEL` | `MiniMax-M3` | model forced on every proxied call |
+| `MINIMAX_MODEL` | `MiniMax-M3.1-Flash-Preview` | model forced on every proxied call |
 | `DAILY_LIMIT` | `100` | sends per device per UTC day |
 | `TICKET_TTL_SECONDS` | `1800` | how long a send's ticket stays valid |
 | `HOST` | `127.0.0.1` | bind address – leave on loopback |

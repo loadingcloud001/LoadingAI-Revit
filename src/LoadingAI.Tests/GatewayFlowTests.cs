@@ -95,7 +95,7 @@ public sealed class GatewayFlowTests : IDisposable
         Assert.Equal(BuiltinQuota.ClientToken, chat.Header(BuiltinQuota.ClientHeader));
         // The whole point of the gateway: the add-in never sends a credential upstream.
         Assert.False(chat.HasHeader("Authorization"));
-        Assert.Contains("\"model\":\"MiniMax-M3\"", chat.Body);
+        Assert.Contains("\"model\":\"MiniMax-M3.1-Flash-Preview\"", chat.Body);
     }
 
     [Fact]

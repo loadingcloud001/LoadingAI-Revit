@@ -15,7 +15,7 @@ function testEnv(overrides = {}) {
     MINIMAX_API_KEY: 'sk-server-side-secret',
     TICKET_SECRET: 'ticket-signing-secret',
     MINIMAX_BASE_URL: UPSTREAM,
-    MINIMAX_MODEL: 'MiniMax-M3',
+    MINIMAX_MODEL: 'MiniMax-M3.1-Flash-Preview',
     DAILY_LIMIT: '100',
     ...overrides,
   };
@@ -136,7 +136,7 @@ test('chat with a ticket reaches upstream under the server key only', async (t) 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, `${UPSTREAM}/chat/completions`);
   assert.equal(new Headers(calls[0].init.headers).get('authorization'), 'Bearer sk-server-side-secret');
-  assert.equal(calls[0].body.model, 'MiniMax-M3');
+  assert.equal(calls[0].body.model, 'MiniMax-M3.1-Flash-Preview');
 });
 
 test('a ticket minted for another device is refused', async (t) => {
@@ -223,7 +223,7 @@ test('GET /v1/models is answered locally', async (t) => {
   const calls = stubUpstream(t, jsonUpstream());
   const res = await fetch(`${base}/v1/models`, { headers: deviceHeaders() });
   assert.equal(res.status, 200);
-  assert.equal((await res.json()).data[0].id, 'MiniMax-M3');
+  assert.equal((await res.json()).data[0].id, 'MiniMax-M3.1-Flash-Preview');
   assert.equal(calls.length, 0);
 });
 

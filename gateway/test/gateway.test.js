@@ -26,7 +26,7 @@ function makeEnv(overrides = {}) {
     MINIMAX_API_KEY: 'sk-server-side-secret',
     TICKET_SECRET: 'ticket-signing-secret',
     MINIMAX_BASE_URL: 'https://upstream.test/v1',
-    MINIMAX_MODEL: 'MiniMax-M3',
+    MINIMAX_MODEL: 'MiniMax-M3.1-Flash-Preview',
     DAILY_LIMIT: '100',
     ...overrides,
   };
@@ -185,7 +185,7 @@ test('GET /v1/models answers locally so a model probe never spends credit', asyn
   }), env);
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.data[0].id, 'MiniMax-M3');
+  assert.equal(body.data[0].id, 'MiniMax-M3.1-Flash-Preview');
   assert.equal(body.data[0].owned_by, 'LoadingAI');
 });
 
@@ -285,7 +285,7 @@ test('chat forwards to the upstream model with the server-side key', async (t) =
   assert.equal(calls[0].init.headers.authorization.includes('sk-stolen-from-a-client'), false);
 
   const forwarded = JSON.parse(calls[0].init.body);
-  assert.equal(forwarded.model, 'MiniMax-M3');
+  assert.equal(forwarded.model, 'MiniMax-M3.1-Flash-Preview');
   assert.equal(forwarded.messages[0].content, 'hi');
 });
 
@@ -316,7 +316,7 @@ test('chat forces the configured model and keeps streaming responses intact', as
 
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'text/event-stream');
-  assert.equal(sentBody.model, 'MiniMax-M3');
+  assert.equal(sentBody.model, 'MiniMax-M3.1-Flash-Preview');
   assert.match(await res.text(), /data: \[DONE\]/);
 });
 
