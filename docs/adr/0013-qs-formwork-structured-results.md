@@ -47,7 +47,7 @@ The following are released, and `UsabilityContractTests` is narrowed to match:
    - writes > 0 and `Failed` > 0 → `Partial` + `Committed`
    - writes > 0 → `Succeeded` + `Committed`
    - `Failed` > 0 and writes = 0 → `Failed` + `NotCommitted`
-   - a report beginning `Failed:` → `Failed` + `NotCommitted` (the transitional rule, retired once every path carries counts)
+   - a report beginning `Failed:` → `Failed` + `NotCommitted`. This is a fallback, not the primary signal; see Consequences for why it is not deleted.
    - `stats` and catalogue-only reads → `Succeeded` + `NoWrite`
 4. **The four `Definition` schemas may declare `enum`, `minimum` and `maximum`.** Specifically `cleanup_formwork.action`, `create_formwork_panels.faceTypes` and `create_formwork_panels.thicknessMm`. `ToolArgumentValidator` enforces these before approval, so the model cannot reach the unknown-action branch at all. The handler keeps its own guard for direct `Handler` calls.
 5. **The tools may declare `ToolEntry.Presets`.** Host-owned only: `PickElements`, `Select`, `Number`, `Boolean`. No `PickBox` (unused in-tree). The L3 native gate is unaffected — see Consequences.
@@ -59,7 +59,7 @@ The following are released, and `UsabilityContractTests` is narrowed to match:
 - `L3CommandContractTests` is unaffected: the four methods stay on `IRevitCreateCommand`.
 - ADR-0004 is **not** relaxed. A preset form replaces the web `ToolApproval` card; the native `Confirm L3:` TaskDialog still runs for all four tools, and `HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm` still asserts it.
 - `ToolGuards.ApplyConfirm` skips tools that have presets, so no second TaskDialog appears. `ToolGuards_SkipsL2WrapWhenPresetsExist` still asserts it.
-- The transitional `Failed:` rule in Decision 3 becomes redundant once counts land on every path, and should be deleted in the task that proves it — it must not become a permanent second mechanism.
+- The `Failed:` rule in Decision 3 is **kept as a fallback**, contrary to the earlier draft of this ADR which would have deleted it once counts landed. `Error` is the structural signal and is checked first, but counts alone cannot distinguish a crash from a clean run that happened to change nothing: `FormworkTools` absorbs its own exceptions into `Report` with every counter at zero, so the prefix is the only thing separating the two. The over-matching direction is pinned by a test asserting that a report which merely mentions `failed 2` mid-sentence is still a commit, so the rule cannot broaden into prose-matching.
 - Hosted CI can now pin `Partial` behaviourally for formwork, which it could not before.
 
 ## Do not
