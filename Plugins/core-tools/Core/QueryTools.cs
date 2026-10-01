@@ -11,30 +11,81 @@ public static class QueryTools
 {
     public static IEnumerable<ToolEntry> Create(IPluginContext context)
     {
-        yield return CreateGetModelSummary(context);
-        yield return CreateGetWallMetrics(context);
-        yield return CreateGetSelectionSummary(context);
-        yield return CreateGetActiveViewInfo(context);
-        yield return CreateGetVisibleElementsInView(context);
-        yield return CreateFindElementsByFilter(context);
-        yield return CreateGetElementDetails(context);
-        yield return CreateGetWarnings(context);
-        yield return CreateGetRooms(context);
-        yield return CreateGetLevelsAndGrids(context);
-        yield return CreateGetQuantities(context);
-        yield return CreateSaveAndSyncInfo(context);
-        yield return CreateGetWorksets(context);
-        yield return CreateGetPhases(context);
-        yield return CreateGetDesignOptions(context);
-        yield return CreateGetSheetsViews(context);
-        yield return CreateGetFamilyTypes(context);
-        yield return CreateGetMaterials(context);
-        yield return CreateGetRoomArea(context);
-        yield return CreateGetClashByBb(context);
-        yield return CreateGetModelHealthScore(context);
-        yield return CreateSyncInfo(context);
-        yield return CreateAuditWarningsFix(context);
-        yield return CreateQuantityTakeoff(context);
+        // Every tool in this file is an L1 read, so none can write the model and none may report
+        // a commit. Rather than re-type 27 bespoke report formatters as ToolExecutionResult, each
+        // tool keeps its string body and gains a structured half here: AsQuery wraps the same
+        // Handler and classifies the text it returns. The 27 CreateX bodies stay untouched.
+        var entries = new[]
+        {
+            CreateGetModelSummary(context),
+            CreateGetWallMetrics(context),
+            CreateGetSelectionSummary(context),
+            CreateGetActiveViewInfo(context),
+            CreateGetVisibleElementsInView(context),
+            CreateFindElementsByFilter(context),
+            CreateGetElementDetails(context),
+            CreateGetWarnings(context),
+            CreateGetRooms(context),
+            CreateGetLevelsAndGrids(context),
+            CreateGetQuantities(context),
+            CreateSaveAndSyncInfo(context),
+            CreateGetWorksets(context),
+            CreateGetPhases(context),
+            CreateGetDesignOptions(context),
+            CreateGetSheetsViews(context),
+            CreateGetFamilyTypes(context),
+            CreateGetMaterials(context),
+            CreateGetRoomArea(context),
+            CreateGetClashByBb(context),
+            CreateGetModelHealthScore(context),
+            CreateSyncInfo(context),
+            CreateAuditWarningsFix(context),
+            CreateQuantityTakeoff(context),
+        };
+
+        foreach (var entry in entries)
+            yield return AsQuery(entry);
+    }
+
+    /// <summary>
+    /// Returns a copy of an L1 query tool whose <see cref="ToolEntry.StructuredHandler"/> runs the
+    /// same <see cref="ToolEntry.Handler"/> and classifies its text, so a query is a
+    /// <c>NoWrite</c> result on success and a <c>Failed + NoWrite</c> when it reached nothing or
+    /// caught an exception. <c>NoWrite</c> rather than <c>NotCommitted</c>: there was no
+    /// transaction to commit or roll back.
+    /// </summary>
+    private static ToolEntry AsQuery(ToolEntry entry)
+    {
+        var inner = entry.Handler;
+        return new ToolEntry
+        {
+            Definition = entry.Definition,
+            Tier = entry.Tier,
+            Presets = entry.Presets,
+            Tags = entry.Tags,
+            Handler = inner,
+            StructuredHandler = async json =>
+            {
+                string text;
+                try
+                {
+                    text = await inner(json);
+                }
+                catch (Exception ex)
+                {
+                    return ToolExecutionResult.Failed($"Failed: {ex.Message}", ToolWriteCertainty.NoWrite);
+                }
+
+                if (text.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+                    || text.StartsWith("Invalid args:", StringComparison.OrdinalIgnoreCase)
+                    || text.StartsWith("Invalid arguments:", StringComparison.OrdinalIgnoreCase)
+                    || text.StartsWith("Please open a model", StringComparison.OrdinalIgnoreCase)
+                    || text.StartsWith("Please select elements", StringComparison.OrdinalIgnoreCase))
+                    return ToolExecutionResult.Failed(text, ToolWriteCertainty.NoWrite);
+
+                return ToolExecutionResult.Succeeded(text, ToolWriteCertainty.NoWrite);
+            },
+        };
     }
 
     internal static ToolEntry CreateGetModelSummary(IPluginContext context)

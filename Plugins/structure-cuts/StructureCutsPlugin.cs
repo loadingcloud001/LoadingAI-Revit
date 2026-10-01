@@ -54,14 +54,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
             new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick structural columns, then Finish." },
             SharedKnobs()),
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var options = Options(args, json);
-            var result = await context.Bridge.SplitBeamsByColumnsAsync(
-                Request(options, Filter(args.Strings("beamIds")), Filter(args.Strings("columnIds")), null));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteSplitBeamsByColumns(context, json)).Text,
+        StructuredHandler = json => ExecuteSplitBeamsByColumns(context, json)
     };
 
     private static ToolEntry SplitFloorsByBeams(IPluginContext context) => new()
@@ -98,17 +92,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick beams that split the floors, then Finish." },
             new PresetField { Id = "columnIds", Label = "Columns", Kind = PresetFieldKind.PickElements, Category = "OST_StructuralColumns", Prompt = "Pick columns for openings, then Finish." },
             SharedKnobs()),
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var options = Options(args, json);
-            var cutters = new List<string>();
-            cutters.AddRange(args.Strings("beamIds"));
-            cutters.AddRange(args.Strings("columnIds"));
-            var result = await context.Bridge.SplitFloorsByBeamsAsync(
-                Request(options, Filter(args.Strings("floorIds")), Filter(cutters), null));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteSplitFloorsByBeams(context, json)).Text,
+        StructuredHandler = json => ExecuteSplitFloorsByBeams(context, json)
     };
 
     private static ToolEntry SplitByLevels(IPluginContext context) => new()
@@ -145,14 +130,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             new PresetField { Id = "levelIds", Label = "Levels", Kind = PresetFieldKind.PickElements, Category = "OST_Levels", Prompt = "Pick levels to split at, then Finish." },
             CategoriesPreset(),
             SharedKnobs()),
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var options = Options(args, json);
-            var result = await context.Bridge.SplitByLevelsAsync(
-                Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("levelIds")), Filter(args.Strings("categories"))));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteSplitByLevels(context, json)).Text,
+        StructuredHandler = json => ExecuteSplitByLevels(context, json)
     };
 
     private static ToolEntry SplitByGrids(IPluginContext context) => new()
@@ -189,14 +168,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             new PresetField { Id = "gridIds", Label = "Grids", Kind = PresetFieldKind.PickElements, Category = "OST_Grids", Prompt = "Pick grids to split at, then Finish." },
             CategoriesPreset(),
             SharedKnobs()),
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var options = Options(args, json);
-            var result = await context.Bridge.SplitByGridsAsync(
-                Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("gridIds")), Filter(args.Strings("categories"))));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteSplitByGrids(context, json)).Text,
+        StructuredHandler = json => ExecuteSplitByGrids(context, json)
     };
 
     private static ToolEntry SplitSecondaryBeamsByMainBeams(IPluginContext context) => new()
@@ -229,15 +202,92 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         Presets = Concat(
             new PresetField { Id = "beamIds", Label = "Beams", Kind = PresetFieldKind.PickElements, Category = "beams", Prompt = "Pick structural beams, then Finish." },
             SharedKnobs()),
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var options = Options(args, json);
-            var result = await context.Bridge.SplitSecondaryBeamsByMainBeamsAsync(
-                Request(options, Filter(args.Strings("beamIds")), null, null));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await ExecuteSplitSecondaryBeamsByMainBeams(context, json)).Text,
+        StructuredHandler = json => ExecuteSplitSecondaryBeamsByMainBeams(context, json)
     };
+
+    /// <summary>The exact sentence the host splits return when no document is open.</summary>
+    private const string NoDocument = "Please open a model first.";
+
+    private static async Task<ToolExecutionResult> ExecuteSplitBeamsByColumns(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var options = Options(args, json);
+        var result = await context.Bridge.SplitBeamsByColumnsAsync(
+            Request(options, Filter(args.Strings("beamIds")), Filter(args.Strings("columnIds")), null));
+        return FromSplit(result);
+    }
+
+    private static async Task<ToolExecutionResult> ExecuteSplitFloorsByBeams(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var options = Options(args, json);
+        var cutters = new List<string>();
+        cutters.AddRange(args.Strings("beamIds"));
+        cutters.AddRange(args.Strings("columnIds"));
+        var result = await context.Bridge.SplitFloorsByBeamsAsync(
+            Request(options, Filter(args.Strings("floorIds")), Filter(cutters), null));
+        return FromSplit(result);
+    }
+
+    private static async Task<ToolExecutionResult> ExecuteSplitByLevels(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var options = Options(args, json);
+        var result = await context.Bridge.SplitByLevelsAsync(
+            Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("levelIds")), Filter(args.Strings("categories"))));
+        return FromSplit(result);
+    }
+
+    private static async Task<ToolExecutionResult> ExecuteSplitByGrids(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var options = Options(args, json);
+        var result = await context.Bridge.SplitByGridsAsync(
+            Request(options, Filter(args.Strings("elementIds")), Filter(args.Strings("gridIds")), Filter(args.Strings("categories"))));
+        return FromSplit(result);
+    }
+
+    private static async Task<ToolExecutionResult> ExecuteSplitSecondaryBeamsByMainBeams(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var options = Options(args, json);
+        var result = await context.Bridge.SplitSecondaryBeamsByMainBeamsAsync(
+            Request(options, Filter(args.Strings("beamIds")), null, null));
+        return FromSplit(result);
+    }
+
+    /// <summary>
+    /// Status comes from the counters <c>SplitResultDto</c> has always carried: <c>Created</c>
+    /// counts hosts replaced by a piece and <c>Openings</c> counts openings punched, so either
+    /// being positive is a real write.
+    ///
+    /// A dry run short-circuits before any transaction and always reports both at zero, so this
+    /// classifies it as a read without having to re-read the request flag.
+    ///
+    /// <c>Skipped</c> is deliberately not folded into the write count: a grouped, pinned or
+    /// unsplittable member is left alone by design and named in the report, and the DTO carries
+    /// no failure count at all, so treating a skip as a failure would invent one.
+    ///
+    /// <c>Error</c> is checked first, matching ADR-0007 and ADR-0009. The <c>Failed:</c> prefix
+    /// stays as a fallback because the adapter's catch returns it as the <c>Report</c> with
+    /// <c>Error</c> null and every counter at zero, which counts alone cannot separate from a run
+    /// that simply changed nothing. Same rule <c>ToolExecutionResult.FromLegacy</c> applies.
+    /// </summary>
+    private static ToolExecutionResult FromSplit(SplitResultDto? result)
+    {
+        if (result == null || result.Report == NoDocument)
+            return ToolExecutionResult.Failed(NoDocument, ToolWriteCertainty.NotCommitted);
+        if (result.Error != null)
+            return ToolExecutionResult.Failed(result.Error, ToolWriteCertainty.NotCommitted);
+        if (result.Report.StartsWith("Failed:", StringComparison.OrdinalIgnoreCase))
+            return ToolExecutionResult.Failed(result.Report, ToolWriteCertainty.NotCommitted);
+
+        var writes = result.Created + result.Openings;
+        return writes > 0
+            ? ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.Committed, writes)
+            : ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.NoWrite);
+    }
 
     /// <summary>
     /// Builds the shared options. dryRun goes through <see cref="ToolPresets.IsDryRun"/> so the plugin

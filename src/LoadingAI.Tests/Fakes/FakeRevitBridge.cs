@@ -602,6 +602,14 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public CommandResultDto? NextCreateWallResult { get; set; }
 
+    public CommandResultDto? NextDeleteElementsResult { get; set; }
+
+    public CommandResultDto? NextMoveElementsResult { get; set; }
+
+    public List<IReadOnlyList<string>> DeleteElementsCalls { get; } = new();
+
+    public List<(IReadOnlyList<string> Ids, double Dx, double Dy, double Dz)> MoveElementsCalls { get; } = new();
+
     public CommandResultDto? NextCreateFamilyInstanceResult { get; set; }
 
     public CommandResultDto? NextDuplicateElementResult { get; set; }
@@ -758,12 +766,28 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default)
-        => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
+    {
+        DeleteElementsCalls.Add(elementIds);
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (elementIds == null || elementIds.Count == 0)
+            return Task.FromResult(new CommandResultDto(false, "Please select elements first or provide elementIds."));
+        return Task.FromResult(NextDeleteElementsResult
+            ?? new CommandResultDto(true, $"Deleted {elementIds.Count} element(s).", elementIds.Count));
+    }
 
     public Task<CommandResultDto> MoveElementsAsync(
         IReadOnlyList<string> elementIds, double dx, double dy, double dz,
         CancellationToken ct = default)
-        => Task.FromResult(new CommandResultDto(false, "L3 not implemented on fake."));
+    {
+        MoveElementsCalls.Add((elementIds, dx, dy, dz));
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        if (elementIds == null || elementIds.Count == 0)
+            return Task.FromResult(new CommandResultDto(false, "Please select elements first or provide elementIds."));
+        return Task.FromResult(NextMoveElementsResult
+            ?? new CommandResultDto(true, $"Moved {elementIds.Count} element(s).", elementIds.Count));
+    }
 
     public Task<CommandResultDto> ChangeElementTypeAsync(
         string elementId, string? typeName = null, string? typeId = null,

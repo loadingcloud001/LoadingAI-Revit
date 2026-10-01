@@ -41,6 +41,24 @@ public class PluginProjectContractTests
         Assert.Contains("context.Bridge", src);
     }
 
+    /// <summary>
+    /// The example plugin is the template every third-party plugin is copied from, and the test
+    /// project deliberately does not reference it, so this is the only place its pattern is
+    /// pinned: it must teach StructuredHandler and the NoWrite/NotCommitted distinction rather
+    /// than a bare string handler.
+    /// </summary>
+    [Fact]
+    public void HelloPlugin_TeachesTheStructuredHandler()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "example.hello", "HelloPlugin.cs"));
+
+        Assert.Contains("StructuredHandler", src);
+        Assert.Contains("ToolExecutionResult.Succeeded", src);
+        Assert.Contains("ToolExecutionResult.Failed", src);
+        // The distinction the migration taught: a failed read is NoWrite, not NotCommitted.
+        Assert.Contains("ToolWriteCertainty.NoWrite", src);
+    }
+
     [Fact]
     public void ShippedPlugins_DoNotMentionAutodeskRevit()
     {
