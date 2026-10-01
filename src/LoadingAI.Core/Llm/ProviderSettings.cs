@@ -32,7 +32,7 @@ public static class ProviderCatalog
     {
         new("deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-chat", "openai", "cloud", "◆", "DeepSeek V3 / R1"),
         new("openai", "OpenAI", "https://api.openai.com/v1", "gpt-4o-mini", "openai", "cloud", "◉", "GPT-4o / o1 / 5"),
-        new("anthropic", "Anthropic", "https://api.anthropic.com", "claude-sonnet-4-20250514", "anthropic", "cloud", "◇", "Claude Sonnet / Opus via direct API"),
+        new("anthropic", "Anthropic (via OpenRouter)", "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4", "openai", "gateway", "◇", "Claude via OpenRouter. Anthropic's direct /messages API is not supported — use OpenRouter for Claude."),
         new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4", "openai", "gateway", "◎", "300+ models gateway (Claude, Gemini, etc.)"),
         new("opencode", "OpenCode Zen", "https://opencode.ai/zen/go/v1", "muse-spark-1.2-contributor", "responses", "gateway", "⚡", "Muse / Grok / Luna via Responses API"),
         new("ollama", "Ollama", "http://localhost:11434/v1", "llama3.1", "openai", "local", "⬢", "Local models via Ollama"),

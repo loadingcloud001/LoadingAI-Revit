@@ -271,7 +271,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         // 2. minimal chat probe
         var kind2 = ResolveApiKind(provider);
         if (kind2 == "anthropic")
-            return (false, "Anthropic direct API (messages) not yet implemented. Use OpenRouter (openai compat) with model anthropic/claude-sonnet-4, or switch ApiKind to openai.", models);
+            return (false, "Anthropic's direct /messages API is not supported by this add-in. Set Base URL to https://openrouter.ai/api/v1, ApiKind to openai, and Model to anthropic/claude-sonnet-4 (Settings -> Edit provider).", models);
         try
         {
             var probe = new List<ChatMessage> { new() { Role = "user", Content = "hi" } };
@@ -314,7 +314,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
 
         var kind = ResolveApiKind(provider);
         if (kind == "anthropic")
-            throw new InvalidOperationException("Anthropic native API not supported via direct baseUrl. Use OpenRouter with ApiKind=openai and model 'anthropic/claude-sonnet-4'.");
+            throw new InvalidOperationException("Anthropic's direct /messages API is not supported by this add-in. Set Base URL to https://openrouter.ai/api/v1, ApiKind to openai, and Model to anthropic/claude-sonnet-4 (Settings -> Edit provider).");
 
         if (kind == "responses" || IsResponsesModel(provider.Model))
         {
