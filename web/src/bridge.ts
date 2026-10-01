@@ -159,6 +159,15 @@ export type PresetFieldPayload = {
   prompt?: string;
 };
 
+export type PreviewRowView = { label: string; detail: string };
+
+/** Mirrors FromHostMessage.PreviewPayload. Absent means no preview is available. */
+export type PreviewPayload = {
+  summary: string;
+  rows: PreviewRowView[];
+  warnings: string[];
+};
+
 export type PresetPayload = {
   toolCallId: string;
   toolName: string;
@@ -166,6 +175,7 @@ export type PresetPayload = {
   description?: string;
   fields: PresetFieldPayload[];
   values?: Record<string, unknown>;
+  preview?: PreviewPayload;
 };
 
 export type PresetPickResult = {

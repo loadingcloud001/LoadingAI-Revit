@@ -6,6 +6,7 @@ import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
 import { classifyResult, outcomeLabel, TranscriptSlice } from './transcript';
+import { formatApprovalArgs, previewRows, previewWarnings, receiptLine } from './lib/presetPreview';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -447,7 +448,7 @@ export default function App() {
     if (!pendingPreset) return;
     if (approved && !requiredPresetsFilled(pendingPreset, presetValues)) return;
     postToHost({ type: 'submitPreset', toolCallId: pendingPreset.toolCallId, approved, values: approved ? presetValues : undefined });
-    setMessages(m => [...m, { id: nextId(), role: 'system', text: approved ? `Confirmed ${pendingPreset.toolName}` : `Cancelled ${pendingPreset.toolName}` }]);
+    setMessages(m => [...m, { id: nextId(), role: 'system', text: receiptLine(pendingPreset, approved ? 'confirmed' : 'cancelled') }]);
     setPendingPreset(null);
     setPresetPickBusy(null);
   };
@@ -804,55 +805,17 @@ export default function App() {
             let card: JSX.Element | null = null;
             if (m.role === 'preset' && m.preset) {
             const isPending = pendingPreset?.toolCallId === m.preset.toolCallId;
-            const fields = m.preset.fields ?? [];
-            const canConfirm = isPending && requiredPresetsFilled(m.preset, presetValues) && !presetPickBusy;
+            const warnings = previewWarnings(m.preset);
             card = (
               <div key={m.id} style={{ borderTop: '2px solid #2b2b2b', borderBottom: '1px solid #d0d0d0', background: '#fff', padding: 10, fontSize: 12.5 }}>
-                <div style={kLabel}>Confirm options</div>
+                <div style={kLabel}>{isPending ? 'Run' : 'Ran'}</div>
                 <div>{m.preset.toolName}{m.preset.tier ? ` · ${m.preset.tier}` : ''}</div>
-                {m.preset.description ? (
-                  <div className="mt-1">
-                    <button
-                      type="button"
-                      className="px-1.5 py-0.5 border bg-white text-[10px]"
-                      aria-expanded={!!presetDescOpen[m.id]}
-                      onClick={() => setPresetDescOpen(o => ({ ...o, [m.id]: !o[m.id] }))}
-                    >
-                      {presetDescOpen[m.id] ? 'Hide description' : 'Description'}
-                    </button>
-                    {presetDescOpen[m.id] ? <div className="mt-1" style={{ color: '#5c5c5c' }}>{m.preset.description}</div> : null}
-                  </div>
-                ) : null}
-                {isPending ? (
-                  <div className="mt-2 grid gap-2">
-                    {fields.map(f => (
-                      <label key={f.id} className="grid gap-1">
-                        <span className="text-[11px] font-semibold">{f.label || f.id}{f.required ? ' *' : ''}</span>
-                        {f.kind === 'Boolean' ? (
-                          <input type="checkbox" checked={!!presetValues[f.id]} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.checked }))} />
-                        ) : f.kind === 'Select' ? (
-                          <select className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))}>
-                            <option value="">Select…</option>
-                            {(f.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                        ) : f.kind === 'Number' ? (
-                          <input type="number" className={inp} value={presetValues[f.id] == null ? '' : String(presetValues[f.id])} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value === '' ? '' : Number(e.target.value) }))} />
-                        ) : f.kind === 'PickElements' || f.kind === 'PickBox' ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="flex-1 text-[11px]" style={{ color: '#5c5c5c' }}>{formatPickSummary(f, presetValues[f.id])}</span>
-                            <button type="button" className={btn} disabled={!!presetPickBusy} onClick={() => handlePresetPick(f.id)}>{presetPickBusy === f.id ? 'Picking…' : 'Pick'}</button>
-                          </div>
-                        ) : (
-                          <input type="text" className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))} />
-                        )}
-                      </label>
-                    ))}
-                    <div className="grid grid-cols-2 gap-1.5 mt-1">
-                      <button type="button" className={btn} onClick={() => handleSubmitPreset(false)}>Cancel</button>
-                      <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!canConfirm} onClick={() => handleSubmitPreset(true)}>Confirm</button>
-                    </div>
-                  </div>
-                ) : <div className="text-[11px] text-muted-foreground mt-1">{confirmState(messages, m.preset.toolCallId, m.preset.toolName)}</div>}
+                {warnings.map(w => (
+                  <div key={w} className="text-[11px] mt-1" style={{ color: '#8a1f11' }}>{w}</div>
+                ))}
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  {isPending ? 'Options are in the Run panel below the messages.' : confirmState(messages, m.preset.toolCallId, m.preset.toolName)}
+                </div>
               </div>
             );
             }
@@ -862,7 +825,9 @@ export default function App() {
               <div key={m.id} style={{ borderTop: '2px solid #8a1f11', borderBottom: '1px solid #d0d0d0', background: '#fff8f6', padding: 10, fontSize: 12.5 }}>
                 <div style={{ ...kLabel, color: '#8a1f11' }}>Confirm L3</div>
                 <div>{m.approval.toolName}{m.approval.tier ? ` · ${m.approval.tier}` : ''}</div>
-                <div className="font-mono text-[11px] mt-1 break-all" style={{ color: '#5c5c5c' }}>{m.approval.args}</div>
+                <div className="mt-1 text-[11px]" style={{ color: '#5c5c5c' }}>
+                  {formatApprovalArgs(m.approval.args).map(line => <div key={line} className="font-mono">{line}</div>)}
+                </div>
                 <div className="mt-1" style={{ color: '#5c5c5c' }}>After Allow, Revit will ask once more. Default is No.</div>
                 {isPending ? (
                   <div className="grid grid-cols-2 gap-1.5 mt-2">
@@ -880,6 +845,78 @@ export default function App() {
         })()}
         {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{mode === 'plan' ? 'Planning…' : mode === 'ask' ? 'Thinking…' : 'Working…'}</div>}
       </div>
+
+      {pendingPreset && (() => {
+        const fields = pendingPreset.fields ?? [];
+        const canConfirm = requiredPresetsFilled(pendingPreset, presetValues) && !presetPickBusy;
+        return (
+          <div style={{ borderTop: '2px solid #2b2b2b', background: '#fff', padding: 10, fontSize: 12.5 }}>
+            <div className="flex items-center gap-2">
+              <div style={{ ...kLabel, marginBottom: 0 }}>Run</div>
+              <div className="flex-1">{pendingPreset.toolName}{pendingPreset.tier ? ` · ${pendingPreset.tier}` : ''}</div>
+              {pendingPreset.description ? (
+                <button
+                  type="button"
+                  className="px-1.5 py-0.5 border bg-white text-[10px]"
+                  aria-expanded={!!presetDescOpen[pendingPreset.toolCallId]}
+                  onClick={() => setPresetDescOpen(o => ({ ...o, [pendingPreset.toolCallId]: !o[pendingPreset.toolCallId] }))}
+                >
+                  {presetDescOpen[pendingPreset.toolCallId] ? 'Hide description' : 'Description'}
+                </button>
+              ) : null}
+            </div>
+            {presetDescOpen[pendingPreset.toolCallId] && pendingPreset.description ? (
+              <div className="mt-1" style={{ color: '#5c5c5c' }}>{pendingPreset.description}</div>
+            ) : null}
+
+            {previewWarnings(pendingPreset).map(w => (
+              <div key={w} className="mt-1.5 text-[11px]" style={{ color: '#8a1f11' }}>{w}</div>
+            ))}
+
+            <div className="mt-2">
+              <div style={kLabel}>{pendingPreset.preview?.summary ?? `${fields.length} settings to confirm`}</div>
+              {previewRows(pendingPreset).map((r, idx) => (
+                <div key={`${idx}-${r.label}`} className="flex items-baseline gap-2 text-[11px]">
+                  <span className="flex-1" style={{ color: '#5c5c5c' }}>{r.label}</span>
+                  <span className="font-mono">{r.detail}</span>
+                </div>
+              ))}
+            </div>
+
+            {fields.length > 0 && (
+              <div className="mt-2 grid gap-2">
+                {fields.map(f => (
+                  <label key={f.id} className="grid gap-1">
+                    <span className="text-[11px] font-semibold">{f.label || f.id}{f.required ? ' *' : ''}</span>
+                    {f.kind === 'Boolean' ? (
+                      <input type="checkbox" checked={!!presetValues[f.id]} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.checked }))} />
+                    ) : f.kind === 'Select' ? (
+                      <select className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))}>
+                        <option value="">Select…</option>
+                        {(f.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : f.kind === 'Number' ? (
+                      <input type="number" className={inp} value={presetValues[f.id] == null ? '' : String(presetValues[f.id])} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value === '' ? '' : Number(e.target.value) }))} />
+                    ) : f.kind === 'PickElements' || f.kind === 'PickBox' ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="flex-1 text-[11px]" style={{ color: '#5c5c5c' }}>{formatPickSummary(f, presetValues[f.id])}</span>
+                        <button type="button" className={btn} disabled={!!presetPickBusy} onClick={() => handlePresetPick(f.id)}>{presetPickBusy === f.id ? 'Picking…' : 'Pick'}</button>
+                      </div>
+                    ) : (
+                      <input type="text" className={inp} value={String(presetValues[f.id] ?? '')} onChange={e => setPresetValues(v => ({ ...v, [f.id]: e.target.value }))} />
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-1.5 mt-2">
+              <button type="button" className={btn} onClick={() => handleSubmitPreset(false)}>Cancel</button>
+              <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} disabled={!canConfirm} onClick={() => handleSubmitPreset(true)}>Confirm</button>
+            </div>
+          </div>
+        );
+      })()}
 
       <div
         ref={composerRef}
