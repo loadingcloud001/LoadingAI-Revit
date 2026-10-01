@@ -38,12 +38,15 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async _ =>
-        {
-            var result = await context.Bridge.FormworkSetupAsync(new FormworkSetupRequestDto());
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async _ => (await FormworkSetupAsync(context)).Text,
+        StructuredHandler = _ => FormworkSetupAsync(context)
     };
+
+    private static async Task<ToolExecutionResult> FormworkSetupAsync(IPluginContext context)
+    {
+        var result = await context.Bridge.FormworkSetupAsync(new FormworkSetupRequestDto());
+        return FromFormwork(result?.Error, result?.Report);
+    }
 
     private static ToolEntry CreatePanels(IPluginContext context) => new()
     {
@@ -71,26 +74,25 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var ids = args.Strings("elementIds");
-            if (ids.Count == 0)
-            {
-                var sel = await context.Bridge.GetSelectionSummaryAsync();
-                ids = sel.ElementIds?.ToList() ?? new List<string>();
-            }
-            if (ids.Count == 0) return "Please select elements first.";
-            var result = await context.Bridge.CreateFormworkPanelsAsync(new FormworkPanelsRequestDto(
-                ids,
-                args.Dbl("thicknessMm", FormworkDefaults.SheetThicknessMmDefault),
-                args.Strings("faceTypes"),
-                args.Bool("collision", true),
-                args.Bool("deleteExisting", false),
-                args.Bool("includeUnselectedLinks", false)));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await CreatePanelsAsync(context, json)).Text,
+        StructuredHandler = json => CreatePanelsAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CreatePanelsAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        if (ids.Count == 0)
+            return ToolExecutionResult.Failed("Please select elements first.", ToolWriteCertainty.NotCommitted);
+        var result = await context.Bridge.CreateFormworkPanelsAsync(new FormworkPanelsRequestDto(
+            ids,
+            args.Dbl("thicknessMm", FormworkDefaults.SheetThicknessMmDefault),
+            args.Strings("faceTypes"),
+            args.Bool("collision", true),
+            args.Bool("deleteExisting", false),
+            args.Bool("includeUnselectedLinks", false)));
+        return FromFormwork(result?.Error, result?.Report);
+    }
 
     private static ToolEntry Cleanup(IPluginContext context) => new()
     {
@@ -114,15 +116,18 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var result = await context.Bridge.CleanupFormworkAsync(new CleanupRequestDto(
-                (args.Str("action") ?? "stats").Trim().ToLowerInvariant(),
-                args.Str("faceType")));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await CleanupAsync(context, json)).Text,
+        StructuredHandler = json => CleanupAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CleanupAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var result = await context.Bridge.CleanupFormworkAsync(new CleanupRequestDto(
+            (args.Str("action") ?? "stats").Trim().ToLowerInvariant(),
+            args.Str("faceType")));
+        return FromFormwork(result?.Error, result?.Report);
+    }
 
     private static ToolEntry CopyParentParams(IPluginContext context) => new()
     {
@@ -145,20 +150,51 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var ids = args.Strings("elementIds");
-            if (ids.Count == 0)
-            {
-                var sel = await context.Bridge.GetSelectionSummaryAsync();
-                ids = sel.ElementIds?.ToList() ?? new List<string>();
-            }
-            var result = await context.Bridge.CopyFormworkParentParamsAsync(
-                new CopyParamsRequestDto(ids, args.Strings("paramNames")));
-            return result?.Error ?? result?.Report ?? "Please open a model first.";
-        }
+        Handler = async json => (await CopyParentParamsAsync(context, json)).Text,
+        StructuredHandler = json => CopyParentParamsAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CopyParentParamsAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        var result = await context.Bridge.CopyFormworkParentParamsAsync(
+            new CopyParamsRequestDto(ids, args.Strings("paramNames")));
+        return FromFormwork(result?.Error, result?.Report);
+    }
+
+    /// <summary>
+    /// Element ids, falling back to the current selection when the caller passed none.
+    /// Returns an empty list when there is no selection, which each caller reports.
+    /// </summary>
+    private static async Task<List<string>> ResolveIdsAsync(IPluginContext context, List<string> explicitIds)
+    {
+        if (explicitIds.Count > 0) return explicitIds;
+        var sel = await context.Bridge.GetSelectionSummaryAsync();
+        return sel.ElementIds?.ToList() ?? new List<string>();
+    }
+
+    /// <summary>
+    /// The formwork result DTOs are only (Report, Error): they carry no counts, so this cannot
+    /// report a changed count, and it cannot tell a partially-applied run from a full one. The
+    /// Adapter returns a null DTO when there is no document (its RunFormwork maps a null report
+    /// to default), and the host algorithms use the exact sentence Please open a model first.
+    /// for the same condition, so both shapes are treated as not-committed. Error is never set
+    /// by the Adapter today but the branch stays for a future DTO that carries it. A Partial is
+    /// deliberately not claimed: enriching the DTOs with created/deleted/failed counts (a
+    /// LoadingAI.Core change) is what would let this report it precisely.
+    /// </summary>
+    private static ToolExecutionResult FromFormwork(string? error, string? report)
+    {
+        if (report == null || report == NoDocument)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
+        if (error != null)
+            return ToolExecutionResult.Failed(error, ToolWriteCertainty.NotCommitted);
+        return ToolExecutionResult.Succeeded(report, ToolWriteCertainty.Committed);
+    }
+
+    /// <summary>The exact sentence the host formwork algorithms use when there is no document.</summary>
+    private const string NoDocument = "Please open a model first.";
 
     private readonly struct Args
     {
@@ -207,7 +243,8 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 if (item.ValueKind == JsonValueKind.String)
                 {
                     var s = item.GetString();
-                    if (s is { Length: > 0 }) list.Add(s);
+                    if (s is { Length: > 0 })
+                        list.Add(s);
                 }
                 else if (item.ValueKind == JsonValueKind.Number)
                     list.Add(item.ToString());
