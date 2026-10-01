@@ -10,6 +10,12 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <!-- BoundedLog is internal on purpose: it is a logging detail, not API the
+       shipped surface promises. The hosted test project asserts on it directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="LoadingAI.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="9.0.0" />
   </ItemGroup>

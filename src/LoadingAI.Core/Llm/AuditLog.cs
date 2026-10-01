@@ -6,15 +6,12 @@ namespace LoadingAI.Revit;
 public static class AuditLog
 {
     private static readonly object _lock = new();
-    private static string FilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LoadingAI", "audit.jsonl");
+    private static string FilePath => BoundedLog.Resolve("audit.jsonl");
 
     public static void Append(string toolName, string userText, string elementIds, string result, string tier)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             var entry = new
             {
                 timestamp = DateTime.UtcNow.ToString("o"),
@@ -24,8 +21,7 @@ public static class AuditLog
                 elementIds = Truncate(elementIds, 500),
                 result = Truncate(result, 1000)
             };
-            var line = JsonSerializer.Serialize(entry);
-            lock (_lock) File.AppendAllText(FilePath, line + Environment.NewLine);
+            BoundedLog.Append(FilePath, JsonSerializer.Serialize(entry), _lock);
         }
         catch { }
     }
