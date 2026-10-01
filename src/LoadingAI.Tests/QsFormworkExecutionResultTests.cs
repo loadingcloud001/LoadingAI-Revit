@@ -1,6 +1,7 @@
 using System.IO;
 using LoadingAI.Plugins.QsFormwork;
 using LoadingAI.Revit;
+using LoadingAI.Revit.Formwork;
 using LoadingAI.Tests.Fakes;
 using LoadingAI.Tools;
 
@@ -307,6 +308,84 @@ public class QsFormworkExecutionResultTests
         Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
         Assert.Equal(ToolWriteCertainty.Committed, result.WriteCertainty);
         Assert.Single(bridge.CleanupFormworkCalls);
+    }
+
+    // ---- Task 5: schema hardening. ToolArgumentValidator rejects these before approval, so the
+    // model never reaches the unknown-action branch and cannot send a thickness the host would
+    // silently honour regardless of what the generator can actually build.
+    [Fact]
+    public async Task CleanupRejectsUnknownAction()
+    {
+        var (_, context) = Setup();
+
+        var result = await CreateTool(context, "cleanup_formwork")
+            .ExecuteAsync("""{"action":"destroy_everything"}""");
+
+        Assert.Equal(ToolExecutionStatus.Failed, result.Status);
+        Assert.Equal(ToolWriteCertainty.NotCommitted, result.WriteCertainty);
+        // action is a declared property with an enum, so the failure is a value error rather
+        // than an unknown property; either way it is refused before the handler runs.
+        Assert.Contains("action", result.Text);
+        Assert.Contains("must be one of", result.Text);
+        Assert.Contains("cleanup_orphans", result.Text);
+    }
+
+    [Fact]
+    public async Task CreatePanelsRejectsFaceTypeOutsideTheGeneratorList()
+    {
+        var (bridge, context) = Setup();
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100"],"faceTypes":["Roof_Top"]}""");
+
+        Assert.Equal(ToolExecutionStatus.Failed, result.Status);
+        Assert.Equal(ToolWriteCertainty.NotCommitted, result.WriteCertainty);
+        Assert.Contains("faceTypes", result.Text);
+        Assert.Empty(bridge.FormworkPanelsCalls);
+    }
+
+    [Fact]
+    public async Task CreatePanelsRejectsThicknessOutsideBounds()
+    {
+        var (bridge, context) = Setup();
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100"],"thicknessMm":500}""");
+
+        Assert.Equal(ToolExecutionStatus.Failed, result.Status);
+        Assert.Contains("thicknessMm", result.Text);
+        Assert.Empty(bridge.FormworkPanelsCalls);
+    }
+
+    [Fact]
+    public async Task CreatePanelsAcceptsThicknessInsideBounds()
+    {
+        var (bridge, context) = Setup();
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100"],"thicknessMm":75}""");
+
+        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+        var call = Assert.Single(bridge.FormworkPanelsCalls);
+        Assert.Equal(75.0, call.ThicknessMm);
+    }
+
+    // The plugin must build its enum from FormworkDefaults.AllFaceTypes rather than a private
+    // copy: if it copied the array it would drift the day a face type is added host-side, and
+    // the model would be offered a value the schema silently refuses. Every Core entry must be
+    // accepted, which fails the moment the two lists diverge.
+    [Fact]
+    public async Task EveryCoreFaceTypeIsAccepted()
+    {
+        foreach (var faceType in FormworkDefaults.AllFaceTypes)
+        {
+            var (bridge, context) = Setup();
+            var result = await CreateTool(context, "create_formwork_panels")
+                .ExecuteAsync($$"""{"elementIds":["100"],"faceTypes":["{{faceType}}"]}""");
+
+            Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+            Assert.Single(bridge.FormworkPanelsCalls);
+        }
     }
 
     private static (FakeRevitBridge Bridge, FakePluginContext Context) Setup(

@@ -67,8 +67,12 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                     properties = new
                     {
                         elementIds = new { type = "array", items = new { type = "string" } },
-                        thicknessMm = new { type = "number" },
-                        faceTypes = new { type = "array", items = new { type = "string" } },
+                        // Bounds rather than a fixed value: sheet thickness genuinely varies, but
+                        // the generator would otherwise build whatever number it was handed.
+                        thicknessMm = new { type = "number", minimum = FormworkDefaults.SheetThicknessMmMin, maximum = FormworkDefaults.SheetThicknessMmMax },
+                        // Built from the Core list, so a face type added host-side is immediately
+                        // offered to the model and one removed is immediately refused.
+                        faceTypes = new { type = "array", items = new { type = "string", @enum = FormworkDefaults.AllFaceTypes } },
                         collision = new { type = "boolean" },
                         deleteExisting = new { type = "boolean" },
                         includeUnselectedLinks = new { type = "boolean" }
@@ -112,7 +116,10 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                     type = "object",
                     properties = new
                     {
-                        action = new { type = "string" },
+                        // enum so ToolArgumentValidator refuses an unimplemented action before
+                        // approval; FormworkCleanup.Run keeps its own default case as
+                        // defence-in-depth, because Handler can still be called directly.
+                        action = new { type = "string", @enum = FormworkDefaults.CleanupActions },
                         faceType = new { type = "string" }
                     },
                     required = new[] { "action" }

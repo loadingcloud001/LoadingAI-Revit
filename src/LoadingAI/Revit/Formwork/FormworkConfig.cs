@@ -49,15 +49,13 @@ internal static class FormworkConfig
         BuiltInCategory.OST_Stairs,
     };
 
-    public static readonly string[] AllFaceTypes =
-    {
-        FaceTypes.WallExterior, FaceTypes.WallInterior,
-        FaceTypes.SlabBottom, FaceTypes.SlabSide,
-        FaceTypes.BeamBottom, FaceTypes.BeamSide,
-        FaceTypes.ColumnSide,
-        FaceTypes.FoundationBottom, FaceTypes.FoundationSide,
-        FaceTypes.StairsSoffit, FaceTypes.StairsSide,
-    };
+    /// <summary>
+    /// Aliased from Core rather than re-listed here: the plugin builds its tool schema from the
+    /// same array, so a face type can never be generated but refused by the schema, or offered
+    /// to the model and silently dropped by the generator (ADR-0013). <see cref="FaceTypes"/>
+    /// still holds the names used for comparison and priority inside the algorithms.
+    /// </summary>
+    public static readonly string[] AllFaceTypes = FormworkDefaults.AllFaceTypes;
 
     public static readonly IReadOnlyDictionary<string, int> FacePriority = new Dictionary<string, int>
     {
