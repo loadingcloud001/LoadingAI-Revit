@@ -271,6 +271,31 @@ A direct merge can reintroduce a superseded architecture or create semantic conf
 
 Start from live `main`, port missing local behavior into the Bridge implementation, and prove parity with deterministic tests plus a Revit 2027 smoke test.
 
+### B14 — Low: `RequiresWriteConfirm` reads inverted, but the behaviour is ADR-frozen
+
+**Evidence**
+
+- `src/LoadingAI.Core/Tools/ToolRegistry.cs` exposes `ToolEntry.RequiresWriteConfirm`.
+- `src/LoadingAI/Tools/ToolGuards.cs:10` **skips** the generic write-confirm dialog when the flag is set, and adds one for an L2 tool that leaves it unset.
+- `docs/adr/0004-host-owned-l3-confirm.md:18` records that skip as the decision: "skips L1, L3, `RequiresWriteConfirm`, and preset tools. L2 without presets still gets a host TaskDialog."
+- `docs/adr/0006-port-export-tools-onto-bridge.md:105` says "Do not change the L1/L3 tiers, `RequiresWriteConfirm`, or the L3 gate order (ADR-0004)."
+- `docs/adr/0001-bridge-first-hardening.md:43-53` pins the intended value per tool.
+- The flag is set on only 18 of roughly 35 write tools, and is a functional no-op on every L3 tool because the tier gate already runs first.
+
+**Impact**
+
+A reader naturally sets `RequiresWriteConfirm = true` on a write tool expecting a confirmation, and thereby removes one. `set_comments_on_selection` (L2 write, flag set) runs with no dialog while `hide_in_view` (L2, no flag) gets one. The inconsistency is a maintenance hazard, not a live safety hole: nothing currently in tree loses a confirmation it was meant to have.
+
+**Status**
+
+Deliberately unchanged. The meaning is now documented on the property itself. Behaviour is frozen by ADR-0004 and called out as do-not-change by ADR-0006.
+
+**Recommendation**
+
+- Keep the behaviour. Treat the name as meaning "owns its own confirm / opts out of the generic guard".
+- A rename is a mechanical but wide change: Core, all shipped plugins, `ToolGuards`, `PluginLoader`, and 35 test assertions, plus the wording of Accepted ADRs 0001/0004/0006/0009.
+- If the confusion ever causes a real incident, write a **Proposed** ADR before renaming or inverting anything (CONTRIBUTING: an ADR is required before breaking an Accepted freeze).
+
 ## Recommended order
 
 1. **P0 model safety:** B1, B2, B3.
