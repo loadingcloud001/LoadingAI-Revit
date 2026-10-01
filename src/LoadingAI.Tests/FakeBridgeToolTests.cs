@@ -2371,6 +2371,53 @@ public class FakeBridgeToolTests
         Assert.False(tools["copy_formwork_parent_params"].RequiresWriteConfirm);
     }
 
+    // dryRun is the only thing that skips BOTH L3 gates (ADR-0004), so a tool that declares the
+    // key must honour it in the same breath. Otherwise passing one boolean deletes every confirm
+    // on a destructive write.
+
+    [Theory]
+    [InlineData("formwork_setup", "{\"dryRun\":true}")]
+    [InlineData("create_formwork_panels", "{\"dryRun\":true}")]
+    [InlineData("cleanup_formwork", "{\"dryRun\":true,\"action\":\"stats\"}")]
+    [InlineData("copy_formwork_parent_params", "{\"dryRun\":true}")]
+    public async Task FormworkDryRun_ReportsNoWrite_AndIssuesNoBridgeWrites(string name, string argsJson)
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, name);
+
+        var result = await tool.ExecuteAsync(argsJson);
+
+        Assert.True(result.Status == ToolExecutionStatus.Succeeded, $"{name} -> {result.Status}: {result.Text}");
+        Assert.Equal(ToolWriteCertainty.NoWrite, result.WriteCertainty);
+        Assert.Empty(bridge.FormworkSetupCalls);
+        Assert.Empty(bridge.FormworkPanelsCalls);
+        Assert.Empty(bridge.CleanupFormworkCalls);
+        Assert.Empty(bridge.CopyFormworkParentParamsCalls);
+    }
+
+    [Fact]
+    public async Task FormworkDryRun_DeleteExistingStillNeedsNoConfirm()
+    {
+        var bridge = new FakeRevitBridge { HasActiveDocument = true };
+        var tool = FormworkTool(bridge, "create_formwork_panels");
+
+        var result = await tool.ExecuteAsync("{\"dryRun\":true,\"deleteExisting\":true}");
+
+        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+        Assert.Equal(ToolWriteCertainty.NoWrite, result.WriteCertainty);
+        Assert.Empty(bridge.FormworkPanelsCalls);
+    }
+
+    [Fact]
+    public void CreateFormworkPanels_DeleteExistingFieldCarriesWarning()
+    {
+        var tool = FormworkTool(new FakeRevitBridge { HasActiveDocument = true }, "create_formwork_panels");
+
+        var field = tool.Presets!.Single(f => f.Id == "deleteExisting");
+
+        Assert.False(string.IsNullOrWhiteSpace(field.Warning));
+    }
+
     [Fact]
     public async Task FormworkSetup_Success_ForwardsEmptyRequest()
     {
