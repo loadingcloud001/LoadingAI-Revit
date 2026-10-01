@@ -48,7 +48,7 @@
     {
       "name": "create_section_view",
       "tier": "L3",
-      "description": "Create a section from a wall/curve element or two plan points. Params: elementId or x1,y1,x2,y2.",
+      "description": "Create a section along a line given in millimetres. Params: x1,y1,x2,y2, name optional. Box is fixed at 3000 x 2500 mm.",
       "enabledByDefault": false,
       "tags": [
         "view",

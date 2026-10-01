@@ -45,19 +45,22 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var cat = args.Str("category");
-            var name = args.Str("name");
-            var fields = args.Strings("fields");
-            if (string.IsNullOrWhiteSpace(cat)) return "category is required.";
-            // The bridge takes one token: "<category>", or "<category>:<name>" for an explicit schedule name.
-            var token = string.IsNullOrWhiteSpace(name) ? cat!.Trim() : $"{cat.Trim()}:{name.Trim()}";
-            var result = await context.Bridge.CreateScheduleAsync(token, fields);
-            return result == null ? "Please open a model first." : result.Error ?? result.Message;
-        }
+        Handler = async json => (await CreateScheduleAsync(context, json)).Text,
+        StructuredHandler = json => CreateScheduleAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CreateScheduleAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var cat = args.Str("category");
+        var name = args.Str("name");
+        var fields = args.Strings("fields");
+        if (string.IsNullOrWhiteSpace(cat))
+            return ToolExecutionResult.Failed("category is required.", ToolWriteCertainty.NotCommitted);
+        // The bridge takes one token: "<category>", or "<category>:<name>" for an explicit schedule name.
+        var token = string.IsNullOrWhiteSpace(name) ? cat!.Trim() : $"{cat.Trim()}:{name.Trim()}";
+        return FromCreatedView(await context.Bridge.CreateScheduleAsync(token, fields));
+    }
 
     private static ToolEntry GetScheduleData(IPluginContext context) => new()
     {
@@ -81,22 +84,27 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var sid = args.Str("scheduleId");
-            var name = args.Str("name");
-            var limit = args.Int("rowLimit", 0);
-            var data = await context.Bridge.GetScheduleDataAsync(sid, name, limit);
-            if (data == null) return "Please open a model first.";
-            if (data.Error != null) return data.Error;
-            var sb = new StringBuilder();
-            sb.AppendLine($"{data.Name} ({data.Id}) rows={data.TotalRows} cols={data.TotalColumns} showing={data.ShownRows}");
-            foreach (var row in data.Rows)
-                sb.AppendLine(string.Join("\t", row));
-            return sb.ToString();
-        }
+        Handler = async json => (await GetScheduleDataAsync(context, json)).Text,
+        StructuredHandler = json => GetScheduleDataAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> GetScheduleDataAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var sid = args.Str("scheduleId");
+        var name = args.Str("name");
+        var limit = args.Int("rowLimit", 0);
+        var data = await context.Bridge.GetScheduleDataAsync(sid, name, limit);
+        if (data == null)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NoWrite);
+        if (data.Error != null)
+            return ToolExecutionResult.Failed(data.Error, ToolWriteCertainty.NoWrite);
+        var sb = new StringBuilder();
+        sb.AppendLine($"{data.Name} ({data.Id}) rows={data.TotalRows} cols={data.TotalColumns} showing={data.ShownRows}");
+        foreach (var row in data.Rows)
+            sb.AppendLine(string.Join("\t", row));
+        return ToolExecutionResult.Succeeded(sb.ToString(), ToolWriteCertainty.NoWrite);
+    }
 
     private static ToolEntry CreateFloorPlan(IPluginContext context) => new()
     {
@@ -120,18 +128,20 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var levelId = args.Str("levelId");
-            var levelName = args.Str("levelName");
-            var name = args.Str("name");
-            // The bridge resolves a level by id first, then by name, then falls back to the lowest level.
-            var levelToken = !string.IsNullOrWhiteSpace(levelId) ? levelId!.Trim() : (levelName ?? string.Empty).Trim();
-            var result = await context.Bridge.CreateFloorPlanAsync(levelToken, (name ?? string.Empty).Trim());
-            return result == null ? "Please open a model first." : result.Error ?? result.Message;
-        }
+        Handler = async json => (await CreateFloorPlanAsync(context, json)).Text,
+        StructuredHandler = json => CreateFloorPlanAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CreateFloorPlanAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var levelId = args.Str("levelId");
+        var levelName = args.Str("levelName");
+        var name = args.Str("name");
+        // The bridge resolves a level by id first, then by name, then falls back to the lowest level.
+        var levelToken = !string.IsNullOrWhiteSpace(levelId) ? levelId!.Trim() : (levelName ?? string.Empty).Trim();
+        return FromCreatedView(await context.Bridge.CreateFloorPlanAsync(levelToken, (name ?? string.Empty).Trim()));
+    }
 
     private static ToolEntry Create3dView(IPluginContext context) => new()
     {
@@ -150,14 +160,16 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var name = Args.Parse(json).Str("name");
-            // This tool has always created an isometric view; the bridge also offers perspective.
-            var result = await context.Bridge.Create3DViewAsync((name ?? string.Empty).Trim(), true);
-            return result == null ? "Please open a model first." : result.Error ?? result.Message;
-        }
+        Handler = async json => (await Create3dViewAsync(context, json)).Text,
+        StructuredHandler = json => Create3dViewAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> Create3dViewAsync(IPluginContext context, string json)
+    {
+        var name = Args.Parse(json).Str("name");
+        // This tool has always created an isometric view; the bridge also offers perspective.
+        return FromCreatedView(await context.Bridge.Create3DViewAsync((name ?? string.Empty).Trim(), true));
+    }
 
     private static ToolEntry CreateSectionView(IPluginContext context) => new()
     {
@@ -166,48 +178,55 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         {
             Function = new ToolFunction
             {
+                // elementId / height / depth are deliberately absent from the schema: the bridge
+                // section contract owns the box extents and takes only two plan points, so
+                // advertising them invited arguments the tool could never honour.
                 Name = "create_section_view",
-                Description = "Create a section (CreateViewSection). Params: elementId of a wall/curve, or x1,y1,x2,y2 in mm. Optional name, height, depth in mm.",
+                Description = "Create a section (CreateViewSection) along a line you give in millimetres. Params: x1,y1,x2,y2 in mm, name optional. The section box is fixed at 3000 x 2500 mm around the line.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
-                        elementId = new { type = "string" },
                         x1 = new { type = "number" },
                         y1 = new { type = "number" },
                         x2 = new { type = "number" },
                         y2 = new { type = "number" },
                         z = new { type = "number" },
-                        name = new { type = "string" },
-                        height = new { type = "number" },
-                        depth = new { type = "number" }
+                        name = new { type = "string" }
                     },
                     required = Array.Empty<string>()
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var eid = args.Str("elementId");
-            var name = args.Str("name");
-            // The bridge's section contract owns the box extents (3000 x 2500 mm, the former
-            // defaults), so custom extents are rejected instead of being silently ignored.
-            if ((args.HasNumber("height") && Math.Abs(args.Dbl("height", 3000) - 3000) > 1)
-                || (args.HasNumber("depth") && Math.Abs(args.Dbl("depth", 2500) - 2500) > 1))
-                return "custom height/depth are not available; the section box is fixed at 3000 x 2500 mm.";
-            if (!string.IsNullOrWhiteSpace(eid))
-                return $"elementId sections need explicit coordinates: pass x1,y1,x2,y2 (mm) instead of {eid}.";
-            if (!(args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2")))
-                return "Pass x1,y1,x2,y2 (mm).";
-            var z = args.Dbl("z", 0);
-            var a = new PointMmDto(args.Dbl("x1", 0), args.Dbl("y1", 0), z);
-            var b = new PointMmDto(args.Dbl("x2", 0), args.Dbl("y2", 0), z);
-            var result = await context.Bridge.CreateSectionViewAsync((name ?? string.Empty).Trim(), a, b, null);
-            return result == null ? "Please open a model first." : result.Error ?? result.Message;
-        }
+        Handler = async json => (await CreateSectionViewAsync(context, json)).Text,
+        StructuredHandler = json => CreateSectionViewAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CreateSectionViewAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var eid = args.Str("elementId");
+        var name = args.Str("name");
+        // These guards are the defence-in-depth layer: the schema no longer advertises
+        // elementId/height/depth, so ToolArgumentValidator normally rejects them first.
+        // A direct Handler call still lands here and gets the explanatory message.
+        if ((args.HasNumber("height") && Math.Abs(args.Dbl("height", 3000) - 3000) > 1)
+            || (args.HasNumber("depth") && Math.Abs(args.Dbl("depth", 2500) - 2500) > 1))
+            return ToolExecutionResult.Failed(
+                "custom height/depth are not available; the section box is fixed at 3000 x 2500 mm.",
+                ToolWriteCertainty.NotCommitted);
+        if (!string.IsNullOrWhiteSpace(eid))
+            return ToolExecutionResult.Failed(
+                $"elementId sections need explicit coordinates: pass x1,y1,x2,y2 (mm) instead of {eid}.",
+                ToolWriteCertainty.NotCommitted);
+        if (!(args.HasNumber("x1") && args.HasNumber("y1") && args.HasNumber("x2") && args.HasNumber("y2")))
+            return ToolExecutionResult.Failed("Pass x1,y1,x2,y2 (mm).", ToolWriteCertainty.NotCommitted);
+        var z = args.Dbl("z", 0);
+        var a = new PointMmDto(args.Dbl("x1", 0), args.Dbl("y1", 0), z);
+        var b = new PointMmDto(args.Dbl("x2", 0), args.Dbl("y2", 0), z);
+        return FromCreatedView(await context.Bridge.CreateSectionViewAsync((name ?? string.Empty).Trim(), a, b, null));
+    }
 
     private static ToolEntry PathOfTravelTool(IPluginContext context) => new()
     {
@@ -235,30 +254,71 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var viewId = args.Str("viewId");
-            var starts = args.Points("starts");
-            var ends = args.Points("ends");
-            if (starts.Count == 0 && args.HasNumber("startX") && args.HasNumber("startY"))
-                starts.Add(new PointMmDto(args.Dbl("startX", 0), args.Dbl("startY", 0), 0));
-            if (ends.Count == 0 && args.HasNumber("endX") && args.HasNumber("endY"))
-                ends.Add(new PointMmDto(args.Dbl("endX", 0), args.Dbl("endY", 0), 0));
-            if (starts.Count == 0 || ends.Count == 0) return "Pass startX/startY/endX/endY or starts/ends arrays.";
-            if (starts.Count != ends.Count) return "starts and ends must have the same count.";
-            var pairs = new List<PathPairDto>(starts.Count);
-            for (var i = 0; i < starts.Count; i++) pairs.Add(new PathPairDto(starts[i], ends[i]));
-            // The bridge clamps to 5 pairs and needs a floor plan view; both checks stay there.
-            var result = await context.Bridge.CreatePathOfTravelAsync((viewId ?? string.Empty).Trim(), pairs);
-            if (result == null) return "Please open a model first.";
-            if (result.Error != null) return result.Error;
-            var ids = string.Join(", ", result.CreatedIds);
-            var fail = string.Join(", ", result.Failures);
-            return $"Created {result.Created}/{result.Requested} path(s) in {result.ViewName}: {ids}"
-                + (string.IsNullOrEmpty(fail) ? "" : $"\nFailed: {fail}");
-        }
+        Handler = async json => (await PathOfTravelAsync(context, json)).Text,
+        StructuredHandler = json => PathOfTravelAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> PathOfTravelAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var viewId = args.Str("viewId");
+        var starts = args.Points("starts");
+        var ends = args.Points("ends");
+        if (starts.Count == 0 && args.HasNumber("startX") && args.HasNumber("startY"))
+            starts.Add(new PointMmDto(args.Dbl("startX", 0), args.Dbl("startY", 0), 0));
+        if (ends.Count == 0 && args.HasNumber("endX") && args.HasNumber("endY"))
+            ends.Add(new PointMmDto(args.Dbl("endX", 0), args.Dbl("endY", 0), 0));
+        if (starts.Count == 0 || ends.Count == 0)
+            return ToolExecutionResult.Failed(
+                "Pass startX/startY/endX/endY or starts/ends arrays.", ToolWriteCertainty.NotCommitted);
+        if (starts.Count != ends.Count)
+            return ToolExecutionResult.Failed(
+                "starts and ends must have the same count.", ToolWriteCertainty.NotCommitted);
+        var pairs = new List<PathPairDto>(starts.Count);
+        for (var i = 0; i < starts.Count; i++) pairs.Add(new PathPairDto(starts[i], ends[i]));
+        // The bridge clamps to 5 pairs and needs a floor plan view; both checks stay there.
+        var result = await context.Bridge.CreatePathOfTravelAsync((viewId ?? string.Empty).Trim(), pairs);
+        if (result == null)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
+        // Error first, matching FromCreatedView: a call that never reached PathOfTravel.Create
+        // (no document, no floor plan, over the pair cap) has created nothing, so it is a clean
+        // failure and must not be dressed up as a Created 0/0 report.
+        if (result.Error != null)
+            return ToolExecutionResult.Failed(result.Error, ToolWriteCertainty.NotCommitted);
+
+        var ids = string.Join(", ", result.CreatedIds);
+        var fail = string.Join(", ", result.Failures);
+        var text = $"Created {result.Created}/{result.Requested} path(s) in {result.ViewName}: {ids}"
+            + (string.IsNullOrEmpty(fail) ? "" : $"\nFailed: {fail}");
+
+        // Failures are per-pair and CreatedIds holds only what actually solved, so a partial
+        // run keeps the paths that landed and is never reported as a clean success.
+        if (result.Failures.Count > 0)
+            return result.Created > 0
+                ? ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, result.Created, result.Failures.Count)
+                : ToolExecutionResult.Failed(text, ToolWriteCertainty.NotCommitted, 0, result.Failures.Count);
+        return ToolExecutionResult.Succeeded(
+            text,
+            result.Created > 0 ? ToolWriteCertainty.Committed : ToolWriteCertainty.NoWrite,
+            result.Created);
+    }
+
+    /// <summary>
+    /// The view-creating tools each add exactly one view, so a non-empty Id is the signal that
+    /// the Adapter really created something. An <c>Error</c> means nothing was created, and a
+    /// null DTO means there was no document to create it in.
+    /// </summary>
+    private static ToolExecutionResult FromCreatedView(ViewRefDto? result)
+    {
+        if (result == null)
+            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
+        if (result.Error != null)
+            return ToolExecutionResult.Failed(result.Error, ToolWriteCertainty.NotCommitted);
+        return ToolExecutionResult.Succeeded(
+            result.Message,
+            string.IsNullOrEmpty(result.Id) ? ToolWriteCertainty.NoWrite : ToolWriteCertainty.Committed,
+            1);
+    }
 
     private readonly struct Args
     {
