@@ -1,6 +1,6 @@
 # ADR-0013 — qs-formwork structured results and preset forms
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-01
 - Deciders: LoadingAI maintainers
 
