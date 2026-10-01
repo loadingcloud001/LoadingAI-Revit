@@ -2,6 +2,7 @@
 // Build: dotnet build -c Release (produces LoadingAI.Plugins.Hello.dll)
 // Drop the folder (plugin.json + dll) into %AppData%\LoadingAI\Plugins\hello\ and restart Revit.
 
+using System.Threading.Tasks;
 using LoadingAI.Llm;
 using LoadingAI.Plugins;
 using LoadingAI.Tools;
@@ -28,14 +29,33 @@ public sealed class HelloPlugin : IRevitToolPlugin
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
-            Handler = async _ =>
-            {
-                context.Progress.Report("Hello…", 40);
-                var dto = await context.Bridge.GetModelSummaryAsync();
-                if (dto == null) return "Hello! No document open.";
-                context.Progress.Report("Hello done", 100);
-                return $"Hello from Example Plugin! Active doc: {dto.Title}";
-            }
+            // StructuredHandler is the authoritative path the host calls: it returns a
+            // ToolExecutionResult carrying the status and the write certainty. Handler is the
+            // legacy string path, kept so the same tool body stays callable the old way. Every
+            // shipped plugin declares both, and the two must agree on the text.
+            Handler = async _ => (await HelloAsync(context)).Text,
+            StructuredHandler = _ => HelloAsync(context)
         };
+    }
+
+    /// <summary>
+    /// The whole tool body, once. This is the pattern to copy: derive the status from what
+    /// actually happened rather than from the wording of a returned sentence.
+    ///
+    /// This tool is L1, so it never writes the model and always reports
+    /// <see cref="ToolWriteCertainty.NoWrite"/>. Note that "no document open" is
+    /// <c>Failed</c> so the turn timeline shows the read produced nothing, but its certainty is
+    /// <c>NoWrite</c> rather than <c>NotCommitted</c>: a read opens no transaction, so there was
+    /// nothing to commit or roll back.
+    /// </summary>
+    private static async Task<ToolExecutionResult> HelloAsync(IPluginContext context)
+    {
+        context.Progress.Report("Hello…", 40);
+        var dto = await context.Bridge.GetModelSummaryAsync();
+        if (dto == null)
+            return ToolExecutionResult.Failed("Hello! No document open.", ToolWriteCertainty.NoWrite);
+        context.Progress.Report("Hello done", 100);
+        return ToolExecutionResult.Succeeded(
+            $"Hello from Example Plugin! Active doc: {dto.Title}", ToolWriteCertainty.NoWrite);
     }
 }
