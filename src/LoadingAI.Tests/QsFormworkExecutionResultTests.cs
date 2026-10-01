@@ -388,6 +388,54 @@ public class QsFormworkExecutionResultTests
         }
     }
 
+    // ---- Task 6: host-owned preset forms. The pane asks once instead of the model guessing ids
+    // and thickness for a six-argument L3 write. ToolGuards returns early for every L3 tool, so
+    // the native Confirm L3 dialog still runs and no second TaskDialog is added.
+    [Fact]
+    public void CreatePanelsDeclaresAHostOwnedForm()
+    {
+        var (_, context) = Setup();
+        var tool = CreateTool(context, "create_formwork_panels");
+
+        Assert.Contains(tool.Presets, p => p.Id == "elementIds" && p.Kind == PresetFieldKind.PickElements);
+        Assert.Contains(tool.Presets, p => p.Id == "thicknessMm" && p.Kind == PresetFieldKind.Number);
+        Assert.Contains(tool.Presets, p => p.Id == "collision" && p.Kind == PresetFieldKind.Boolean);
+        Assert.Contains(tool.Presets, p => p.Id == "deleteExisting" && p.Kind == PresetFieldKind.Boolean);
+        Assert.True(ToolPresets.HasPresets(tool));
+    }
+
+    [Fact]
+    public void CleanupDeclaresAnActionSelect()
+    {
+        var (_, context) = Setup();
+        var tool = CreateTool(context, "cleanup_formwork");
+
+        Assert.Contains(tool.Presets, p => p.Id == "action" && p.Kind == PresetFieldKind.Select);
+        Assert.True(ToolPresets.HasPresets(tool));
+    }
+
+    [Fact]
+    public void CopyParentParamsDeclaresAPickElementsField()
+    {
+        var (_, context) = Setup();
+        var tool = CreateTool(context, "copy_formwork_parent_params");
+
+        Assert.Contains(tool.Presets, p => p.Id == "elementIds" && p.Kind == PresetFieldKind.PickElements);
+        Assert.True(ToolPresets.HasPresets(tool));
+    }
+
+    // Takes no arguments, so a form would be an empty modal. It also stays preset-free so a
+    // tool that has nothing to ask never opens a UI at all.
+    [Fact]
+    public void SetupNeedsNoFormBecauseItTakesNoArguments()
+    {
+        var (_, context) = Setup();
+        var tool = CreateTool(context, "formwork_setup");
+
+        Assert.Empty(tool.Presets);
+        Assert.False(ToolPresets.HasPresets(tool));
+    }
+
     private static (FakeRevitBridge Bridge, FakePluginContext Context) Setup(
         bool hasDocument = true, IReadOnlyList<string>? selection = null)
     {

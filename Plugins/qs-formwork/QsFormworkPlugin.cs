@@ -81,6 +81,16 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
+        // Host-owned form: the pane picks the elements and the thickness instead of the model
+        // guessing ids for a six-argument L3 write. Fields omitted from the form keep whatever
+        // the model passed, so faceTypes and the two link flags stay free for it to set.
+        Presets = new[]
+        {
+            new PresetField { Id = "elementIds", Label = "Elements", Kind = PresetFieldKind.PickElements, Prompt = "Pick the structural elements to form" },
+            new PresetField { Id = "thicknessMm", Label = "Sheet thickness (mm)", Kind = PresetFieldKind.Number, Default = (int)FormworkDefaults.SheetThicknessMmDefault },
+            new PresetField { Id = "collision", Label = "Skip panels that collide", Kind = PresetFieldKind.Boolean, Default = true },
+            new PresetField { Id = "deleteExisting", Label = "Delete existing panels first", Kind = PresetFieldKind.Boolean, Default = false },
+        },
         Handler = async json => (await CreatePanelsAsync(context, json)).Text,
         StructuredHandler = json => CreatePanelsAsync(context, json)
     };
@@ -126,6 +136,12 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 }
             }
         },
+        // Options come from the Core list, so the Select offers exactly the four actions the
+        // host implements. The model may still pass faceType itself for delete_by_type.
+        Presets = new[]
+        {
+            new PresetField { Id = "action", Label = "Action", Kind = PresetFieldKind.Select, Required = true, Default = "stats", Options = FormworkDefaults.CleanupActions },
+        },
         Handler = async json => (await CleanupAsync(context, json)).Text,
         StructuredHandler = json => CleanupAsync(context, json)
     };
@@ -160,6 +176,12 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        // paramNames is deliberately not on the form: omitting it asks for the catalogue instead
+        // of a copy, and a required field would make that read unreachable from the pane.
+        Presets = new[]
+        {
+            new PresetField { Id = "elementIds", Label = "Panels", Kind = PresetFieldKind.PickElements, Prompt = "Pick formwork panels to update" },
         },
         Handler = async json => (await CopyParentParamsAsync(context, json)).Text,
         StructuredHandler = json => CopyParentParamsAsync(context, json)
