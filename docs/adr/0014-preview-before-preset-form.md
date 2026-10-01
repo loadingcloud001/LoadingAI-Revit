@@ -1,6 +1,6 @@
 # ADR-014 — preview before the preset form
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-02
 - Deciders: LoadingAI maintainers
 - Extends: [ADR-0004](0004-host-owned-l3-confirm.md)

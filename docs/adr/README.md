@@ -68,4 +68,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Proposed |
 | [0012](0012-port-opening-tools-onto-bridge.md) | Port opening-tools onto Bridge | Accepted |
 | [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Proposed |
-| [0014](0014-preview-before-preset-form.md) | Preview before the preset form (Run panel, gates untouched) | Proposed |
+| [0014](0014-preview-before-preset-form.md) | Preview before the preset form (Run panel, gates untouched) | Accepted |
