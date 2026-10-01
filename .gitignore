@@ -43,5 +43,6 @@ Revit_temp/
 # --- local agent/editor state ---
 /.kilo/
 /.codex/
+/.hermes/
 /.idea/
 /.vscode/

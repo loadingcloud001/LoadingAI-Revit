@@ -43,20 +43,23 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var ids = args.Strings("sheetIds");
-            var folder = args.Str("folder");
-            var name = args.Str("name");
-            var combine = args.Bool("combine", true);
-            string dir;
-            try { dir = ExportPaths.ResolveDirectory(folder); }
-            catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            var result = await context.Bridge.ExportPdfAsync(dir, ids.Count == 0 ? null : ids, name, combine);
-            return result.Message;
-        }
+        Handler = async json => (await ExportPdfAsync(context, json)).Text,
+        StructuredHandler = json => ExportPdfAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ExportPdfAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var ids = args.Strings("sheetIds");
+        var folder = args.Str("folder");
+        var name = args.Str("name");
+        var combine = args.Bool("combine", true);
+        string dir;
+        try { dir = ExportPaths.ResolveDirectory(folder); }
+        catch (Exception ex) { return ExportFailed($"Failed: {ex.Message}"); }
+        var result = await context.Bridge.ExportPdfAsync(dir, ids.Count == 0 ? null : ids, name, combine);
+        return FromExport(result);
+    }
 
     private static ToolEntry ExportDwg(IPluginContext context) => new()
     {
@@ -80,19 +83,22 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var ids = args.Strings("viewIds");
-            var folder = args.Str("folder");
-            var name = args.Str("name");
-            string dir;
-            try { dir = ExportPaths.ResolveDirectory(folder); }
-            catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            var result = await context.Bridge.ExportDwgAsync(dir, ids.Count == 0 ? null : ids, name);
-            return result.Message;
-        }
+        Handler = async json => (await ExportDwgAsync(context, json)).Text,
+        StructuredHandler = json => ExportDwgAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ExportDwgAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var ids = args.Strings("viewIds");
+        var folder = args.Str("folder");
+        var name = args.Str("name");
+        string dir;
+        try { dir = ExportPaths.ResolveDirectory(folder); }
+        catch (Exception ex) { return ExportFailed($"Failed: {ex.Message}"); }
+        var result = await context.Bridge.ExportDwgAsync(dir, ids.Count == 0 ? null : ids, name);
+        return FromExport(result);
+    }
 
     private static ToolEntry ExportIfc(IPluginContext context) => new()
     {
@@ -116,19 +122,22 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var folder = args.Str("folder");
-            var name = args.Str("name");
-            var version = args.Str("version");
-            string dir;
-            try { dir = ExportPaths.ResolveDirectory(folder); }
-            catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            var result = await context.Bridge.ExportIfcAsync(dir, name, version);
-            return result.Message;
-        }
+        Handler = async json => (await ExportIfcAsync(context, json)).Text,
+        StructuredHandler = json => ExportIfcAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ExportIfcAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var folder = args.Str("folder");
+        var name = args.Str("name");
+        var version = args.Str("version");
+        string dir;
+        try { dir = ExportPaths.ResolveDirectory(folder); }
+        catch (Exception ex) { return ExportFailed($"Failed: {ex.Message}"); }
+        var result = await context.Bridge.ExportIfcAsync(dir, name, version);
+        return FromExport(result);
+    }
 
     private static ToolEntry PurgeUnused(IPluginContext context) => new()
     {
@@ -147,21 +156,53 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
+        Handler = async json => (await PurgeUnusedAsync(context, json)).Text,
+        StructuredHandler = json => PurgeUnusedAsync(context, json)
+    };
+
+    private static async Task<ToolExecutionResult> PurgeUnusedAsync(IPluginContext context, string json)
+    {
+        var preview = Args.Parse(json).Bool("preview", true);
+        var result = await context.Bridge.PurgeUnusedAsync(preview);
+
+        // Error is checked first, matching ADR-0006. DeletedCount is authoritative over
+        // the error text: a purge that already removed elements in an earlier pass is a
+        // partial write, not a clean failure, and must not be rolled back as one.
+        if (result.Error != null)
+            return result.DeletedCount > 0
+                ? ToolExecutionResult.Partial(result.Error, ToolWriteCertainty.Committed, result.DeletedCount, 1)
+                : ToolExecutionResult.Failed(result.Error, ToolWriteCertainty.NotCommitted);
+
+        if (result.UnusedCount == 0)
+            return ToolExecutionResult.Succeeded("Nothing to purge.", ToolWriteCertainty.NoWrite);
+
+        if (result.Preview)
         {
-            var preview = Args.Parse(json).Bool("preview", true);
-            var result = await context.Bridge.PurgeUnusedAsync(preview);
-            if (result.Error != null) return result.Error;
-            if (result.UnusedCount == 0) return "Nothing to purge.";
-            if (result.Preview)
-            {
-                return $"Purge preview: {result.UnusedCount} unused elements that can be deleted.\n"
+            // A preview never opens a transaction, so it can never be mistaken for a write.
+            var text = $"Purge preview: {result.UnusedCount} unused elements that can be deleted.\n"
                      + $"Sample:\n{string.Join("\n", result.Sample)}\n"
                      + "Run with preview:false to delete.";
-            }
-            return $"Purged {result.DeletedCount} unused element(s) in {result.Passes} pass(es).";
+            return ToolExecutionResult.Succeeded(text, ToolWriteCertainty.NoWrite);
         }
-    };
+
+        var report = $"Purged {result.DeletedCount} unused element(s) in {result.Passes} pass(es).";
+        return result.DeletedCount > 0
+            ? ToolExecutionResult.Succeeded(report, ToolWriteCertainty.Committed, result.DeletedCount)
+            : ToolExecutionResult.Succeeded(report, ToolWriteCertainty.NoWrite);
+    }
+
+    /// <summary>
+    /// An export writes files, never the Revit model, so it is always
+    /// <see cref="ToolWriteCertainty.NoWrite"/> whatever the outcome. That keeps a failed
+    /// export from being read as a model write that needs rolling back.
+    /// </summary>
+    private static ToolExecutionResult FromExport(CommandResultDto result)
+        => result.Ok
+            ? ToolExecutionResult.Succeeded(result.Message, ToolWriteCertainty.NoWrite, result.AffectedCount)
+            : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NoWrite, failedCount: 1);
+
+    private static ToolExecutionResult ExportFailed(string text)
+        => ToolExecutionResult.Failed(text, ToolWriteCertainty.NoWrite);
 
     private readonly struct Args
     {

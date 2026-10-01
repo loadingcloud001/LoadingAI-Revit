@@ -51,9 +51,16 @@ function ticketTtl(env) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TICKET_TTL_SECONDS;
 }
 
-/** Signs tickets. Never leaves the server, so clients cannot mint one. */
+/**
+ * Signs tickets. Never leaves the server, so clients cannot mint one.
+ *
+ * TICKET_SECRET is required and is never derived from MINIMAX_API_KEY. Falling
+ * back to the upstream key coupled two independent roles: rotating either one
+ * invalidated the other, and any path that leaked the HMAC key leaked the
+ * credential that spends money. A missing secret fails closed.
+ */
 function ticketSecret(env) {
-  return env.TICKET_SECRET || env.MINIMAX_API_KEY || '';
+  return env.TICKET_SECRET || '';
 }
 
 function misconfigured() {
@@ -116,6 +123,10 @@ async function handleQuota(request, env) {
     return json(status);
   }
 
+  // Both halves of the configuration are required before a single request is
+  // consumed. Issuing a ticket on a gateway that cannot serve the chat would
+  // burn the user's daily allowance for nothing.
+  if (!env.MINIMAX_API_KEY) return misconfigured();
   const secret = ticketSecret(env);
   if (!secret) return misconfigured();
 
@@ -155,7 +166,12 @@ async function handleChat(request, env) {
   if (!env.MINIMAX_API_KEY) return misconfigured();
   const apiKey = env.MINIMAX_API_KEY;
 
-  const owner = await ticketDevice(ticketSecret(env), request.headers.get(TICKET_HEADER));
+  // No ticket secret means every ticket would verify against an empty HMAC key.
+  // Fail closed rather than accepting it.
+  const secret = ticketSecret(env);
+  if (!secret) return misconfigured();
+
+  const owner = await ticketDevice(secret, request.headers.get(TICKET_HEADER));
   if (!owner) {
     return fail(401, 'LoadingAI ticket missing or expired. Send your message again.', 'no_ticket');
   }

@@ -24,6 +24,7 @@ function makeEnv(overrides = {}) {
   return {
     QUOTA: memoryKv(),
     MINIMAX_API_KEY: 'sk-server-side-secret',
+    TICKET_SECRET: 'ticket-signing-secret',
     MINIMAX_BASE_URL: 'https://upstream.test/v1',
     MINIMAX_MODEL: 'MiniMax-M3',
     DAILY_LIMIT: '100',
@@ -350,6 +351,30 @@ test('an unconfigured gateway refuses quota and chat alike', async () => {
   assert.equal((await res.json()).error.code, 'gateway_misconfigured');
 });
 
+
+test('a missing TICKET_SECRET fails closed instead of signing with the upstream key', async () => {
+  // Regression: ticketSecret() used to fall back to MINIMAX_API_KEY, coupling the
+  // HMAC key to the credential that spends money and making either rotation
+  // invalidate the other. Both routes must now refuse.
+  const env = makeEnv({ TICKET_SECRET: '' });
+
+  const quota = await worker.fetch(quotaRequest('POST'), env);
+  assert.equal(quota.status, 500);
+  assert.equal((await quota.json()).error.code, 'gateway_misconfigured');
+
+  const res = await worker.fetch(chatRequest({ 'x-loadingai-device': DEVICE, 'x-loadingai-ticket': 'anything.at.all' }), env);
+  assert.equal(res.status, 500);
+  assert.equal((await res.json()).error.code, 'gateway_misconfigured');
+});
+
+test('a ticket signed with the upstream key is rejected when TICKET_SECRET is set', async () => {
+  // The fallback is gone, so a ticket minted under the old scheme must not verify.
+  const env = makeEnv();
+  const forged = await signTicket(env.MINIMAX_API_KEY, DEVICE, 600);
+  const res = await worker.fetch(chatRequest({ 'x-loadingai-device': DEVICE, 'x-loadingai-ticket': forged }), env);
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).error.code, 'no_ticket');
+});
 test('a rejected non-JSON body does not consume the ticket', async () => {
   const env = makeEnv();
   const ticket = await issueTicket(env);

@@ -81,6 +81,15 @@ public sealed class ToolEntry
             return ToolExecutionResult.Failed($"Tool {Definition.Function.Name} failed: {ex.Message}");
         }
     }
+    /// <summary>
+    /// Opt OUT of the generic L2 write-confirm dialog that <c>ToolGuards.ApplyConfirm</c>
+    /// would otherwise add. Despite the name, <c>true</c> means this tool does NOT get that
+    /// dialog: it owns its own confirmation (L3 host gate, chat preset form) or the host
+    /// deliberately confirms it elsewhere. <c>false</c> on an L2 write is what triggers the
+    /// "Run X? This will create an undoable transaction." TaskDialog.
+    /// This sense is frozen by ADR-0004 and called out as do-not-change in ADR-0006.
+    /// Do not invert it without a Proposed ADR first.
+    /// </summary>
     public bool RequiresWriteConfirm { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
     /// <summary>

@@ -76,6 +76,32 @@ Hosted GitHub Actions **cannot start Revit.exe**. Split coverage:
 | L1 | `src/LoadingAI.Tests` + `Fakes/FakeRevitBridge` | Tool handlers vs `IRevitBridge` (no-doc, empty selection, success text) | Same hosted CI |
 | L2–L3 | `src/LoadingAI.RevitTests` (NUnit) | Live document, Adapter + `AttachCurrentThread`, Discover **core** tools, one rollback. Bridge-only plugins: `CreateTools` + dry-run skip reasons, then one write + `TransactionGroup.RollBack` | **Local** Revit 2027 / future self-hosted runner |
 
+### Source-text assertions
+
+Some hosted tests read a `.cs` file and assert on its text (`Assert.Contains("HasEnded()", src)`).
+This is deliberate, not a shortcut. Hosted CI cannot start `Revit.exe`, and a growing set of
+invariants are not reachable any other way:
+
+- **MSBuild wiring** — target order in a `.csproj` (`RecordShippedHashes` before `CopyAddin`).
+- **Load order inside a method** — the allowlist gate must precede `Assembly.LoadFrom` in the
+  same method body; there is no seam to observe it through.
+- **Code that must not exist** — `Assert.DoesNotContain("catch { }", …)` on a fail-loud path.
+- **Layering rules** — a plugin must not mention `Autodesk.Revit` or `IRevitFullAccess`.
+
+Rules for these tests:
+
+1. **Prefer behaviour when a seam exists.** If the code can be exercised through a fake
+   (`FakeRevitBridge`, an in-memory KV, a temp directory), assert on the result, not the source.
+   `BoundedLogTests` and `WriteHonestyAndProviderCatalogTests` are the model: real state, real
+   rotation, real catalog enumeration.
+2. **Read every partial.** `AdapterRevitBridge` is one `partial` class split across
+   `AdapterRevitBridge*.cs`. A single-file read silently misses most of it — use
+   `AdapterSource.All()` or `AdapterSource.Containing(marker)`.
+3. **Name them `Source_*`.** The prefix tells a reader the assertion is textual, so a failure is
+   read as "the invariant moved", not "behaviour broke".
+4. **Do not use them to claim runtime coverage.** A green source assertion proves the line is
+   still there, not that Revit does the right thing. Real Adapter behaviour is covered by
+   `LoadingAI.RevitTests` in Revit 2027.
 CI (`.github/workflows/ci.yml`) already runs `dotnet test src/LoadingAI.Tests/...` only. `LoadingAI.RevitTests` has `IsTestProject=false` unless `-p:ForceRevitTests=true`, so `dotnet test LoadingAI.sln` will not launch Revit.
 
 Do **not** call `PluginLoader.Discover` from Fake tests — `ToolGuards.ApplyConfirm` shows a TaskDialog. Call `QueryTools` / `ViewTools` / `ParamTools` / `GeometryTools` / `DocumentTools` `Create*` (or `AllTools.CreateBridge`) with `FakePluginContext`.
@@ -99,3 +125,4 @@ dotnet test src/LoadingAI.RevitTests/LoadingAI.RevitTests.csproj -c Release -p:F
 - [ ] Handles `Please open a model first.` and `Please select elements first.`
 - [ ] Transaction with RollBack on failure
 - [ ] Fake-bridge or in-Revit coverage for new Bridge tools (hosted xUnit first)
+

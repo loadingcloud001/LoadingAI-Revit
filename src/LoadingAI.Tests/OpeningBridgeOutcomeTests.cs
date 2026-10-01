@@ -49,7 +49,7 @@ public class OpeningBridgeOutcomeTests
     [Fact]
     public void AdapterDoesNotParseOpeningReports()
     {
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.DoesNotContain("ProjectPlace", adapter);
         Assert.DoesNotContain("Regex.Matches", adapter);
         Assert.Contains("OpeningOutcomeMapper.ToPlaceDto", adapter);
