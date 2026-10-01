@@ -13,6 +13,9 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     public string Name => "Formwork QS Tools";
     public string Version => "1.0.1";
 
+    /// <summary>The exact sentence the host formwork algorithms use when there is no document.</summary>
+    private const string NoDocument = "Please open a model first.";
+
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
         yield return Setup(context);
@@ -45,7 +48,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     private static async Task<ToolExecutionResult> FormworkSetupAsync(IPluginContext context)
     {
         var result = await context.Bridge.FormworkSetupAsync(new FormworkSetupRequestDto());
-        return FromFormwork(result?.Error, result?.Report);
+        return FromFormwork(result, readOnly: false);
     }
 
     private static ToolEntry CreatePanels(IPluginContext context) => new()
@@ -91,7 +94,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
             args.Bool("collision", true),
             args.Bool("deleteExisting", false),
             args.Bool("includeUnselectedLinks", false)));
-        return FromFormwork(result?.Error, result?.Report);
+        return FromFormwork(result, readOnly: false);
     }
 
     private static ToolEntry Cleanup(IPluginContext context) => new()
@@ -123,10 +126,11 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     private static async Task<ToolExecutionResult> CleanupAsync(IPluginContext context, string json)
     {
         var args = Args.Parse(json);
-        var result = await context.Bridge.CleanupFormworkAsync(new CleanupRequestDto(
-            (args.Str("action") ?? "stats").Trim().ToLowerInvariant(),
-            args.Str("faceType")));
-        return FromFormwork(result?.Error, result?.Report);
+        var action = (args.Str("action") ?? "stats").Trim().ToLowerInvariant();
+        var result = await context.Bridge.CleanupFormworkAsync(new CleanupRequestDto(action, args.Str("faceType")));
+        // stats returns before tx.Start in FormworkCleanup.Run, so it never opens a transaction
+        // and must not start a turn TransactionGroup for a query.
+        return FromFormwork(result, readOnly: action is "stats" or "");
     }
 
     private static ToolEntry CopyParentParams(IPluginContext context) => new()
@@ -158,9 +162,11 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     {
         var args = Args.Parse(json);
         var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
-        var result = await context.Bridge.CopyFormworkParentParamsAsync(
-            new CopyParamsRequestDto(ids, args.Strings("paramNames")));
-        return FromFormwork(result?.Error, result?.Report);
+        var names = args.Strings("paramNames");
+        var result = await context.Bridge.CopyFormworkParentParamsAsync(new CopyParamsRequestDto(ids, names));
+        // An empty paramNames asks for the catalogue and returns before tx.Start, so it reads
+        // rather than writes. Non-empty opens a transaction even when every value is skipped.
+        return FromFormwork(result, readOnly: names.Count == 0);
     }
 
     /// <summary>
@@ -175,33 +181,83 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     }
 
     /// <summary>
-    /// The formwork result DTOs are only (Report, Error): they carry no counts, so this cannot
-    /// report a changed count, and it cannot tell a partially-applied run from a full one. The
-    /// Adapter returns a null DTO when there is no document (its RunFormwork maps a null report
-    /// to default), and the host algorithms use the exact sentence Please open a model first.
-    /// for the same condition, so both shapes are treated as not-committed. Error is never set
-    /// by the Adapter today but the branch stays for a future DTO that carries it. A Partial is
-    /// deliberately not claimed: enriching the DTOs with created/deleted/failed counts (a
-    /// LoadingAI.Core change) is what would let this report it precisely.
+    /// Status is derived from counts, never from the wording of the report (ADR-0013).
+    ///
+    /// <c>readOnly</c> is the one thing counts cannot express: it is the caller's own knowledge
+    /// that this path never opened a <c>Transaction</c>, so it reports NoWrite instead of
+    /// starting a turn TransactionGroup for a query. Everything else defaults to Committed,
+    /// which is the conservative direction — assuming a write when there was none only folds an
+    /// empty undo step in, whereas the reverse could roll back real work.
+    ///
+    /// The <c>Failed:</c> fallback stays because counts alone cannot distinguish a crash from a
+    /// clean run that happened to change nothing: <c>FormworkTools</c> absorbs its own exceptions
+    /// into the Report with zero counts. Same prefix rule <c>ToolExecutionResult.FromLegacy</c>
+    /// applies, so a formwork crash is classified like any other legacy failure.
     /// </summary>
-    private static ToolExecutionResult FromFormwork(string? error, string? report)
+    private static ToolExecutionResult FromFormwork(FormworkSetupResultDto? r, bool readOnly)
+        => Classify(new FormworkResultCounts(r?.Report, r?.Error, r?.Created ?? 0, r?.Updated ?? 0, r?.Deleted ?? 0, r?.Failed ?? 0), readOnly);
+
+    private static ToolExecutionResult FromFormwork(FormworkPanelsResultDto? r, bool readOnly)
+        => Classify(new FormworkResultCounts(r?.Report, r?.Error, r?.Created ?? 0, r?.Updated ?? 0, r?.Deleted ?? 0, r?.Failed ?? 0), readOnly);
+
+    private static ToolExecutionResult FromFormwork(CleanupResultDto? r, bool readOnly)
+        => Classify(new FormworkResultCounts(r?.Report, r?.Error, r?.Created ?? 0, r?.Updated ?? 0, r?.Deleted ?? 0, r?.Failed ?? 0), readOnly);
+
+    private static ToolExecutionResult FromFormwork(CopyParamsResultDto? r, bool readOnly)
+        => Classify(new FormworkResultCounts(r?.Report, r?.Error, r?.Created ?? 0, r?.Updated ?? 0, r?.Deleted ?? 0, r?.Failed ?? 0), readOnly);
+
+    /// <summary>
+    /// The part of any formwork result DTO that the classifier reads. Deliberately a plain
+    /// readonly struct with get-only properties: the plugin targets netstandard2.0 and no longer
+    /// carries an IsExternalInit polyfill, so a positional record would not compile.
+    /// </summary>
+    private readonly struct FormworkResultCounts
     {
-        if (report == null || report == NoDocument)
-            return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
-        if (error != null)
-            return ToolExecutionResult.Failed(error, ToolWriteCertainty.NotCommitted);
-        // FormworkTools.Run catches every exception and returns it as the Report, and
-        // FormworkCleanup returns its two rollback outcomes the same way. Without this the
-        // report never reaches the Failure branch and a crash reads as a successful commit.
-        // Same prefix rule ToolExecutionResult.FromLegacy applies to legacy handlers, so a
-        // formwork crash is classified identically to any other legacy failure.
-        if (report.StartsWith("Failed:", StringComparison.OrdinalIgnoreCase))
-            return ToolExecutionResult.Failed(report, ToolWriteCertainty.NotCommitted);
-        return ToolExecutionResult.Succeeded(report, ToolWriteCertainty.Committed);
+        public FormworkResultCounts(string? report, string? error, int created, int updated, int deleted, int failed)
+        {
+            Report = report;
+            Error = error;
+            Created = created;
+            Updated = updated;
+            Deleted = deleted;
+            Failed = failed;
+        }
+
+        public string? Report { get; }
+        public string? Error { get; }
+        public int Created { get; }
+        public int Updated { get; }
+        public int Deleted { get; }
+        public int Failed { get; }
     }
 
-    /// <summary>The exact sentence the host formwork algorithms use when there is no document.</summary>
-    private const string NoDocument = "Please open a model first.";
+    private static ToolExecutionResult Classify(FormworkResultCounts result, bool readOnly)
+    {
+        if (result.Report == null || result.Report == NoDocument)
+            return ToolExecutionResult.Failed(NoDocument, ToolWriteCertainty.NotCommitted);
+        // Error first, matching ADR-0007 / ADR-0009 / ADR-0013.
+        if (result.Error != null)
+            return ToolExecutionResult.Failed(result.Error, ToolWriteCertainty.NotCommitted);
+        if (result.Report.StartsWith("Failed:", StringComparison.OrdinalIgnoreCase))
+            return ToolExecutionResult.Failed(result.Report, ToolWriteCertainty.NotCommitted);
+
+        var writes = result.Created + result.Updated + result.Deleted;
+        if (result.Failed > 0)
+        {
+            // Wrote and failed: the parts that landed are kept and named, and the outer
+            // TransactionGroup assimilates them. Failed with nothing written: roll back.
+            return writes > 0
+                ? ToolExecutionResult.Partial(result.Report, ToolWriteCertainty.Committed, writes, result.Failed)
+                : ToolExecutionResult.Failed(result.Report, ToolWriteCertainty.NotCommitted, 0, result.Failed);
+        }
+
+        if (writes > 0)
+            return ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.Committed, writes);
+
+        return readOnly
+            ? ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.NoWrite)
+            : ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.Committed);
+    }
 
     private readonly struct Args
     {

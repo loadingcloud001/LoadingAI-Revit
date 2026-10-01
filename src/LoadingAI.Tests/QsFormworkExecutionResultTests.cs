@@ -102,20 +102,6 @@ public class QsFormworkExecutionResultTests
     }
 
     [Fact]
-    public async Task CleanupStatsCommits()
-    {
-        var (bridge, context) = Setup();
-
-        var result = await CreateTool(context, "cleanup_formwork").ExecuteAsync("""{"action":"stats"}""");
-
-        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
-        Assert.Equal(ToolWriteCertainty.Committed, result.WriteCertainty);
-        var call = Assert.Single(bridge.CleanupFormworkCalls);
-        Assert.Equal("stats", call.Action);
-        Assert.True(result.IsSafeToAssimilate);
-    }
-
-    [Fact]
     public async Task CleanupWithoutADocumentDoesNotClaimCommit()
     {
         var (_, context) = Setup(hasDocument: false);
@@ -229,6 +215,98 @@ public class QsFormworkExecutionResultTests
 
         Assert.Contains("Failed: faceType is required for delete_by_type.", cleanup);
         Assert.Contains("Failed: Unknown action.", cleanup);
+    }
+
+    // ---- Task 4: counts cross the boundary, so status is derived from numbers rather than
+    // from the wording of a report. This is what makes Partial reportable for formwork at all.
+    [Fact]
+    public async Task CreatePanelsPartialKeepsCreatedAndNamesTheFailure()
+    {
+        var (bridge, context) = Setup();
+        bridge.NextFormworkPanelsResult = new FormworkPanelsResultDto(
+            "Formwork panels: selected 1, candidates 6, created 4, updated 0, duplicates 0, "
+            + "coverage skipped 1, panel overlap skipped 0, trimmed 0, obsolete deleted 0, failed 2. "
+            + "Failures: face_unbuildable=2.",
+            Created: 4,
+            Failed: 2);
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100","101"]}""");
+
+        Assert.Equal(ToolExecutionStatus.Partial, result.Status);
+        Assert.Equal(ToolWriteCertainty.Committed, result.WriteCertainty);
+        Assert.Equal(4, result.ChangedCount);
+        Assert.Equal(2, result.FailedCount);
+        Assert.Contains("face_unbuildable=2", result.Text);
+        Assert.True(result.IsSafeToAssimilate);
+    }
+
+    [Fact]
+    public async Task CreatePanelsAllFailedDoesNotClaimCommit()
+    {
+        var (bridge, context) = Setup();
+        bridge.NextFormworkPanelsResult = new FormworkPanelsResultDto(
+            "Formwork panels: selected 1, candidates 3, created 0, updated 0, duplicates 0, "
+            + "coverage skipped 0, panel overlap skipped 0, trimmed 0, obsolete deleted 0, failed 3. "
+            + "Failures: face_unbuildable=3.",
+            Failed: 3);
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100"]}""");
+
+        Assert.Equal(ToolExecutionStatus.Failed, result.Status);
+        Assert.Equal(ToolWriteCertainty.NotCommitted, result.WriteCertainty);
+        Assert.Equal(0, result.ChangedCount);
+        Assert.Equal(3, result.FailedCount);
+        Assert.False(result.IsSafeToAssimilate);
+    }
+
+    [Fact]
+    public async Task CreatePanelsSuccessCarriesChangedCount()
+    {
+        var (bridge, context) = Setup();
+        bridge.NextFormworkPanelsResult =
+            new FormworkPanelsResultDto("Formwork panels: created 4.", Created: 4);
+
+        var result = await CreateTool(context, "create_formwork_panels")
+            .ExecuteAsync("""{"elementIds":["100"]}""");
+
+        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+        Assert.Equal(ToolWriteCertainty.Committed, result.WriteCertainty);
+        Assert.Equal(4, result.ChangedCount);
+        Assert.Equal(0, result.FailedCount);
+    }
+
+    // stats never opens a Transaction (FormworkCleanup.Run returns before tx.Start), so it is
+    // a read. Reporting it Committed would start a turn TransactionGroup for a query.
+    [Fact]
+    public async Task CleanupStatsIsNoWrite()
+    {
+        var (bridge, context) = Setup();
+
+        var result = await CreateTool(context, "cleanup_formwork")
+            .ExecuteAsync("""{"action":"stats"}""");
+
+        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+        Assert.Equal(ToolWriteCertainty.NoWrite, result.WriteCertainty);
+        var call = Assert.Single(bridge.CleanupFormworkCalls);
+        Assert.Equal("stats", call.Action);
+        Assert.True(result.IsSafeToAssimilate);
+    }
+
+    // A delete opens a transaction, so it stays a commit even when it happens to delete nothing.
+    [Fact]
+    public async Task CleanupDeleteStaysACommit()
+    {
+        var (bridge, context) = Setup();
+        bridge.NextCleanupFormworkResult = new CleanupResultDto("Deleted 0 formwork panel(s).");
+
+        var result = await CreateTool(context, "cleanup_formwork")
+            .ExecuteAsync("""{"action":"delete_all"}""");
+
+        Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
+        Assert.Equal(ToolWriteCertainty.Committed, result.WriteCertainty);
+        Assert.Single(bridge.CleanupFormworkCalls);
     }
 
     private static (FakeRevitBridge Bridge, FakePluginContext Context) Setup(
