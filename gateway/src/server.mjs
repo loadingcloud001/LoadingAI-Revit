@@ -181,7 +181,7 @@ function announced(env) {
     problems.push('MINIMAX_API_KEY is not set: chat and quota calls will answer 500 gateway_misconfigured.');
   }
   if (!env.TICKET_SECRET) {
-    problems.push('TICKET_SECRET is not set: send tickets will be signed with MINIMAX_API_KEY. Set a dedicated secret.');
+    problems.push('TICKET_SECRET is not set: quota and chat will refuse with 500 gateway_misconfigured. Generate one with: npm run secret');
   }
   if (!env.LOADINGAI_CLIENT_TOKEN) {
     problems.push('LOADINGAI_CLIENT_TOKEN is not set: /v1/* will require the compiled default add-in token.');

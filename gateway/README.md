@@ -161,7 +161,7 @@ Set in `/etc/loadingai-gateway.env` (see `deploy/env.example`):
 | Name | Default | Purpose |
 | --- | --- | --- |
 | `MINIMAX_API_KEY` | – | upstream key. Rotate it if it was ever stored anywhere else |
-| `TICKET_SECRET` | `MINIMAX_API_KEY` | set it (32 random bytes) to decouple ticket signing from the upstream key |
+| `TICKET_SECRET` | _required_ | 32 random bytes; signs tickets. Never derived from `MINIMAX_API_KEY` |
 | `MINIMAX_BASE_URL` | `https://api.minimaxi.com/v1` | upstream base, includes `/v1` |
 | `MINIMAX_MODEL` | `MiniMax-M3` | model forced on every proxied call |
 | `DAILY_LIMIT` | `100` | sends per device per UTC day |
@@ -180,8 +180,10 @@ npx wrangler dev              # optional: the Worker transport, counters in a lo
 ```
 
 `npm start` reads the same environment variables and warns when `MINIMAX_API_KEY` or `TICKET_SECRET`
-are missing. To drive the add-in against it, set `LOADINGAI_GATEWAY_URL=http://127.0.0.1:8787/v1`
-before starting Revit. `DEVICE` below stands for the value in `%AppData%\LoadingAI\device.json`.
+are missing. Both are **required**: quota and chat refuse with `500 gateway_misconfigured`
+rather than silently signing tickets with the upstream key. To drive the add-in against it, set
+`LOADINGAI_GATEWAY_URL=http://127.0.0.1:8787/v1` before starting Revit. `DEVICE` below stands for
+the value in `%AppData%\LoadingAI\device.json`.
 
 ## Verifying a deployment
 
@@ -253,3 +255,5 @@ stretch one unit that way; lower the TTL to tighten that gap.
 
 If the VM ever becomes a bottleneck, the same `src/index.js` handler runs unchanged on Cloudflare
 Workers with a Durable Object (or the paid KV plan) in place of `sqlite-kv.js`.
+
+
