@@ -103,7 +103,7 @@ internal static class FormworkCleanup
                     if (string.IsNullOrWhiteSpace(faceType))
                     {
                         tx.RollBack();
-                        return "faceType is required for delete_by_type.";
+                        return "Failed: faceType is required for delete_by_type.";
                     }
                     var match = panels.Where(p => string.Equals(FormworkCore.ParamText(p, "FW_PanelType"), faceType, StringComparison.OrdinalIgnoreCase)).ToList();
                     n = FormworkCore.DeletePanels(doc, match);
@@ -116,7 +116,8 @@ internal static class FormworkCleanup
                     break;
                 default:
                     tx.RollBack();
-                    return "Unknown action. Use stats, delete_all, delete_by_type, or cleanup_orphans.";
+                    // Prefixed Failed: for the same reason as the faceType branch above.
+                    return "Failed: Unknown action. Use stats, delete_all, delete_by_type, or cleanup_orphans.";
             }
             tx.Commit();
             return msg;

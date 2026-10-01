@@ -190,6 +190,13 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
             return ToolExecutionResult.Failed("Please open a model first.", ToolWriteCertainty.NotCommitted);
         if (error != null)
             return ToolExecutionResult.Failed(error, ToolWriteCertainty.NotCommitted);
+        // FormworkTools.Run catches every exception and returns it as the Report, and
+        // FormworkCleanup returns its two rollback outcomes the same way. Without this the
+        // report never reaches the Failure branch and a crash reads as a successful commit.
+        // Same prefix rule ToolExecutionResult.FromLegacy applies to legacy handlers, so a
+        // formwork crash is classified identically to any other legacy failure.
+        if (report.StartsWith("Failed:", StringComparison.OrdinalIgnoreCase))
+            return ToolExecutionResult.Failed(report, ToolWriteCertainty.NotCommitted);
         return ToolExecutionResult.Succeeded(report, ToolWriteCertainty.Committed);
     }
 
