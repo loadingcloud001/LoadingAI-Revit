@@ -37,19 +37,24 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var path = Args.Parse(json).Str("path");
-            if (string.IsNullOrWhiteSpace(path)) return "path is required.";
-            try { path = FamilyPaths.ResolveRead(path); }
-            catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            if (!path.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
-                return "Failed: path must be a .rfa file.";
-            if (!File.Exists(path)) return $"File not found: {path}";
-            var result = await context.Bridge.LoadFamilyAsync(path);
-            return result.Message;
-        }
+        Handler = async json => (await LoadFamilyAsync(context, json)).Text,
+        StructuredHandler = json => LoadFamilyAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> LoadFamilyAsync(IPluginContext context, string json)
+    {
+        var path = Args.Parse(json).Str("path");
+        // Every rejection below happens before the Bridge is reached, so nothing is written.
+        if (string.IsNullOrWhiteSpace(path))
+            return ToolExecutionResult.Failed("path is required.", ToolWriteCertainty.NotCommitted);
+        try { path = FamilyPaths.ResolveRead(path); }
+        catch (Exception ex) { return ToolExecutionResult.Failed($"Failed: {ex.Message}", ToolWriteCertainty.NotCommitted); }
+        if (!path.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+            return ToolExecutionResult.Failed("Failed: path must be a .rfa file.", ToolWriteCertainty.NotCommitted);
+        if (!File.Exists(path))
+            return ToolExecutionResult.Failed($"File not found: {path}", ToolWriteCertainty.NotCommitted);
+        return FromWrite(await context.Bridge.LoadFamilyAsync(path));
+    }
 
     private static ToolEntry ChangeElementType(IPluginContext context) => new()
     {
@@ -74,17 +79,20 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var eid = args.Str("elementId");
-            var typeName = args.Str("typeName");
-            var typeId = args.Str("typeId");
-            if (string.IsNullOrWhiteSpace(eid)) return "elementId is required.";
-            var result = await context.Bridge.ChangeElementTypeAsync(eid, typeName, typeId);
-            return result.Message;
-        }
+        Handler = async json => (await ChangeElementTypeAsync(context, json)).Text,
+        StructuredHandler = json => ChangeElementTypeAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> ChangeElementTypeAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var eid = args.Str("elementId");
+        var typeName = args.Str("typeName");
+        var typeId = args.Str("typeId");
+        if (string.IsNullOrWhiteSpace(eid))
+            return ToolExecutionResult.Failed("elementId is required.", ToolWriteCertainty.NotCommitted);
+        return FromWrite(await context.Bridge.ChangeElementTypeAsync(eid, typeName, typeId));
+    }
 
     private static ToolEntry CreateTopography(IPluginContext context) => new()
     {
@@ -109,15 +117,30 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 }
             }
         },
-        Handler = async json =>
-        {
-            var args = Args.Parse(json);
-            var pts = args.PointsMm("points");
-            if (pts.Count < 3) return "Provide at least 3 points [x,y,z] in mm.";
-            var result = await context.Bridge.CreateTopographyAsync(pts, args.Str("levelName"), args.Str("levelId"));
-            return result.Message;
-        }
+        Handler = async json => (await CreateTopographyAsync(context, json)).Text,
+        StructuredHandler = json => CreateTopographyAsync(context, json)
     };
+
+    private static async Task<ToolExecutionResult> CreateTopographyAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var pts = args.PointsMm("points");
+        if (pts.Count < 3)
+            return ToolExecutionResult.Failed("Provide at least 3 points [x,y,z] in mm.", ToolWriteCertainty.NotCommitted);
+        return FromWrite(await context.Bridge.CreateTopographyAsync(pts, args.Str("levelName"), args.Str("levelId")));
+    }
+
+    /// <summary>
+    /// Each of these three is one atomic Revit transaction: the Adapter returns
+    /// <c>Ok = true</c> only after <c>Transaction.Commit()</c>, and every failure path either
+    /// runs before <c>Start()</c> or calls <c>RollBack()</c>. So <c>Ok</c> alone is the commit
+    /// authority, <c>AffectedCount</c> is the changed-element count, and a partial outcome is
+    /// not representable.
+    /// </summary>
+    private static ToolExecutionResult FromWrite(CommandResultDto result)
+        => result.Ok
+            ? ToolExecutionResult.Succeeded(result.Message, ToolWriteCertainty.Committed, result.AffectedCount)
+            : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NotCommitted);
 
     private readonly struct Args
     {
