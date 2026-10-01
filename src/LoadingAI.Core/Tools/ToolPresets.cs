@@ -56,6 +56,77 @@ public static class ToolPresets
         return values;
     }
 
+    /// <summary>
+    /// Builds the read-only preview the pane shows before the preset form. Values come from
+    /// <see cref="Prefill"/>, so resolved args win over the field default. Pure: no I/O,
+    /// no transaction, no thread affinity (ADR-014).
+    /// </summary>
+    public static RunPreview BuildPreview(IReadOnlyList<PresetField> fields, string? argsJson)
+    {
+        var values = Prefill(fields, argsJson);
+        var rows = new List<PreviewRow>(fields.Count);
+        var warnings = new List<string>();
+
+        foreach (var f in fields)
+        {
+            values.TryGetValue(f.Id, out var value);
+            rows.Add(new PreviewRow { Label = f.Label, Detail = RenderDetail(value) });
+
+            if (!string.IsNullOrWhiteSpace(f.Warning) && IsTruthyForWarning(value))
+                warnings.Add(f.Warning);
+        }
+
+        return new RunPreview
+        {
+            Summary = fields.Count == 1 ? "1 setting to confirm" : $"{fields.Count} settings to confirm",
+            Rows = rows,
+            Warnings = warnings
+        };
+    }
+
+    private static string RenderDetail(object? value) => value switch
+    {
+        null => "-",
+        JsonElement el => RenderElement(el),
+        bool b => b ? "on" : "off",
+        string s => s.Length > 0 ? s : "-",
+        _ => value.ToString() is { Length: > 0 } text ? text : "-"
+    };
+
+    private static string RenderElement(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.Undefined => "-",
+        JsonValueKind.True => "on",
+        JsonValueKind.False => "off",
+        JsonValueKind.String => el.GetString() is { Length: > 0 } s ? s : "-",
+        JsonValueKind.Number => el.GetRawText(),
+        JsonValueKind.Array => el.GetArrayLength() + " items",
+        _ => "-"
+    };
+
+    /// <summary>
+    /// Truthiness for preview warnings. Deliberately more liberal than <see cref="IsDryRun"/>:
+    /// that one decides whether a confirm is skipped, where a false positive is dangerous; this
+    /// one raises a warning, where a false negative leaves a destructive setting unflagged.
+    /// </summary>
+    private static bool IsTruthyForWarning(object? value) => value switch
+    {
+        null => false,
+        JsonElement el => el.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null or JsonValueKind.Undefined => false,
+            JsonValueKind.Number => el.TryGetInt32(out var n) ? n != 0 : el.GetRawText() != "0",
+            JsonValueKind.String => !string.IsNullOrWhiteSpace(el.GetString()),
+            JsonValueKind.Array => el.GetArrayLength() > 0,
+            _ => true
+        },
+        bool b => b,
+        string s => !string.IsNullOrWhiteSpace(s),
+        _ => true
+    };
+
     /// <summary>Overlay <paramref name="valuesJson"/> onto <paramref name="argsJson"/>. Overlay wins.</summary>
     public static string Merge(string? argsJson, string? valuesJson)
     {

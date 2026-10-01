@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using LoadingAI.Llm;
 using LoadingAI.Tools;
@@ -81,5 +82,68 @@ public class ToolPresetTests
         // The plugin reads the same helper, so a truthy value must survive the host's merge step.
         var merged = ToolPresets.Merge("{\"dryRun\":true}", null);
         Assert.True(ToolPresets.IsDryRun(merged));
+    }
+
+    // --- dryRun schema guard -------------------------------------------------
+    // ChatSession skips BOTH L3 gates on a truthy dryRun (ADR-0004). That is only safe
+    // because every tool that declares the key also honours it. A tool that declares
+    // dryRun and ignores it lets a caller delete every confirm on a destructive write.
+
+    [Fact]
+    public void DryRunGuard_FlagsDeclarationWithoutHandling()
+        => Assert.True(DryRunSchemaGuard.IsUnhandled("dryRun = new { type = \"boolean\" }"));
+
+    [Fact]
+    public void DryRunGuard_PassesIsDryRunHandling()
+        => Assert.False(DryRunSchemaGuard.IsUnhandled(
+            "dryRun = DryRunProperty(),\nDryRun = ToolPresets.IsDryRun(json),"));
+
+    [Fact]
+    public void DryRunGuard_PassesArgsBoolHandling()
+        => Assert.False(DryRunSchemaGuard.IsUnhandled(
+            "dryRun = new { type = \"boolean\" },\nargs.Bool(\"dryRun\")"));
+
+    [Fact]
+    public void DryRunGuard_IgnoresProseMentions()
+        => Assert.False(DryRunSchemaGuard.IsUnhandled(
+            "dryRun boolean counts only without changing the model"));
+
+    [Fact]
+    public void EverySchemaDeclaringDryRun_ImplementsDryRunShortCircuit()
+    {
+        var root = RepoRoot();
+        var sources = Directory.EnumerateFiles(Path.Combine(root, "Plugins"), "*.cs", SearchOption.AllDirectories)
+            .Select(f => (File: Path.GetRelativePath(root, f).Replace('\\', '/'), Text: File.ReadAllText(f)))
+            .ToArray();
+
+        var declaring = sources.Count(s => DryRunSchemaGuard.Declares(s.Text));
+        var offenders = sources
+            .Where(s => DryRunSchemaGuard.IsUnhandled(s.Text))
+            .Select(s => s.File)
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToArray();
+
+        // Non-vacuity: if the schema style changes and the detector stops matching, this guard
+        // would otherwise pass while protecting nothing.
+        Assert.True(declaring >= 2,
+            $"The dryRun guard matched {declaring} declaring plugin files; expected at least 2. " +
+            "Either the plugin schema style changed or the scan is vacuous.");
+
+        Assert.True(offenders.Length == 0,
+            "These plugin sources declare a dryRun schema property but never handle it. " +
+            "ChatSession skips BOTH L3 gates on dryRun:true (ADR-0004), so an unhandled dryRun " +
+            "silently removes every confirm on a destructive write: " + string.Join(", ", offenders));
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "LoadingAI.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find LoadingAI.sln from " + AppContext.BaseDirectory);
     }
 }
