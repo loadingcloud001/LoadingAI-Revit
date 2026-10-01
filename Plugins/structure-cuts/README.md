@@ -1,6 +1,6 @@
 # Structure Split Tools (2.0.1)
 
-Four L3 tools, all default-off, Bridge-only. Hosts are collected host-side from `scope=selection|visible|all`, so chat never has to paste hundreds of ids; `IRevitQuery.CollectHostsAsync` exposes the same page to callers that want it directly. Capped runs report `Processed N of M. nextOffset = N.` — pass that as `continueFrom`. The split algorithms live in `src/LoadingAI/Revit/StructureCuts/`; this folder holds only the handler and `plugin.json`.
+Five L3 tools, all default-off, Bridge-only. Hosts are collected host-side from `scope=selection|visible|all`, so chat never has to paste hundreds of ids; `IRevitQuery.CollectHostsAsync` exposes the same page to callers that want it directly. Capped runs report `Processed N of M. nextOffset = N.` — pass that as `continueFrom`. The split algorithms live in `src/LoadingAI/Revit/StructureCuts/`; this folder holds only the handler and `plugin.json`.
 
 | Tool | Hosts | Cutters |
 |---|---|---|
@@ -8,6 +8,7 @@ Four L3 tools, all default-off, Bridge-only. Hosts are collected host-side from 
 | `split_floors_by_beams` | floors / foundation slabs | beams + columns (ids, else selection, else bbox hits) |
 | `split_by_levels` | walls, columns, beams, floors | storey elevations |
 | `split_by_grids` | walls, columns, beams, floors | vertical planes through grids |
+| `split_secondary_beams_by_main_beams` | shallower secondary beams | strictly deeper main beams crossing at the same height |
 
 Shared knobs: `scope`, `continueFrom`, `dryRun`, `uniqueMark`, `copyParams`, `limit` (default 50, max 200). Naviate-style tools also take optional `elementIds`, `levelIds`/`gridIds`, and `categories[]`.
 
