@@ -12,7 +12,9 @@
 
 ## Out of scope
 
-Extending presets to the other packs (`structure-cuts`, `core-tools`, `export-tools`, `view-tools`, `opening-tools`, `modeling-tools`) is a **separate plan**. It needs a per-tool outcome hook to report predicted counts, which nothing in this plan requires yet. Adding it here would be speculative.
+**Eight tools already declare presets**, not three: `qs-formwork` (3) and `structure-cuts` (all 5 split tools, via `Presets = Concat(...)` at `StructureCutsPlugin.cs:53, 90, 128, 166, 202`, built from `SharedKnobs()` + `CategoriesPreset()`). All eight flow through the same `PresetPayload`, so **every one of them gains the Run panel and the preview from this plan with zero plugin work**. `structure-cuts` additionally already carries `dryRun` in its form and honours it through `ToolPresets.IsDryRun`, so it can report real predicted counts once a per-tool outcome hook exists.
+
+Extending presets to the packs that have none (`core-tools`, `export-tools`, `view-tools`, `opening-tools`, `modeling-tools`) is a **separate plan**. It needs a per-tool outcome hook to report predicted counts, which nothing in this plan requires yet. Adding it here would be speculative.
 
 ## Global Constraints
 
@@ -159,7 +161,9 @@ In `src/LoadingAI.Tests/ToolPresetTests.cs`, add:
 [Fact] public void EverySchemaDeclaringDryRun_ImplementsDryRunShortCircuit();
 ```
 
-It reads every `Plugins/**/*.cs` tool schema source text; any schema that mentions `"dryRun"` must sit in a file whose handler also contains the short-circuit marker `dryRun` handling. Where a plugin declares `dryRun` without handling it, the test fails with the plugin name. Expect this to fail until Task 4 completes — that is the point. Mark it with a comment naming Task 4 as the closer so a green run is not mistaken for coverage.
+It reads every `Plugins/**/*.cs` tool schema source text; any schema that declares `dryRun` must sit in a file that also **handles** it. Handling means either `ToolPresets.IsDryRun(json)` (how `structure-cuts` does it, `StructureCutsPlugin.cs:299`) or an explicit `args.Bool("dryRun")` read that reaches the operation (how `opening-tools` does it, `OpeningToolsPlugin.cs:72`). Where a plugin declares `dryRun` without either, the test fails naming the plugin.
+
+This is a **regression guard, not a red test**: every current declaration is already handled, so it passes in Task 1 and must still pass after Task 4 adds `dryRun` to `qs-formwork`. What it catches is a future change that declares the key without implementing it — which is exactly the hole that would silently remove both L3 gates.
 
 - [ ] **Step 6: Commit**
 
