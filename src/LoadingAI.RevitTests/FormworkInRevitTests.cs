@@ -22,6 +22,12 @@ namespace LoadingAI.RevitTests;
 ///
 /// Every write is wrapped in <see cref="TransactionGroup.RollBack"/>, so nothing persists. Use
 /// <c>CreateTools</c>, not <c>PluginLoader.Discover</c> (Discover wraps core L2 with a TaskDialog).
+///
+/// <para><b>NOT YET EXECUTED.</b> This fixture compiles for Revit 2024-2027 and CI compiles it, but
+/// it has never run: the <c>ricaun</c> adapter cannot get Revit 2027.2 past UI initialisation, and
+/// the Revit.TestRunner fallback stops at Revit 2025. Nothing here should be read as evidence that
+/// the formwork geometry is correct. See "Verified on Revit 2027.2" in this folder's README.md and
+/// finding F7 in <c>docs/PROJECT_BUGS_AND_LIMITATIONS.md</c> for the full diagnosis.</para>
 /// </summary>
 [TestFixture]
 public class FormworkInRevitTests
