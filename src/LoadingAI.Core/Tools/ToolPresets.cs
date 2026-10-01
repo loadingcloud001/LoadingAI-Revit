@@ -84,6 +84,16 @@ public static class ToolPresets
         };
     }
 
+    /// <summary>
+    /// Fault-isolated <see cref="BuildPreview"/>: never throws. A preview is enrichment, so a
+    /// value that cannot be rendered yields no preview rather than a failed tool call.
+    /// </summary>
+    public static RunPreview? TryBuildPreview(IReadOnlyList<PresetField> fields, string? argsJson)
+    {
+        try { return BuildPreview(fields, argsJson); }
+        catch { return null; }
+    }
+
     private static string RenderDetail(object? value) => value switch
     {
         null => "-",
