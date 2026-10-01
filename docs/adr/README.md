@@ -67,3 +67,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0010](0010-plugin-load-allowlist.md) | Plugin load SHA-256 allowlist (refuse unknown AppData DLL) | Proposed |
 | [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Proposed |
 | [0012](0012-port-opening-tools-onto-bridge.md) | Port opening-tools onto Bridge | Accepted |
+| [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Proposed |
