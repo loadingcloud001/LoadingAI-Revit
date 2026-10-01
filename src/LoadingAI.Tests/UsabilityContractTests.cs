@@ -55,20 +55,18 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void ToolEntry_PresetsDefaultEmpty_ExistingPluginsUnchanged()
+    public void ToolEntry_PresetsDefaultEmpty_WhenNoneAreDeclared()
     {
         var registry = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Tools", "ToolRegistry.cs"));
         Assert.Contains("IReadOnlyList<PresetField> Presets", registry);
         Assert.Contains("Array.Empty<PresetField>()", registry);
-        foreach (var rel in new[]
-        {
-            Path.Combine("Plugins", "example.hello", "HelloPlugin.cs"),
-            Path.Combine("Plugins", "qs-formwork", "QsFormworkPlugin.cs"),
-        })
-        {
-            var src = File.ReadAllText(Path.Combine(RepoRoot(), rel));
-            Assert.DoesNotContain("Presets =", src);
-        }
+
+        // Pinned on example.hello only. qs-formwork adopted presets under ADR-0013, so the
+        // assertion no longer lists every shipped plugin: the invariant here is that a tool
+        // which declares no Presets initializer still gets an empty list, not that no plugin may
+        // ever adopt a host-owned form.
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "example.hello", "HelloPlugin.cs"));
+        Assert.DoesNotContain("Presets =", src);
     }
 
     [Fact]

@@ -296,6 +296,26 @@ Deliberately unchanged. The meaning is now documented on the property itself. Be
 - A rename is a mechanical but wide change: Core, all shipped plugins, `ToolGuards`, `PluginLoader`, and 35 test assertions, plus the wording of Accepted ADRs 0001/0004/0006/0009.
 - If the confusion ever causes a real incident, write a **Proposed** ADR before renaming or inverting anything (CONTRIBUTING: an ADR is required before breaking an Accepted freeze).
 
+### qs-formwork rework, 2026-10-01
+
+Plan: `docs/superpowers/plans/2026-10-01-qs-formwork-rework.md`. ADR: `docs/adr/0013-qs-formwork-structured-results.md`.
+
+| | Finding | Status |
+|---|---|---|
+| F1 | A caught formwork exception was read as a committed write | **Fixed** in `b0b5331`. `FromFormwork` applies the same `Failed:` prefix that `ToolExecutionResult.FromLegacy` used, so a crash no longer becomes `Succeeded + Committed`. |
+| F2 | `cleanup_formwork` rolled its transaction back, then reported a commit | **Fixed** in `b0b5331`. Both `tx.RollBack()` paths carry `Failed:`, matching the existing `catch` convention. |
+| F3 | `GenerateResult` counts were flattened to one sentence at the DTO boundary | **Fixed** in `f6025c9`. The four `Run` entry points return their DTO directly and `RunFormwork` only picks the timeout, so the counts travel beside the verbatim `Report`. |
+| F4 | Result DTOs carried no counts, so `Partial` was unreachable | **Fixed** in `f6025c9`. Counts are optional trailing parameters, and a run that wrote and failed reports `Partial + Committed` with the landed parts kept. |
+| F5 | No `enum` on `action` or `faceTypes`, no bounds on `thicknessMm` | **Fixed** in `8937a4a`. The value lists live in `FormworkDefaults`; the plugin schema and `FormworkConfig.AllFaceTypes` both read them, so they cannot drift. |
+| F6 | No preset forms; the model guessed element ids and thickness | **Fixed** in `2cc8627`. Three write tools declare host-owned forms; `formwork_setup` stays preset-free. |
+| F7 | Roughly 1400 lines of host geometry with no tests | **Open.** See below. |
+
+**Still open after this pass**
+
+- **F7.** Needs `LoadingAI.RevitTests` against a local Revit 2027, which hosted CI cannot run. No Revit-free seam exists to test on CI either: every `FormworkGeometry` method takes `Solid`, `Face` or `XYZ`, so moving any of it to `LoadingAI.Core` would mean introducing an abstraction over Revit geometry rather than relocating a pure function.
+- `FormworkParentParams.Run` returns `No formwork panels found. …` before it opens a `Transaction`, but the plugin cannot distinguish that from a committed run that changed nothing, so it reports `Succeeded + Committed` with `ChangedCount` 0. Status imprecision only — no rollback is skipped, because nothing failed. Distinguishing it would need an explicit wrote-something flag on the DTO.
+- The `Failed:` prefix rule is a **documented fallback**, not the primary signal: `Error` is checked first and counts drive `Partial`. Counts alone cannot tell a crash from a clean run that changed nothing, because the host absorbs exceptions into `Report` with every counter at zero.
+
 ## Recommended order
 
 1. **P0 model safety:** B1, B2, B3.

@@ -336,8 +336,17 @@ public sealed record FormworkSetupRequestDto();
 
 /// <summary>
 /// Outcome of one formwork setup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// <see cref="Created"/> is the number of parameters bound and <see cref="Failed"/> the number
+/// that could not be. The counts are optional and defaulted, so every existing
+/// <c>new FormworkSetupResultDto(report)</c> call keeps compiling (ADR-0013).
 /// </summary>
-public sealed record FormworkSetupResultDto(string Report, string? Error = null);
+public sealed record FormworkSetupResultDto(
+    string Report,
+    string? Error = null,
+    int Created = 0,
+    int Updated = 0,
+    int Deleted = 0,
+    int Failed = 0);
 
 /// <summary>
 /// Input for one formwork panel generation run. <c>Ids</c> null means the current selection;
@@ -353,10 +362,21 @@ public sealed record FormworkPanelsRequestDto(
     bool IncludeUnselectedLinks);
 
 /// <summary>
-/// Outcome of one formwork panel generation run. The generator's counters are already
-/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// Outcome of one formwork panel generation run. <c>Report</c> carries the algorithm's own
+/// prose, verbatim, so model-readable text does not regress. The counters are the same
+/// <c>GenerateResult</c> values that used to exist only inside the sentence, surfaced here so
+/// status is derived from numbers instead of parsed from wording (ADR-0013):
+/// <c>Created</c> and <c>Updated</c> are panels written, <c>Deleted</c> is obsolete panels
+/// removed during the run, and <c>Failed</c> is candidates the generator could not build.
+/// All are optional and defaulted so existing call sites keep compiling.
 /// </summary>
-public sealed record FormworkPanelsResultDto(string Report, string? Error = null);
+public sealed record FormworkPanelsResultDto(
+    string Report,
+    string? Error = null,
+    int Created = 0,
+    int Updated = 0,
+    int Deleted = 0,
+    int Failed = 0);
 
 /// <summary>
 /// Input for one formwork cleanup run. <c>Action</c> is already normalised to lower case
@@ -367,8 +387,17 @@ public sealed record CleanupRequestDto(string Action, string? FaceType);
 
 /// <summary>
 /// Outcome of one formwork cleanup run. <c>Report</c> is the algorithm's own prose, verbatim.
+/// <see cref="Deleted"/> is the number of panels actually removed; <c>stats</c> deletes nothing
+/// and sets no counter, which is what lets the caller report it as a read. Optional and
+/// defaulted so existing call sites keep compiling (ADR-0013).
 /// </summary>
-public sealed record CleanupResultDto(string Report, string? Error = null);
+public sealed record CleanupResultDto(
+    string Report,
+    string? Error = null,
+    int Created = 0,
+    int Updated = 0,
+    int Deleted = 0,
+    int Failed = 0);
 
 /// <summary>
 /// Input for one parent-parameter copy run. <c>Ids</c> null or empty means every formwork
@@ -377,10 +406,19 @@ public sealed record CleanupResultDto(string Report, string? Error = null);
 public sealed record CopyParamsRequestDto(IReadOnlyList<string>? Ids, IReadOnlyList<string>? Names);
 
 /// <summary>
-/// Outcome of one parent-parameter copy run. The copied/skipped counters are already
-/// folded into <c>Report</c>, so only the prose and a failure message cross the Bridge.
+/// Outcome of one parent-parameter copy run. <c>Report</c> is the algorithm's own prose,
+/// verbatim. <see cref="Updated"/> counts the parameter values actually copied, and
+/// <see cref="Created"/> stays zero because a copy never creates elements; an empty
+/// <c>Names</c> asks for the parameter catalogue and sets neither, so the caller can report it
+/// as a read. Optional and defaulted so existing call sites keep compiling (ADR-0013).
 /// </summary>
-public sealed record CopyParamsResultDto(string Report, string? Error = null);
+public sealed record CopyParamsResultDto(
+    string Report,
+    string? Error = null,
+    int Created = 0,
+    int Updated = 0,
+    int Deleted = 0,
+    int Failed = 0);
 
 /// <summary>
 /// Input for one opening-tools clash probe or place. <c>MepIds</c> and <c>HostIds</c>
