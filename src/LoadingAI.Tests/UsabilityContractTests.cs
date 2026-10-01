@@ -225,7 +225,7 @@ public class UsabilityContractTests
         Assert.Contains("Name = \"get_rooms\"", query);
         var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
         Assert.Contains("GetRoomsAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("GetRoomsAsync", adapter);
         var selector = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Llm", "ToolSelector.cs"));
         Assert.Contains("get_rooms", selector);
@@ -256,7 +256,7 @@ public class UsabilityContractTests
         Assert.Contains("GetWorksetsAsync", bridge);
         Assert.Contains("GetClashByBoundingBoxAsync", bridge);
         Assert.Contains("GetModelHealthScoreAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("GetWorksetsAsync", adapter);
         Assert.Contains("GetClashByBoundingBoxAsync", adapter);
         Assert.Contains("GetModelHealthScoreAsync", adapter);
@@ -275,7 +275,7 @@ public class UsabilityContractTests
         var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
         Assert.Contains("RenameElementsAsync", bridge);
         Assert.Contains("ApplyConstructionDatesAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("RenameElementsAsync", adapter);
         Assert.Contains("ApplyConstructionDatesAsync", adapter);
     }
@@ -299,7 +299,7 @@ public class UsabilityContractTests
         Assert.Contains("CopyParamsAsync", bridge);
         Assert.Contains("ReplaceTextInParamAsync", bridge);
         Assert.Contains("NumberElementsAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("ExportParamsAsync", adapter);
         Assert.Contains("ImportParamsAsync", adapter);
         Assert.Contains("CopyParamsAsync", adapter);
@@ -330,7 +330,7 @@ public class UsabilityContractTests
         Assert.Contains("SetCropBoxAsync", bridge);
         Assert.Contains("CreateDimensionBetweenWallsAsync", bridge);
         Assert.Contains("TagAllInActiveViewAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("CreateSheetAsync", adapter);
         Assert.Contains("PlaceViewOnSheetAsync", adapter);
         Assert.Contains("TagAllInActiveViewAsync", adapter);
@@ -355,7 +355,7 @@ public class UsabilityContractTests
         Assert.Contains("GetWarningsRawAsync", bridge);
         Assert.Contains("ReloadLinksAsync", bridge);
         Assert.Contains("AssignWorksetAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("GetWarningsRawAsync", adapter);
         Assert.Contains("ReloadLinksAsync", adapter);
         Assert.Contains("AssignWorksetAsync", adapter);
@@ -375,7 +375,7 @@ public class UsabilityContractTests
         Assert.DoesNotContain("IfcCostTools", pluginAllTools);
         var bridge = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Revit", "IRevitBridge.cs"));
         Assert.Contains("GetQuantityTakeoffAsync", bridge);
-        var adapter = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AdapterRevitBridge.cs"));
+        var adapter = AdapterSource.All();
         Assert.Contains("GetQuantityTakeoffAsync", adapter);
         Assert.Contains("ParseCategory", adapter);
     }
