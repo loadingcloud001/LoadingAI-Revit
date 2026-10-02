@@ -72,9 +72,12 @@ public static class ToolPresets
             values.TryGetValue(f.Id, out var value);
             rows.Add(new PreviewRow { Label = f.Label, Detail = RenderDetail(value) });
 
+            // `is { Length: > 0 } w` narrows string? to string on every target. Relying on
+            // IsNullOrWhiteSpace's [NotNullWhen(false)] does not narrow on netstandard2.0, where
+            // that annotation is absent, and the build warns.
             var warning = f.Warning;
-            if (!string.IsNullOrWhiteSpace(warning) && IsTruthyForWarning(value))
-                warnings.Add(warning);
+            if (warning is { Length: > 0 } w && !string.IsNullOrWhiteSpace(w) && IsTruthyForWarning(value))
+                warnings.Add(w);
         }
 
         return new RunPreview
