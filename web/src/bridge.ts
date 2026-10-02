@@ -157,6 +157,17 @@ export type PresetFieldPayload = {
   options?: string[];
   category?: string;
   prompt?: string;
+  /** Red line shown in the Run panel when this field's live value is truthy. */
+  warning?: string;
+};
+
+export type PreviewRowView = { label: string; detail: string };
+
+/** Mirrors FromHostMessage.PreviewPayload. Absent means no preview is available. */
+export type PreviewPayload = {
+  summary: string;
+  rows: PreviewRowView[];
+  warnings: string[];
 };
 
 export type PresetPayload = {
@@ -166,6 +177,7 @@ export type PresetPayload = {
   description?: string;
   fields: PresetFieldPayload[];
   values?: Record<string, unknown>;
+  preview?: PreviewPayload;
 };
 
 export type PresetPickResult = {

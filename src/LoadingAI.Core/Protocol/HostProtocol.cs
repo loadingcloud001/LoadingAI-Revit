@@ -334,14 +334,34 @@ public abstract record FromHostMessage(string Type)
         bool Required,
         IReadOnlyList<string>? Options,
         string? Category,
-        string? Prompt);
+        string? Prompt,
+        string? Warning = null);
+
+    /// <summary>One line of the pre-run preview. Mirrored by web/src/bridge.ts.</summary>
+    public sealed record PreviewRowPayload(string Label, string Detail);
+
+    /// <summary>
+    /// Read-only preview of what a preset tool call is set up to do. Derived from the tool's
+    /// <c>PresetField</c> declarations plus the resolved arguments; not a gate (ADR-014).
+    /// Absent means "no preview available", which the pane must tolerate.
+    /// </summary>
+    public sealed record PreviewPayload(
+        string Summary,
+        IReadOnlyList<PreviewRowPayload> Rows,
+        IReadOnlyList<string> Warnings);
+
+    /// <summary>
+    /// The preset form shown before a tool runs. <see cref="Preview"/> is optional and appended
+    /// last so existing positional call sites are not renumbered.
+    /// </summary>
     public sealed record PresetPayload(
         string ToolCallId,
         string ToolName,
         string? Tier,
         string? Description,
         IReadOnlyList<PresetFieldPayload> Fields,
-        object? Values);
+        object? Values,
+        PreviewPayload? Preview = null);
     public sealed record PlanStepPayload(string Title, string Status = "pending");
     public sealed record PlanPayload(string Title, IReadOnlyList<PlanStepPayload> Steps, bool IsStreaming = false);
     public sealed record ContextPayload(

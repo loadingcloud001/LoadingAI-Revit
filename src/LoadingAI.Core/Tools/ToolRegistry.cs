@@ -47,6 +47,11 @@ public sealed class PresetField
     public string? Category { get; init; }
     /// <summary>Status-bar prompt while picking in the model.</summary>
     public string? Prompt { get; init; }
+    /// <summary>
+    /// Shown as a warning line in the <see cref="RunPreview"/> when this field's resolved value
+    /// is truthy. Lets a tool call out a dangerous setting without owning a confirm.
+    /// </summary>
+    public string? Warning { get; init; }
 }
 
 public sealed class ToolEntry

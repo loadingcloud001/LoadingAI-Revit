@@ -182,7 +182,7 @@ public class DefaultLlmTests : IDisposable
         Assert.Equal("LoadingAI", DefaultLlm.DisplayName);
         Assert.Equal("LoadingAI", DefaultLlm.DisplayModel);
         Assert.Equal(DefaultLlm.GatewayBaseUrl, DefaultLlm.ApiBaseUrl);
-        Assert.Equal("MiniMax-M3", DefaultLlm.ApiModel);
+        Assert.Equal("MiniMax-M3.1-Flash-Preview", DefaultLlm.ApiModel);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayName, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("minimax", DefaultLlm.DisplayModel, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("minimax", DefaultLlm.ApiBaseUrl, StringComparison.OrdinalIgnoreCase);

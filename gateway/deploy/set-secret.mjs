@@ -143,7 +143,11 @@ async function proveChat(clientToken) {
       headers: { ...base, 'x-loadingai-ticket': ticket, 'content-type': 'application/json' },
       body: JSON.stringify({
         messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
-        max_tokens: 8,
+        // A reasoning model spends part of the budget thinking before it writes any
+        // visible content, so a ceiling of 8 came back with content:"" and made a
+        // healthy upstream look broken. The add-in sets no max_tokens at all, so the
+        // probe only needs a ceiling loose enough to let it think and then answer.
+        max_tokens: 1024,
         stream: false,
       }),
       signal: AbortSignal.timeout(60_000),
@@ -152,11 +156,15 @@ async function proveChat(clientToken) {
     if (chat.ok) {
       const parsed = JSON.parse(text);
       const reply = parsed?.choices?.[0]?.message?.content?.trim();
-      return reply ? `upstream answered: "${reply.slice(0, 60)}"` : 'upstream answered without content';
+      // Explicit ok flag, never a prefix match on the message: an empty reply must not
+      // be able to pass as success by matching the same leading words as a good one.
+      return reply
+        ? { ok: true, message: `upstream answered: "${reply.slice(0, 60)}"` }
+        : { ok: false, message: 'upstream answered without content (no visible reply to show)' };
     }
-    return `chat answered HTTP ${chat.status}: ${text.slice(0, 300)}`;
+    return { ok: false, message: `chat answered HTTP ${chat.status}: ${text.slice(0, 300)}` };
   } catch (error) {
-    return `chat request failed: ${error.message}`;
+    return { ok: false, message: `chat request failed: ${error.message}` };
   }
 }
 
@@ -176,8 +184,9 @@ async function check() {
   say(`/health     ${up ? JSON.stringify(up) : 'no response'}`);
 
   const token = env.LOADINGAI_CLIENT_TOKEN || DEFAULT_CLIENT_TOKEN;
-  say(`chat probe  ${await proveChat(token)}`);
-  return env.MINIMAX_API_KEY ? 0 : 1;
+  const probe = await proveChat(token);
+  say(`chat probe  ${probe.message}`);
+  return env.MINIMAX_API_KEY && probe.ok ? 0 : 1;
 }
 
 async function setSecret() {
@@ -218,10 +227,10 @@ async function setSecret() {
   say(`/health     ${JSON.stringify(up)}`);
 
   const token = parseEnv(readEnv()).LOADINGAI_CLIENT_TOKEN || DEFAULT_CLIENT_TOKEN;
-  const result = await proveChat(token);
-  say(`chat probe  ${result}`);
-  say(result.startsWith('upstream answered') ? 'end to end OK' : 'still failing: see the probe above');
-  process.exit(result.startsWith('upstream answered') ? 0 : 1);
+  const probe = await proveChat(token);
+  say(`chat probe  ${probe.message}`);
+  say(probe.ok ? 'end to end OK' : 'still failing: see the probe above');
+  process.exit(probe.ok ? 0 : 1);
 }
 
 if (process.argv.includes('--check')) {

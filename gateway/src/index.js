@@ -150,7 +150,7 @@ async function handleModels(request, env) {
   // Answered locally so a model probe never spends upstream credit.
   return json({
     object: 'list',
-    data: [{ id: env.MINIMAX_MODEL || 'MiniMax-M3', object: 'model', owned_by: 'LoadingAI' }],
+    data: [{ id: env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview', object: 'model', owned_by: 'LoadingAI' }],
   });
 }
 
@@ -199,7 +199,7 @@ async function handleChat(request, env) {
       'content-type': 'application/json',
       accept: request.headers.get('accept') || 'application/json',
     },
-    body: JSON.stringify({ ...payload, model: env.MINIMAX_MODEL || 'MiniMax-M3' }),
+    body: JSON.stringify({ ...payload, model: env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview' }),
   });
 
   return new Response(upstream.body, {

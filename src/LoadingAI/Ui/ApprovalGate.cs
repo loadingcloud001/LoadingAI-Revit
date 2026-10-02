@@ -81,13 +81,24 @@ internal sealed class ApprovalGate
             f.Required,
             f.Options,
             f.Category,
-            f.Prompt)).ToList();
+            f.Prompt,
+            f.Warning)).ToList();
         var values = ToolPresets.Prefill(entry.Presets, argsJson);
+
+        // Preview is enrichment, never a precondition: TryBuildPreview swallows, so a value that
+        // cannot be rendered still gets the user a form to correct (ADR-014).
+        var preview = ToolPresets.TryBuildPreview(entry.Presets, argsJson);
+        var previewPayload = preview == null
+            ? null
+            : new FromHostMessage.PreviewPayload(
+                preview.Summary,
+                preview.Rows.Select(r => new FromHostMessage.PreviewRowPayload(r.Label, r.Detail)).ToList(),
+                preview.Warnings.ToList());
 
         try
         {
             _onUi(() => _web.Post(new FromHostMessage.ToolPreset(new FromHostMessage.PresetPayload(
-                callId, name, entry.Tier.ToString(), entry.Definition.Function.Description, fields, values))));
+                callId, name, entry.Tier.ToString(), entry.Definition.Function.Description, fields, values, previewPayload))));
         }
         catch { }
         try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting preset {callId})"))); } catch { }

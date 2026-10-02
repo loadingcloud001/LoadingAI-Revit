@@ -16,6 +16,18 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     /// <summary>The exact sentence the host formwork algorithms use when there is no document.</summary>
     private const string NoDocument = "Please open a model first.";
 
+    /// <summary>
+    /// dryRun is read-only: report the scope asked for and write nothing. The host already skips
+    /// both L3 gates on a truthy dryRun (ADR-0004), so this return has to be the whole behaviour.
+    /// <para>
+    /// Scope only, never counts. The generator's outcome depends on Revit <c>Solid</c> geometry
+    /// with no tests (finding F7), and a guessed number presented as fact is worse than no number
+    /// (ADR-014).
+    /// </para>
+    /// </summary>
+    private static ToolExecutionResult DryRun(string scope)
+        => ToolExecutionResult.Succeeded($"Dry run ({scope}). No model changes.", ToolWriteCertainty.NoWrite);
+
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
         yield return Setup(context);
@@ -36,17 +48,21 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 Parameters = new
                 {
                     type = "object",
-                    properties = new { },
+                    properties = new
+                    {
+                        dryRun = new { type = "boolean", description = "Report scope only. Writes nothing." }
+                    },
                     required = Array.Empty<string>()
                 }
             }
         },
-        Handler = async _ => (await FormworkSetupAsync(context)).Text,
-        StructuredHandler = _ => FormworkSetupAsync(context)
+        Handler = async json => (await FormworkSetupAsync(context, json)).Text,
+        StructuredHandler = json => FormworkSetupAsync(context, json)
     };
 
-    private static async Task<ToolExecutionResult> FormworkSetupAsync(IPluginContext context)
+    private static async Task<ToolExecutionResult> FormworkSetupAsync(IPluginContext context, string json)
     {
+        if (ToolPresets.IsDryRun(json)) return DryRun("bind shared parameters and create the panel schema");
         var result = await context.Bridge.FormworkSetupAsync(new FormworkSetupRequestDto());
         return FromFormwork(result, readOnly: false);
     }
@@ -75,7 +91,8 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                         faceTypes = new { type = "array", items = new { type = "string", @enum = FormworkDefaults.AllFaceTypes } },
                         collision = new { type = "boolean" },
                         deleteExisting = new { type = "boolean" },
-                        includeUnselectedLinks = new { type = "boolean" }
+                        includeUnselectedLinks = new { type = "boolean" },
+                        dryRun = new { type = "boolean", description = "Report scope only. Writes nothing." }
                     },
                     required = Array.Empty<string>()
                 }
@@ -89,7 +106,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
             new PresetField { Id = "elementIds", Label = "Elements", Kind = PresetFieldKind.PickElements, Prompt = "Pick the structural elements to form" },
             new PresetField { Id = "thicknessMm", Label = "Sheet thickness (mm)", Kind = PresetFieldKind.Number, Default = (int)FormworkDefaults.SheetThicknessMmDefault },
             new PresetField { Id = "collision", Label = "Skip panels that collide", Kind = PresetFieldKind.Boolean, Default = true },
-            new PresetField { Id = "deleteExisting", Label = "Delete existing panels first", Kind = PresetFieldKind.Boolean, Default = false },
+            new PresetField { Id = "deleteExisting", Label = "Delete existing panels first", Kind = PresetFieldKind.Boolean, Default = false, Warning = "Existing panels will be deleted first." },
         },
         Handler = async json => (await CreatePanelsAsync(context, json)).Text,
         StructuredHandler = json => CreatePanelsAsync(context, json)
@@ -98,6 +115,11 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     private static async Task<ToolExecutionResult> CreatePanelsAsync(IPluginContext context, string json)
     {
         var args = Args.Parse(json);
+        if (ToolPresets.IsDryRun(json))
+        {
+            var requested = args.Strings("elementIds");
+            return DryRun(requested.Count == 0 ? "current selection" : requested.Count + " requested element(s)");
+        }
         var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
         if (ids.Count == 0)
             return ToolExecutionResult.Failed("Please select elements first.", ToolWriteCertainty.NotCommitted);
@@ -130,7 +152,8 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                         // approval; FormworkCleanup.Run keeps its own default case as
                         // defence-in-depth, because Handler can still be called directly.
                         action = new { type = "string", @enum = FormworkDefaults.CleanupActions },
-                        faceType = new { type = "string" }
+                        faceType = new { type = "string" },
+                        dryRun = new { type = "boolean", description = "Report scope only. Writes nothing." }
                     },
                     required = new[] { "action" }
                 }
@@ -150,6 +173,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     {
         var args = Args.Parse(json);
         var action = (args.Str("action") ?? "stats").Trim().ToLowerInvariant();
+        if (ToolPresets.IsDryRun(json)) return DryRun("action: " + action);
         var result = await context.Bridge.CleanupFormworkAsync(new CleanupRequestDto(action, args.Str("faceType")));
         // stats returns before tx.Start in FormworkCleanup.Run, so it never opens a transaction
         // and must not start a turn TransactionGroup for a query.
@@ -171,7 +195,8 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                     properties = new
                     {
                         elementIds = new { type = "array", items = new { type = "string" } },
-                        paramNames = new { type = "array", items = new { type = "string" } }
+                        paramNames = new { type = "array", items = new { type = "string" } },
+                        dryRun = new { type = "boolean", description = "Report scope only. Writes nothing." }
                     },
                     required = Array.Empty<string>()
                 }
@@ -190,6 +215,13 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     private static async Task<ToolExecutionResult> CopyParentParamsAsync(IPluginContext context, string json)
     {
         var args = Args.Parse(json);
+        if (ToolPresets.IsDryRun(json))
+        {
+            var wanted = args.Strings("paramNames");
+            return DryRun(wanted.Count == 0
+                ? "list the FW_* parameter catalogue"
+                : "copy " + wanted.Count + " parameter(s) onto panels");
+        }
         var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
         var names = args.Strings("paramNames");
         var result = await context.Bridge.CopyFormworkParentParamsAsync(new CopyParamsRequestDto(ids, names));
