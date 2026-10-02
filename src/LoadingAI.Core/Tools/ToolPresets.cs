@@ -72,8 +72,9 @@ public static class ToolPresets
             values.TryGetValue(f.Id, out var value);
             rows.Add(new PreviewRow { Label = f.Label, Detail = RenderDetail(value) });
 
-            if (!string.IsNullOrWhiteSpace(f.Warning) && IsTruthyForWarning(value))
-                warnings.Add(f.Warning);
+            var warning = f.Warning;
+            if (!string.IsNullOrWhiteSpace(warning) && IsTruthyForWarning(value))
+                warnings.Add(warning);
         }
 
         return new RunPreview

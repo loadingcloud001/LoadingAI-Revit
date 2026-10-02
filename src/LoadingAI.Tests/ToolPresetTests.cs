@@ -113,7 +113,7 @@ public class ToolPresetTests
     {
         var root = RepoRoot();
         var sources = Directory.EnumerateFiles(Path.Combine(root, "Plugins"), "*.cs", SearchOption.AllDirectories)
-            .Select(f => (File: Path.GetRelativePath(root, f).Replace('\\', '/'), Text: File.ReadAllText(f)))
+            .Select(f => (File: RelativePath(root, f), Text: File.ReadAllText(f)))
             .ToArray();
 
         var declaring = sources.Count(s => DryRunSchemaGuard.Declares(s.Text));
@@ -134,6 +134,13 @@ public class ToolPresetTests
             "ChatSession skips BOTH L3 gates on dryRun:true (ADR-0004), so an unhandled dryRun " +
             "silently removes every confirm on a destructive write: " + string.Join(", ", offenders));
     }
+
+    // Path.GetRelativePath is not available on the .NET Framework target that Revit 2024 builds
+    // against, so the path is trimmed by hand. Do not "simplify" this back.
+    private static string RelativePath(string root, string full)
+        => full.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+            ? full.Substring(root.Length).TrimStart('\\', '/').Replace('\\', '/')
+            : full.Replace('\\', '/');
 
     private static string RepoRoot()
     {
