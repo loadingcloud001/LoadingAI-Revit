@@ -24,6 +24,12 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # The pane's pure formatting logic (preset preview, readable approval args) is covered by
+      # vitest. Without this step those tests exist but never run in CI.
+      - name: Test
+        working-directory: web
+        run: npm test
+
       - name: Build
         working-directory: web
         run: npm run build
