@@ -18,6 +18,18 @@ I recommend fixing the first four before adding more automation features.
 
 ## Verification status
 
+**Updated 2026-10-03.** The original block below is kept as the historical record of why the 2026-09-27 review could not verify anything. It no longer describes the project.
+
+As of `main` at `2606197`:
+
+- **The suite runs and passes.** `785` xUnit tests, 0 failures, measured 2026-10-03 on `net10.0`. The web pane adds `12` vitest tests.
+- **CI covers all four Revit versions.** A build matrix covers Revit 2024, 2025, 2026 and 2027; the xUnit suite then runs on the 2027 anchor. `main`'s post-merge run `37030853099` is green.
+- **The web pane is tested in CI.** Its job previously ran `npm ci` and `npm run build` without running the pane's own tests, so pane tests could exist and never execute. `ci.yml` now runs `npm test` in that job.
+- **The network limitation is gone.** GitHub is reachable from this environment; PRs #86 and #87 were pushed, reviewed and merged.
+- **Runtime behaviour in Revit is still not demonstrated.** The matrix *compiles* against each Revit API. Nothing here shows the add-in running inside Revit, and F7 remains **blocked, not fixed** — see below.
+
+**Original 2026-09-27 status, verbatim:**
+
 - The live GitHub remote could not be refreshed because the environment's network proxy refused GitHub access.
 - `dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj ...` did not complete; restore appeared blocked. A second `--no-restore` attempt also spawned stalled build processes and was stopped. This review therefore does **not** claim a passing test suite.
 - The findings below are based on source and contract inspection. Runtime behavior in Revit 2024–2027 remains to be reproduced.
@@ -215,6 +227,11 @@ Revit-version API differences, WebView2 behavior, install packaging, and web reg
 - Run web build and tests in normal CI.
 - Add an install/package smoke test that verifies the `.addin`, plugin manifests, family files, and expected tool catalog.
 
+**Update 2026-10-03 — partly addressed.**
+
+- The CI workflow now runs the web build **and** the web tests. The `web` job runs `npm ci`, then `npm test`, then `npm run build` (which typechecks first). Before this change that job built the pane but never ran the pane's own tests, so pane tests could exist and never execute.
+- Still open: the Revit smoke matrix for 2024–2027, and the install/package smoke test. The four-version matrix only *compiles* against each Revit API; nothing runs the add-in inside Revit, so a runtime regression in any version would still reach a release without an automated signal.
+
 ### B11 — Low/medium: diagnostic logs are plaintext and grow without a strict bound
 
 **Evidence**
@@ -334,6 +351,8 @@ Plan: `docs/superpowers/plans/2026-10-01-qs-formwork-rework.md`. ADR: `docs/adr/
 ## Discussion points
 
 My recommendation is to treat this as a safety and reliability consolidation before expanding autonomy or adding more tools. The most valuable next design decision is whether tool results should become structured objects end-to-end; that single change would improve transaction rollback, auditability, task state, and user reporting at the same time.
+
+**Update 2026-10-03.** That decision was taken and shipped. All 8 plugins and 87 tools now report `ToolExecutionResult` — status plus write certainty — instead of inferring an outcome from prose, and `ToolEntry.StructuredHandler` is the authoritative path (`LoadingAI.Core/Tools/ToolExecutionResult.cs`). See ADR-0013 and `docs/superpowers/plans/2026-10-01-qs-formwork-rework.md`. The `Failed:` prefix survives only as the documented fallback where DTO counts cannot distinguish a crash from a no-op run.
 
 Questions for the next discussion:
 
