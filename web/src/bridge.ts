@@ -157,6 +157,8 @@ export type PresetFieldPayload = {
   options?: string[];
   category?: string;
   prompt?: string;
+  /** Red line shown in the Run panel when this field's live value is truthy. */
+  warning?: string;
 };
 
 export type PreviewRowView = { label: string; detail: string };

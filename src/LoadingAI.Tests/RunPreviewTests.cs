@@ -30,6 +30,8 @@ public class RunPreviewTests
     [InlineData(0, false)]
     [InlineData("yes", true)]
     [InlineData("", false)]
+    [InlineData("0", false)]
+    [InlineData("false", false)]
     [InlineData(null, false)]
     public void BuildPreview_WarningOnlyWhenTruthy(object? value, bool shouldWarn)
     {
@@ -107,5 +109,19 @@ public class RunPreviewTests
 
         Assert.Equal("on", ToolPresets.BuildPreview(fields, null).Rows.Single().Detail);
         Assert.Equal("off", ToolPresets.BuildPreview(fields, """{"collision":false}""").Rows.Single().Detail);
+    }
+
+    [Fact]
+    public void BuildPreview_WarningIgnoredForBoxedZeroDefault()
+    {
+        // A field Default is a boxed object, not a JsonElement, so it misses the Number arm.
+        // Zero is a safe value: warning on it would tell the user a delete is coming when it is not.
+        const string warning = "Existing panels will be deleted first.";
+        var fields = new[]
+        {
+            Field("continueFrom", "Continue from", PresetFieldKind.Number, (int)0, warning: warning)
+        };
+
+        Assert.Empty(ToolPresets.BuildPreview(fields, null).Warnings);
     }
 }

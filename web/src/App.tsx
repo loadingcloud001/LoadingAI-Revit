@@ -6,7 +6,7 @@ import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
 import { classifyResult, outcomeLabel, TranscriptSlice } from './transcript';
-import { formatApprovalArgs, previewRows, previewWarnings, receiptLine } from './lib/presetPreview';
+import { formatApprovalArgs, previewRows, previewWarnings, receiptLine, runKicker } from './lib/presetPreview';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -808,7 +808,7 @@ export default function App() {
             const warnings = previewWarnings(m.preset);
             card = (
               <div key={m.id} style={{ borderTop: '2px solid #2b2b2b', borderBottom: '1px solid #d0d0d0', background: '#fff', padding: 10, fontSize: 12.5 }}>
-                <div style={kLabel}>{isPending ? 'Run' : 'Ran'}</div>
+                <div style={kLabel}>{runKicker(isPending)}</div>
                 <div>{m.preset.toolName}{m.preset.tier ? ` · ${m.preset.tier}` : ''}</div>
                 {warnings.map(w => (
                   <div key={w} className="text-[11px] mt-1" style={{ color: '#8a1f11' }}>{w}</div>
@@ -869,19 +869,18 @@ export default function App() {
               <div className="mt-1" style={{ color: '#5c5c5c' }}>{pendingPreset.description}</div>
             ) : null}
 
-            {previewWarnings(pendingPreset).map(w => (
+            {previewWarnings(pendingPreset, presetValues).map(w => (
               <div key={w} className="mt-1.5 text-[11px]" style={{ color: '#8a1f11' }}>{w}</div>
             ))}
 
-            <div className="mt-2">
+            <div className="mt-2" style={{ maxHeight: '32vh', overflowY: 'auto' }}>
               <div style={kLabel}>{pendingPreset.preview?.summary ?? `${fields.length} settings to confirm`}</div>
-              {previewRows(pendingPreset).map((r, idx) => (
+              {previewRows(pendingPreset, presetValues).map((r, idx) => (
                 <div key={`${idx}-${r.label}`} className="flex items-baseline gap-2 text-[11px]">
                   <span className="flex-1" style={{ color: '#5c5c5c' }}>{r.label}</span>
                   <span className="font-mono">{r.detail}</span>
                 </div>
               ))}
-            </div>
 
             {fields.length > 0 && (
               <div className="mt-2 grid gap-2">
@@ -909,6 +908,7 @@ export default function App() {
                 ))}
               </div>
             )}
+            </div>
 
             <div className="grid grid-cols-2 gap-1.5 mt-2">
               <button type="button" className={btn} onClick={() => handleSubmitPreset(false)}>Cancel</button>

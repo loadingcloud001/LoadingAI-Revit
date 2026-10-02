@@ -81,7 +81,8 @@ internal sealed class ApprovalGate
             f.Required,
             f.Options,
             f.Category,
-            f.Prompt)).ToList();
+            f.Prompt,
+            f.Warning)).ToList();
         var values = ToolPresets.Prefill(entry.Presets, argsJson);
 
         // Preview is enrichment, never a precondition: TryBuildPreview swallows, so a value that

@@ -54,7 +54,12 @@ function flatten(path: string, value: unknown, out: string[]): void {
   out.push(`${path}: ${String(value)}`);
 }
 
-/** Mirrors `ToolPresets.RenderDetail` in Core so the fallback reads the same as a real preview. */
+/**
+ * Renders one field value for the fallback rows. Matches `ToolPresets.RenderDetail` on the host
+ * for the shapes a form actually produces (missing, null, boolean, number, string, array,
+ * object). It is a close relative rather than an exact clone: the host prints a JSON number from
+ * its raw text, so a float can format differently on the two paths.
+ */
 export function renderValue(value: unknown): string {
   if (value === null || value === undefined) return NONE;
   if (typeof value === 'boolean') return value ? 'on' : 'off';
@@ -64,19 +69,63 @@ export function renderValue(value: unknown): string {
   return String(value);
 }
 
-/** Preview rows when the host sent them; otherwise one row per field, resolved from values. */
-export function previewRows(preset: PresetPayload): PreviewRowView[] {
+/**
+ * Truthiness for preview warnings, matching `ToolPresets.IsTruthyForWarning` on the host. More
+ * liberal than a gate check on purpose: a false negative leaves a destructive setting unflagged,
+ * while a false positive costs one extra line of caution.
+ */
+function isTruthy(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    return s.length > 0 && s !== '0' && s.toLowerCase() !== 'false';
+  }
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * Rows for the Run panel. Pass the form's live values so the summary follows what the user is
+ * editing; without them this falls back to the host's snapshot, then to the field declarations.
+ */
+export function previewRows(preset: PresetPayload, liveValues?: Record<string, unknown>): PreviewRowView[] {
+  if (liveValues) return rowsFromFields(preset, liveValues);
+
   const rows = preset.preview?.rows;
   if (rows && rows.length > 0) return rows.map(r => ({ label: r.label, detail: r.detail }));
 
+  return rowsFromFields(preset, preset.values ?? {});
+}
+
+function rowsFromFields(preset: PresetPayload, values: Record<string, unknown>): PreviewRowView[] {
   return (preset.fields ?? []).map(f => ({
     label: f.label || f.id,
-    detail: renderValue(preset.values?.[f.id])
+    detail: renderValue(values[f.id])
   }));
 }
 
-export function previewWarnings(preset: PresetPayload): string[] {
+/**
+ * Warnings for the Run panel. With live values the warning is recomputed from the field's own
+ * `warning`, so ticking "delete existing first" raises the red line immediately rather than at
+ * the next host round trip.
+ */
+export function previewWarnings(preset: PresetPayload, liveValues?: Record<string, unknown>): string[] {
+  if (liveValues) {
+    return (preset.fields ?? [])
+      .filter(f => !!f.warning && isTruthy(liveValues[f.id]))
+      .map(f => f.warning as string);
+  }
   return preset.preview?.warnings ?? [];
+}
+
+/**
+ * Heading for the transcript receipt. Stop and Cancel clear the pending preset immediately, so the
+ * heading must not assert that the tool ran.
+ */
+export function runKicker(isPending: boolean): 'Run' | 'Result' {
+  return isPending ? 'Run' : 'Result';
 }
 
 export function receiptLine(preset: PresetPayload, outcome: 'confirmed' | 'cancelled'): string {

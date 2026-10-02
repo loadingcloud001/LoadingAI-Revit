@@ -48,6 +48,53 @@ public class UsabilityContractTests
     }
 
     [Fact]
+    public void WebPane_StopAndClearUnmountTheRunPanel_AndBlockALateConfirm()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+
+        // Review Focus 4. Stop and Clear must take the Run panel away. The panel only mounts while
+        // a preset is pending, so clearing the pending preset unmounts Cancel/Confirm with it.
+        Assert.Matches(@"const handleStop = [^\n]*setPendingPreset\(null\)", src);
+        Assert.Matches(@"const handleClear = [^\n]*setPendingPreset\(null\)", src);
+        Assert.Contains("{pendingPreset && (() => {", src, StringComparison.Ordinal);
+
+        // And a confirm arriving after either is a no-op rather than a submission.
+        var submit = PaneSlice(src, "const handleSubmitPreset = (approved: boolean) => {", "const handlePresetPick =");
+        Assert.Contains("if (!pendingPreset) return;", submit, StringComparison.Ordinal);
+
+        // ADR-014: the interactive form must not live in the transcript any more. A receipt card
+        // that still bound setPresetValues would be a second, unpinned confirm surface.
+        var transcriptCard = PaneSlice(src, "if (m.role === 'preset' && m.preset) {", "if (m.role === 'approval' && m.approval) {");
+        Assert.DoesNotContain("setPresetValues", transcriptCard, StringComparison.Ordinal);
+        Assert.DoesNotContain("handleSubmitPreset", transcriptCard, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WebPane_RunPanelReadsLiveValues_NotOnlyTheHostSnapshot()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var panel = PaneSlice(src, "{pendingPreset && (() => {", "ref={composerRef}");
+
+        // The summary above the form is what a person confirms against. It has to follow the form,
+        // or it can read "delete off" over a checked Delete box.
+        Assert.Contains("previewRows(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
+        Assert.Contains("previewWarnings(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
+
+        // Long forms (structure-cuts ships a seven-knob form) must not push Cancel/Confirm/Stop out
+        // of reach on a docked pane.
+        Assert.Contains("overflowY", panel, StringComparison.Ordinal);
+    }
+
+    private static string PaneSlice(string src, string start, string end)
+    {
+        var i = src.IndexOf(start, StringComparison.Ordinal);
+        Assert.True(i >= 0, $"marker not found: {start}");
+        var j = src.IndexOf(end, i + start.Length, StringComparison.Ordinal);
+        Assert.True(j > i, $"marker not found: {end}");
+        return src.Substring(i, j - i);
+    }
+
+    [Fact]
     public void ToolGuards_SkipsL3_HostOwnsTheGate()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));

@@ -334,7 +334,8 @@ public abstract record FromHostMessage(string Type)
         bool Required,
         IReadOnlyList<string>? Options,
         string? Category,
-        string? Prompt);
+        string? Prompt,
+        string? Warning = null);
 
     /// <summary>One line of the pre-run preview. Mirrored by web/src/bridge.ts.</summary>
     public sealed record PreviewRowPayload(string Label, string Detail);

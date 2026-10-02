@@ -13,7 +13,9 @@ ADR-0004 froze the write-confirm gates and named this change explicitly:
 > A later PR can drop the native dialog (web-only), drop the web card (native-only), or skip dry-run and double-prompt a preview. That is a product freeze, not a bugfix. Record it before anyone "simplifies" the gate.
 > — `docs/adr/0004-host-owned-l3-confirm.md`
 
-That third alternative is what this ADR records.
+This ADR records the decision ADR-0004 asked to be written down before the gate is touched — but it
+takes **none** of those three alternatives. The preview it adds is not a gate: the frozen order runs
+unchanged behind it.
 
 Today the preset form is rendered as a permanent card in the chat transcript
 (`web/src/App.tsx`, the `if (m.role === 'preset' && m.preset)` branch in the

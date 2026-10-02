@@ -128,14 +128,32 @@ public static class ToolPresets
             JsonValueKind.False => false,
             JsonValueKind.Null or JsonValueKind.Undefined => false,
             JsonValueKind.Number => el.TryGetInt32(out var n) ? n != 0 : el.GetRawText() != "0",
-            JsonValueKind.String => !string.IsNullOrWhiteSpace(el.GetString()),
+            JsonValueKind.String => IsTruthyString(el.GetString()),
             JsonValueKind.Array => el.GetArrayLength() > 0,
             _ => true
         },
         bool b => b,
-        string s => !string.IsNullOrWhiteSpace(s),
+        string s => IsTruthyString(s),
+        // A PresetField.Default is a boxed object, so it never takes the JsonElement arm above.
+        // Zero is a safe value and must not raise a warning.
+        int n => n != 0,
+        long n => n != 0L,
+        short n => n != 0,
+        byte n => n != 0,
+        double d => d != 0d,
+        float f => f != 0f,
+        decimal m => m != 0m,
         _ => true
     };
+
+    /// <summary>
+    /// A string is truthy unless it is blank, "0", or "false". A form Number field hands back "0"
+    /// for zero and a checkbox can hand back "false"; neither is a reason to raise a warning.
+    /// </summary>
+    private static bool IsTruthyString(string? s)
+        => !string.IsNullOrWhiteSpace(s)
+           && !string.Equals(s, "0", StringComparison.Ordinal)
+           && !string.Equals(s, "false", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Overlay <paramref name="valuesJson"/> onto <paramref name="argsJson"/>. Overlay wins.</summary>
     public static string Merge(string? argsJson, string? valuesJson)
