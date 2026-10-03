@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace LoadingAI.Llm;
 
@@ -7,6 +8,11 @@ public sealed record CheckpointInfo(string Id, DateTime CreatedAt, string? Mode,
 
 public static class CheckpointStore
 {
+    private static readonly Regex IdPattern = new(@"\A[0-9A-Za-z_]{1,64}\z");
+
+    /// <summary>Checkpoint ids are timestamp + suffix. Anything else could walk out of the folder.</summary>
+    public static bool IsValidId(string? id) => !string.IsNullOrEmpty(id) && IdPattern.IsMatch(id);
+
     private static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "checkpoints");
     private static JsonSerializerOptions Opts => new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -60,6 +66,7 @@ public static class CheckpointStore
     {
         try
         {
+            if (!IsValidId(id)) return null;
             var path = Path.Combine(Dir, id + ".json");
             if (!File.Exists(path)) path = Directory.GetFiles(Dir, id + "*.json").FirstOrDefault() ?? "";
             if (!File.Exists(path)) return null;

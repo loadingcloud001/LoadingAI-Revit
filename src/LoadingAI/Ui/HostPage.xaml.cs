@@ -446,6 +446,8 @@ public partial class HostPage : Page
                 case ToHostMessage.ReloadPlugins:
                     if (_session.TryReloadPlugins(out var reloadMsg))
                         PostPlugins(reloadMsg);
+                    else
+                        PostToWeb(new FromHostMessage.Status(reloadMsg));
                     break;
 
                 case ToHostMessage.TrustPlugin { Folder: var trustFolder, Assembly: var trustAssembly }:
@@ -474,6 +476,7 @@ public partial class HostPage : Page
                     }
 
                 case ToHostMessage.ResumeCheckpoint { Id: var id }:
+                    if (_session.IsRunning) { PostToWeb(new FromHostMessage.Error("Stop the current run before resuming a checkpoint.")); break; }
                     if (string.IsNullOrWhiteSpace(id)) { PostToWeb(new FromHostMessage.Error("Checkpoint id required.")); break; }
                     var msgs = CheckpointStore.Load(id);
                     if (msgs == null) { PostToWeb(new FromHostMessage.Error($"Checkpoint {id} not found.")); break; }
