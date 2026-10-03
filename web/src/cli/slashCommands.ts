@@ -19,7 +19,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'checkpoints', label: '/checkpoints', description: 'List checkpoints' },
 ];
 
-/** Handled in the pane (`clear`, `help`) or by a host slash branch with no LLM call (`checkpoints`, `resume`). */
+/** `clear`, `help` and `checkpoints` are handled in the pane (`checkpoints` posts `listCheckpoints`); `resume` is sent to the host as a send with slash 'resume' (no LLM call). */
 export const LOCAL_COMMANDS = ['clear', 'help', 'checkpoints', 'resume'];
 /** Sent to the model as natural language. */
 export const PASSTHROUGH_COMMANDS = ['export', 'isolate', 'hide'];

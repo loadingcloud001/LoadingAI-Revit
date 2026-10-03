@@ -414,12 +414,13 @@ export default function App() {
       if (!isLocalSlash) return;
     }
     if (parsed.slash) {
-      if (parsed.slash.name === 'clear') { handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
+      if (parsed.slash.name === 'clear') { stickToBottomRef.current = true; handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
       if (parsed.slash.name === 'help') {
+        stickToBottomRef.current = true;
         setMessages(m => [...m, { id: nextId(), role: 'system', text: `Commands: ${SLASH_COMMANDS.map(c => `${c.label} ${c.argsHint ?? ''} — ${c.description}`).join('\n')}\n\n@mentions: @selection @activeView @visible @warnings @levels @sheets` }]);
         setInput(''); setSlashOpen(false); return;
       }
-      if (parsed.slash.name === 'checkpoints') { postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); return; }
+      if (parsed.slash.name === 'checkpoints') { stickToBottomRef.current = true; postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); return; }
     }
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
