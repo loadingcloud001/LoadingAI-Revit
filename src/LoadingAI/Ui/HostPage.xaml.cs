@@ -124,8 +124,8 @@ public partial class HostPage : Page
         PostToWeb(new FromHostMessage.Plugins(_session.GetPluginsPayload(), PluginLoader.Issues));
         if (!string.IsNullOrWhiteSpace(extraStatus))
             PostToWeb(new FromHostMessage.Status(extraStatus));
-        else if (PluginLoader.Issues.Count > 0)
-            PostToWeb(new FromHostMessage.Status($"{PluginLoader.Issues.Count} plugin(s) failed to load. See Settings → Tools."));
+        else if (PluginLoader.FailureCount > 0)
+            PostToWeb(new FromHostMessage.Status($"{PluginLoader.FailureCount} plugin(s) failed to load. See Settings → Tools."));
     }
 
     /// <summary>
@@ -194,7 +194,7 @@ public partial class HostPage : Page
         var td = new TaskDialog("LoadingAI for Revit")
         {
             MainInstruction = $"Trust plugin {name}?",
-            MainContent = $"{dll}\nSHA-256 {sha256}\n\nLets this DLL load in Revit. Tool tiers and Confirm L3 are unchanged.",
+            MainContent = PluginLoader.DescribeForTrust(dll, sha256, pluginFolder),
             CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
             DefaultButton = TaskDialogResult.No
         };
@@ -427,6 +427,11 @@ public partial class HostPage : Page
                             PostToWeb(new FromHostMessage.Error($"Plugin {pluginId} not found or is built-in."));
                             break;
                         }
+                        if (_session.IsRunning)
+                        {
+                            PostToWeb(new FromHostMessage.Error("Stop the current run before removing a plugin."));
+                            break;
+                        }
                         var td = new TaskDialog("LoadingAI for Revit")
                         {
                             MainInstruction = $"Remove plugin {pluginId}?",
@@ -439,8 +444,14 @@ public partial class HostPage : Page
                             PostToWeb(new FromHostMessage.Status("Remove cancelled."));
                             break;
                         }
-                        try { Directory.Delete(plugin.Meta.FolderPath, true); PostToWeb(new FromHostMessage.Status($"Removed {pluginId}. Restart Revit to unload.")); }
-                        catch (Exception ex) { PostToWeb(new FromHostMessage.Error($"Remove failed: {ex.Message}. Close Revit and delete manually: {plugin.Meta.FolderPath}")); }
+                        if (!PluginLoader.TryRemove(plugin.Meta.Id, plugin.Meta.FolderPath, out var removeMessage))
+                        {
+                            PostToWeb(new FromHostMessage.Error(removeMessage));
+                            break;
+                        }
+                        // A rescan drops the plugin's tools from the registry at once and refreshes the shelf.
+                        _session.TryReloadPlugins(out var rescanMessage);
+                        PostPlugins($"{removeMessage} {rescanMessage}");
                         break;
                     }
 

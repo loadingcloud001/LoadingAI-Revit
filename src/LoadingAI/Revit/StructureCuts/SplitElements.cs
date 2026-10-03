@@ -22,32 +22,89 @@ internal static class SplitElements
     /// Split is called on an unsafe member — <see cref="CurveMemberSplit.CanNativeSplit"/> is the
     /// real gate.
     /// </summary>
-    public static Transaction WriteTx(Document doc, string name)
+    public static SplitTransaction WriteTx(Document doc, string name) => new SplitTransaction(doc, name);
+
+    /// <summary>
+    /// The one write transaction a split run opens. It owns the failure handling: warnings are deleted so
+    /// they cannot abort a multi-member write, and an error Revit cannot resolve rolls the whole batch
+    /// back without a dialog. <see cref="Commit"/> then returns the report to give instead of a success,
+    /// so a run can never describe a write that did not land.
+    /// </summary>
+    internal sealed class SplitTransaction : IDisposable
     {
-        var tx = new Transaction(doc, name);
-        var failures = tx.GetFailureHandlingOptions();
-        failures.SetClearAfterRollback(true);
-        failures.SetForcedModalHandling(true);
-        failures.SetFailuresPreprocessor(new SkipWarnings());
-        tx.SetFailureHandlingOptions(failures);
-        return tx;
+        private readonly Transaction _tx;
+        private readonly FailureCollector _failures = new FailureCollector();
+
+        public SplitTransaction(Document doc, string name)
+        {
+            _tx = new Transaction(doc, name);
+            var options = _tx.GetFailureHandlingOptions();
+            options.SetClearAfterRollback(true);
+            options.SetForcedModalHandling(true);
+            options.SetFailuresPreprocessor(_failures);
+            _tx.SetFailureHandlingOptions(options);
+        }
+
+        public TransactionStatus Start() => _tx.Start();
+
+        /// <returns>Null when the batch committed; otherwise the "Failed:" report the run must return.</returns>
+        public string? Commit()
+        {
+            var status = _tx.Commit();
+            if (status == TransactionStatus.Committed)
+                return null;
+
+            return "Failed: Revit rolled back the whole batch (" + status + ")" + _failures.Describe()
+                + ". Nothing was changed. Try a smaller limit, or run dryRun first.";
+        }
+
+        public void Dispose() => _tx.Dispose();
     }
 
-    private sealed class SkipWarnings : IFailuresPreprocessor
+    private sealed class FailureCollector : IFailuresPreprocessor
     {
+        private readonly List<string> _errors = new List<string>();
+
         public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
         {
-            var toDelete = new List<FailureMessageAccessor>();
+            var warnings = new List<FailureMessageAccessor>();
+            var hasError = false;
             foreach (var failure in accessor.GetFailureMessages())
             {
                 if (failure.GetSeverity() == FailureSeverity.Warning)
-                    toDelete.Add(failure);
+                {
+                    warnings.Add(failure);
+                    continue;
+                }
+
+                hasError = true;
+                var text = failure.GetDescriptionText();
+                if (!string.IsNullOrWhiteSpace(text) && !_errors.Contains(text))
+                    _errors.Add(text);
             }
 
-            foreach (var failure in toDelete)
-                accessor.DeleteWarning(failure);
+            foreach (var warning in warnings)
+                accessor.DeleteWarning(warning);
 
-            return FailureProcessingResult.Continue;
+            // An error Revit cannot resolve would otherwise open its dialog inside this call and stall it
+            // until someone answers. Roll the batch back and let Commit say why.
+            return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+        }
+
+        public string Describe()
+            => _errors.Count == 0 ? "" : ": " + string.Join("; ", _errors.Take(3));
+    }
+
+    /// <summary>The element behind an id an earlier page of this run collected, or null when it no longer exists.</summary>
+    public static Element? ElementOf(Document doc, string token)
+    {
+        try
+        {
+            return doc.GetElement(RevitParse.ParseEid(token));
+        }
+        catch
+        {
+            return null;
         }
     }
 

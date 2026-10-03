@@ -17,6 +17,64 @@ public static class ToolSelector
         "color_by_parameter"
     };
 
+    /// <summary>
+    /// Chinese construction terms and the English keywords the scoring understands. Appended to the
+    /// request text; nothing is replaced. Terminology needs review by a fluent reader before release.
+    /// </summary>
+    private static readonly (string Zh, string En)[] ZhAliases =
+    {
+        ("牆", "wall"), ("墙", "wall"), ("墻", "wall"),
+        ("門", "door"), ("门", "door"),
+        ("窗", "window"),
+        ("樓板", "floor slab"), ("楼板", "floor slab"), ("地台", "floor slab"),
+        ("屋頂", "roof"), ("屋顶", "roof"),
+        ("樑", "beam"), ("梁", "beam"),
+        ("柱", "column"),
+        ("樓層", "level"), ("楼层", "level"), ("標高", "level"), ("标高", "level"),
+        ("軸線", "grid"), ("轴线", "grid"), ("網格", "grid"),
+        ("視圖", "view"), ("视图", "view"),
+        ("圖紙", "sheet"), ("图纸", "sheet"),
+        ("房間", "room"), ("房间", "room"),
+        ("參數", "parameter param"), ("参数", "parameter param"),
+        ("備註", "comments comment"), ("备注", "comments comment"),
+        ("標記", "mark"), ("标记", "mark"),
+        ("刪除", "delete"), ("删除", "delete"),
+        ("移動", "move"), ("移动", "move"),
+        ("建立", "create"), ("創建", "create"), ("创建", "create"),
+        ("匯出", "export"), ("導出", "export"), ("导出", "export"), ("輸出", "export"),
+        ("匯入", "import"), ("導入", "import"), ("导入", "import"),
+        ("數量", "quantity takeoff"), ("数量", "quantity takeoff"), ("工程量", "quantity takeoff"),
+        ("警告", "warning"),
+        ("分割", "split"), ("拆分", "split"), ("切割", "split"),
+        ("洞口", "opening openings"), ("開孔", "opening openings"), ("开孔", "opening openings"),
+        ("模板", "formwork"),
+        ("隱藏", "hide"), ("隐藏", "hide"),
+        ("隔離", "isolate"), ("隔离", "isolate"),
+        ("顏色", "color"), ("颜色", "color"), ("著色", "color"), ("着色", "color"),
+        ("儲存", "save"), ("保存", "save"),
+        ("複製", "copy"), ("复制", "copy"),
+        ("取代", "replace"), ("替換", "replace"), ("替换", "replace"),
+        ("編號", "number"), ("编号", "number"),
+        ("連結", "link"), ("链接", "link"),
+        ("材料", "material"), ("族", "family")
+    };
+
+    /// <summary>
+    /// Appends the English keywords for any Chinese construction term in <paramref name="lower"/>, so
+    /// the English-only scoring also ranks tools for a Traditional or Simplified Chinese request.
+    /// </summary>
+    public static string ExpandAliases(string lower)
+    {
+        if (string.IsNullOrEmpty(lower) || !lower.Any(c => c >= '⺀')) return lower;
+        List<string>? extra = null;
+        foreach (var (zh, en) in ZhAliases)
+        {
+            if (lower.IndexOf(zh, StringComparison.Ordinal) < 0) continue;
+            (extra ??= new List<string>()).Add(en);
+        }
+        return extra == null ? lower : lower + " " + string.Join(" ", extra);
+    }
+
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
         => Select(tools, userText, null, max);
 
@@ -44,7 +102,7 @@ public static class ToolSelector
         int max = DefaultMax)
     {
         if (tools.Count <= max) return tools.ToList();
-        var lower = (userText ?? "").ToLowerInvariant();
+        var lower = ExpandAliases((userText ?? "").ToLowerInvariant());
         var active = ActiveTags(lower);
         var guaranteed = tools.Where(t => AlwaysKeep.Contains(t.Function.Name ?? "")).ToList();
         var remainingSlots = Math.Max(0, max - guaranteed.Count);
@@ -102,7 +160,7 @@ public static class ToolSelector
         if (catalog.Count <= max)
             return catalog.ToList();
 
-        var later = laterText.ToLowerInvariant();
+        var later = ExpandAliases(laterText.ToLowerInvariant());
         var active = ActiveTags(later);
         int Later(ToolDefinition t)
             => Score(t, later, TagsFor(t.Function.Name, tagMap), active, includeBase: false);

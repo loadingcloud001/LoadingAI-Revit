@@ -122,7 +122,7 @@ public class ViewToolsExecutionResultTests
         var (bridge, context) = Setup();
 
         var result = await CreateTool(context, "create_section_view")
-            .ExecuteAsync("""{"elementId":"123456"}""");
+            .ExecuteAsync("""{"x1":0,"y1":0,"x2":5000,"y2":0,"elementId":"123456"}""");
 
         Assert.Equal(ToolExecutionStatus.Failed, result.Status);
         Assert.Equal(ToolWriteCertainty.NotCommitted, result.WriteCertainty);

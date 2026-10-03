@@ -55,6 +55,9 @@ export type PluginInfo = {
   author: string;
   verified: boolean;
   folderPath: string;
+  /** Where the host's trust for this DLL comes from. Display only. */
+  source?: 'shipped' | 'trusted' | 'dev' | 'unknown';
+  removable?: boolean;
   tools: PluginToolInfo[];
 };
 
@@ -65,6 +68,11 @@ export type PluginLoadIssue = {
   summary: string;
   detail: string;
   hint: string;
+  sha256?: string;
+  /** Stable reason code; the pane keys on this, never on the wording. */
+  code?: string;
+  /** A note about a plugin that did load, not a failure. */
+  notice?: boolean;
 };
 
 export type Attachment = {
@@ -145,6 +153,7 @@ export type ApprovalPayload = {
   tier: string;
   args: string;
   description?: string;
+  summary?: string;
 };
 
 export type PresetFieldKind = 'String' | 'Number' | 'Boolean' | 'Select' | 'PickElements' | 'PickBox';

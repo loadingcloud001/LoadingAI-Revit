@@ -51,7 +51,7 @@ public sealed partial class AdapterRevitBridge
     }
 
     public Task<CommandResultDto> MoveElementsAsync(
-        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        IReadOnlyList<string> elementIds, double dxMm, double dyMm, double dzMm,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -65,32 +65,19 @@ public sealed partial class AdapterRevitBridge
             tx.Start();
             try
             {
-                var vec = new XYZ(dx, dy, dz);
-                int ok = 0;
-                var failed = new List<string>();
-                foreach (var eidStr in elementIds)
-                {
-                    try
-                    {
-                        ElementTransformUtils.MoveElement(doc, AllTools.ParseEid(eidStr), vec);
-                        ok++;
-                    }
-                    catch (Exception ex) { failed.Add($"{eidStr}:{ex.Message}"); }
-                }
-                if (ok == 0)
-                {
-                    tx.RollBack();
-                    return new CommandResultDto(false, failed.Count > 0 ? "Failed: " + string.Join("; ", failed.Take(10)) : "Could not move any elements.");
-                }
+                var vec = new XYZ(Metric.MmToFt(dxMm), Metric.MmToFt(dyMm), Metric.MmToFt(dzMm));
+                var ids = elementIds.Select(AllTools.ParseEid).ToList();
+                // One call for the whole set: Revit moves a host and the elements hosted on it once.
+                // Moving each id on its own moves a door twice when its wall is in the set as well.
+                // All or nothing: a throw rolls the transaction back, so there is no partial move.
+                ElementTransformUtils.MoveElements(doc, ids, vec);
                 tx.Commit();
-                var msg = $"Moved {ok}/{elementIds.Count} element(s) by ({dx},{dy},{dz}) ft.";
-                if (failed.Count > 0) msg += " Failed: " + string.Join("; ", failed.Take(10));
-                return new CommandResultDto(true, msg, ok);
+                return new CommandResultDto(true, $"Moved {ids.Count} element(s) by ({dxMm:0.##}, {dyMm:0.##}, {dzMm:0.##}) mm.", ids.Count);
             }
             catch (Exception ex)
             {
                 try { tx.RollBack(); } catch { }
-                return new CommandResultDto(false, $"Failed: {ex.Message}");
+                return new CommandResultDto(false, $"Failed: {ex.Message}. No elements were moved.");
             }
         }, ct);
     }

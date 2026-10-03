@@ -266,8 +266,9 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     /// classifies it as a read without having to re-read the request flag.
     ///
     /// <c>Skipped</c> is deliberately not folded into the write count: a grouped, pinned or
-    /// unsplittable member is left alone by design and named in the report, and the DTO carries
-    /// no failure count at all, so treating a skip as a failure would invent one.
+    /// unsplittable member is left alone by design and named in the report, so a skip is not a
+    /// failure. <c>Failed</c> is the part of Skipped that was attempted and rolled back; with writes
+    /// it makes the run Partial, without them it is Failed.
     ///
     /// <c>Error</c> is checked first, matching ADR-0007 and ADR-0009. The <c>Failed:</c> prefix
     /// stays as a fallback because the adapter's catch returns it as the <c>Report</c> with
@@ -284,6 +285,15 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
             return ToolExecutionResult.Failed(result.Report, ToolWriteCertainty.NotCommitted);
 
         var writes = result.Created + result.Openings;
+        if (result.Failed > 0)
+        {
+            // Some members were attempted and rolled back. If others were written, those writes stay in
+            // the turn (Partial + Committed is safe to assimilate); if none were, nothing changed.
+            return writes > 0
+                ? ToolExecutionResult.Partial(result.Report, ToolWriteCertainty.Committed, writes, result.Failed)
+                : ToolExecutionResult.Failed(result.Report, ToolWriteCertainty.NotCommitted, 0, result.Failed);
+        }
+
         return writes > 0
             ? ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.Committed, writes)
             : ToolExecutionResult.Succeeded(result.Report, ToolWriteCertainty.NoWrite);
@@ -358,13 +368,14 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static object ScopeProperty() => new
     {
         type = "string",
+        @enum = new[] { "selection", "visible", "all" },
         description = "Optional. selection (default), visible, or all. Used when host ids are omitted."
     };
 
     private static object ContinueFromProperty() => new
     {
         type = "integer",
-        description = "Optional. Skip this many matching hosts before applying limit. Default 0."
+        description = "Optional. Where to continue a capped run: pass the nextOffset the previous result named. Continuing pages through the list of hosts taken when the run started (kept for 30 minutes), so hosts that run re-created are not skipped. Default 0 starts a fresh list."
     };
 
     private static object DryRunProperty() => new
@@ -406,7 +417,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static object CategoriesProperty() => new
     {
         type = "array",
-        items = new { type = "string" },
+        items = new { type = "string", @enum = new[] { "walls", "columns", "beams", "floors" } },
         description = "Optional. walls, columns, beams, floors. Default all four."
     };
 

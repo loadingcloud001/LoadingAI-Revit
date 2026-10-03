@@ -17,6 +17,126 @@ namespace LoadingAI.Revit;
 /// </summary>
 public sealed partial class AdapterRevitBridge
 {
+    // ---- colour overrides: solid fill, and a ledger so they can be undone --------------------------
+
+    /// <summary>What each view looked like before a colour tool first touched it. This Revit session only.</summary>
+    private static readonly ViewOverrideLedger<OverrideGraphicSettings> OverrideLedger = new();
+
+    private static string ViewKey(View view) => view.Id.ToString();
+
+    /// <summary>The first solid drafting fill in the document, found by what it is rather than by its localised name.</summary>
+    private static ElementId SolidFillPatternId(Document doc)
+    {
+        foreach (var element in new FilteredElementCollector(doc).OfClass(typeof(FillPatternElement)))
+        {
+            var pattern = ((FillPatternElement)element).GetFillPattern();
+            if (pattern.IsSolidFill && pattern.Target == FillPatternTarget.Drafting)
+                return element.Id;
+        }
+
+        return ElementId.InvalidElementId;
+    }
+
+    /// <summary>
+    /// Line and surface colour with a solid fill, so the colour shows in Shaded and Consistent Colors as
+    /// well as in Hidden Line. A surface with no pattern shows only its edges.
+    /// </summary>
+    private static OverrideGraphicSettings ColorOverride(Document doc, Color color, int? lineWeight = null)
+    {
+        var ogs = new OverrideGraphicSettings();
+        ogs.SetProjectionLineColor(color);
+        ogs.SetSurfaceForegroundPatternColor(color);
+        ogs.SetCutForegroundPatternColor(color);
+        var solid = SolidFillPatternId(doc);
+        if (solid != ElementId.InvalidElementId)
+        {
+            ogs.SetSurfaceForegroundPatternId(solid);
+            ogs.SetCutForegroundPatternId(solid);
+        }
+
+        if (lineWeight.HasValue)
+            ogs.SetProjectionLineWeight(lineWeight.Value);
+        return ogs;
+    }
+
+    private static void ApplyElementOverride(View view, ElementId id, OverrideGraphicSettings settings)
+    {
+        OverrideLedger.Remember(ViewKey(view), ViewOverrideKey.Element(id.ToString()), view.GetElementOverrides(id));
+        view.SetElementOverrides(id, settings);
+    }
+
+    private static void ApplyCategoryOverride(View view, ElementId categoryId, OverrideGraphicSettings settings)
+    {
+        OverrideLedger.Remember(ViewKey(view), ViewOverrideKey.Category(categoryId.ToString()), view.GetCategoryOverrides(categoryId));
+        view.SetCategoryOverrides(categoryId, settings);
+    }
+
+    /// <summary>Back to what the view had before LoadingAI first touched the element; to no override when nothing was recorded.</summary>
+    private static void ClearElementOverride(View view, ElementId id)
+    {
+        var restored = OverrideLedger.TryTake(ViewKey(view), ViewOverrideKey.Element(id.ToString()), out var before);
+        view.SetElementOverrides(id, restored ? before! : new OverrideGraphicSettings());
+    }
+
+    private static void ClearCategoryOverride(View view, ElementId categoryId)
+    {
+        var restored = OverrideLedger.TryTake(ViewKey(view), ViewOverrideKey.Category(categoryId.ToString()), out var before);
+        view.SetCategoryOverrides(categoryId, restored ? before! : new OverrideGraphicSettings());
+    }
+
+    public Task<CommandResultDto> ResetViewOverridesAsync(CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            var view = doc.ActiveView;
+            if (view == null) return new CommandResultDto(false, "No active view.");
+            if (view.IsTemplate) return new CommandResultDto(false, "Cannot reset overrides in a view template.");
+
+            var entries = OverrideLedger.Snapshot(ViewKey(view));
+            if (entries.Count == 0)
+                return new CommandResultDto(
+                    true,
+                    $"Nothing to restore in '{view.Name}': LoadingAI has not coloured it in this Revit session. Overrides set earlier or by hand are left as they are.",
+                    0,
+                    view.Name);
+
+            using var tx = new Transaction(doc, $"LoadingAI for Revit: restore overrides in {view.Name}");
+            tx.Start();
+            try
+            {
+                int restored = 0, gone = 0;
+                foreach (var entry in entries)
+                {
+                    var id = AllTools.ParseEid(ViewOverrideKey.IdOf(entry.Key));
+                    try
+                    {
+                        if (ViewOverrideKey.IsCategory(entry.Key)) view.SetCategoryOverrides(id, entry.Value);
+                        else if (doc.GetElement(id) != null) view.SetElementOverrides(id, entry.Value);
+                        else { gone++; continue; }
+                        restored++;
+                    }
+                    catch
+                    {
+                        gone++;
+                    }
+                }
+
+                tx.Commit();
+                OverrideLedger.Forget(ViewKey(view));
+                var msg = $"Restored {restored} override(s) in '{view.Name}'.";
+                if (gone > 0) msg += $" {gone} element(s) no longer exist or could not be restored.";
+                return new CommandResultDto(true, msg, restored, view.Name);
+            }
+            catch (Exception ex)
+            {
+                try { tx.RollBack(); } catch { }
+                return new CommandResultDto(false, $"Failed: {ex.Message}");
+            }
+        }, ct);
+    }
+
     public Task<CommandResultDto> IsolateInViewAsync(
         IReadOnlyList<string>? elementIds = null,
         string? category = null,
@@ -167,15 +287,7 @@ public sealed partial class AdapterRevitBridge
             try
             {
                 var colorName = string.IsNullOrWhiteSpace(color) ? "red" : color;
-                Color clr = new Color(255, 0, 0);
-                if (!reset) clr = ParseColor(colorName);
-                var ogs = new OverrideGraphicSettings();
-                if (!reset)
-                {
-                    ogs.SetProjectionLineColor(clr);
-                    ogs.SetSurfaceForegroundPatternColor(clr);
-                    ogs.SetCutForegroundPatternColor(clr);
-                }
+                OverrideGraphicSettings? ogs = reset ? null : ColorOverride(doc, ParseColor(colorName));
 
                 using var tx = new Transaction(doc, reset
                     ? $"LoadingAI for Revit: reset color in {view.Name}"
@@ -189,20 +301,25 @@ public sealed partial class AdapterRevitBridge
                         if (bic == null) { tx.RollBack(); return new CommandResultDto(false, $"Unknown category '{category}'."); }
                         var catObj = doc.Settings.Categories.get_Item(bic.Value);
                         if (catObj == null) { tx.RollBack(); return new CommandResultDto(false, $"Category '{category}' not found."); }
-                        view.SetCategoryOverrides(catObj.Id, reset ? new OverrideGraphicSettings() : ogs);
+                        if (reset) ClearCategoryOverride(view, catObj.Id);
+                        else ApplyCategoryOverride(view, catObj.Id, ogs!);
                         tx.Commit();
                         var catMsg = reset
                             ? $"Reset color for {category} in '{view.Name}'."
-                            : $"Set {colorName} override for {category} in '{view.Name}'.";
+                            : $"Set {colorName} override for {category} in '{view.Name}'. Saved in the view; reset_view_overrides puts the previous look back.";
                         return new CommandResultDto(true, catMsg, 0, view.Name);
                     }
 
                     var ids = elementIds!.Select(AllTools.ParseEid).ToList();
-                    foreach (var id in ids) view.SetElementOverrides(id, reset ? new OverrideGraphicSettings() : ogs);
+                    foreach (var id in ids)
+                    {
+                        if (reset) ClearElementOverride(view, id);
+                        else ApplyElementOverride(view, id, ogs!);
+                    }
                     tx.Commit();
                     var msg = reset
                         ? $"Reset color for {ids.Count} element(s) in '{view.Name}'."
-                        : $"Set {colorName} override for {ids.Count} element(s) in '{view.Name}'.";
+                        : $"Set {colorName} override for {ids.Count} element(s) in '{view.Name}'. Saved in the view; reset_view_overrides puts the previous look back.";
                     return new CommandResultDto(true, msg, ids.Count, view.Name);
                 }
                 catch
@@ -312,21 +429,17 @@ public sealed partial class AdapterRevitBridge
                         var ids = levelToIds[lvl.Name];
                         if (ids.Count == 0) continue;
                         var clr = colors[i];
-                        var ogs = new OverrideGraphicSettings();
-                        ogs.SetProjectionLineColor(clr);
-                        ogs.SetSurfaceForegroundPatternColor(clr);
-                        ogs.SetCutForegroundPatternColor(clr);
-                        ogs.SetProjectionLineWeight(4);
+                        var ogs = ColorOverride(doc, clr, lineWeight: 4);
                         foreach (var id in ids)
                         {
-                            view.SetElementOverrides(id, ogs);
+                            ApplyElementOverride(view, id, ogs);
                             total++;
                         }
                     }
                     tx.Commit();
                     var msg = $"Colored {total} element(s) in '{view.Name}' by construction schedule bottom-up {parsedStart:yyyy-MM-dd} (+{interval}d) across {levels.Count} levels, {bics.Count} categories. Palette {paletteName}.";
                     msg += "\nLegend:\n" + string.Join("\n", levels.Select((l, i) => $"{l.Name} ({l.Elevation:F1}ft) = {dateByLevel[l.Name]} -> #{colors[i].Red:X2}{colors[i].Green:X2}{colors[i].Blue:X2}"));
-                    msg += "\nTo reset: say 'reset view' (reset_temporary_view).";
+                    msg += "\nSaved in the view's graphic overrides. To undo: reset_view_overrides, or Ctrl+Z.";
                     return new CommandResultDto(true, msg, total, view.Name);
                 }
                 catch
@@ -392,18 +505,16 @@ public sealed partial class AdapterRevitBridge
                     foreach (var kv in groups)
                     {
                         var clr = colors[i];
-                        var ogs = new OverrideGraphicSettings();
-                        ogs.SetProjectionLineColor(clr);
-                        ogs.SetSurfaceForegroundPatternColor(clr);
-                        ogs.SetCutForegroundPatternColor(clr);
-                        foreach (var id in kv.Value) { view.SetElementOverrides(id, ogs); total++; }
+                        var ogs = ColorOverride(doc, clr);
+                        foreach (var id in kv.Value) { ApplyElementOverride(view, id, ogs); total++; }
                         legend.Add($"{kv.Key} ({kv.Value.Count}) -> #{clr.Red:X2}{clr.Green:X2}{clr.Blue:X2}");
                         i++;
                     }
                     tx.Commit();
                     return new CommandResultDto(
                         true,
-                        $"Colored {total} element(s) in '{view.Name}' by '{paramName}' ({groups.Count} values). Palette {paletteName}.\nLegend:\n" + string.Join("\n", legend),
+                        $"Colored {total} element(s) in '{view.Name}' by '{paramName}' ({groups.Count} values). Palette {paletteName}.\nLegend:\n" + string.Join("\n", legend)
+                            + "\nSaved in the view's graphic overrides. To undo: reset_view_overrides, or Ctrl+Z.",
                         total,
                         view.Name);
                 }
@@ -430,19 +541,30 @@ public sealed partial class AdapterRevitBridge
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
             try
             {
-                FamilySymbol? tb = null;
-                if (!string.IsNullOrWhiteSpace(titleBlockName))
+                var blocks = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_TitleBlocks)
+                    .WhereElementIsElementType().Cast<FamilySymbol>().ToList();
+                if (blocks.Count == 0)
+                    return new CommandResultDto(false, "No title block family is loaded in this model.");
+                FamilySymbol tb;
+                if (string.IsNullOrWhiteSpace(titleBlockName))
                 {
-                    tb = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol))
-                        .Cast<FamilySymbol>()
-                        .FirstOrDefault(s => s.FamilyName.Contains("Title") && s.Name.Equals(titleBlockName, StringComparison.OrdinalIgnoreCase));
+                    tb = blocks[0];
                 }
                 else
                 {
-                    tb = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_TitleBlocks)
-                        .WhereElementIsElementType().Cast<FamilySymbol>().FirstOrDefault();
+                    // By the type name, or "Family: Type" as Revit shows it. Family names such as "A1 Sheet"
+                    // carry no "Title", so the old name test never found them.
+                    var matches = blocks.Where(s =>
+                        s.Name.Equals(titleBlockName, StringComparison.OrdinalIgnoreCase)
+                        || $"{s.FamilyName}: {s.Name}".Equals(titleBlockName, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (matches.Count == 0)
+                        return new CommandResultDto(false,
+                            $"Title block '{titleBlockName}' not found. Available: {string.Join(", ", blocks.Take(10).Select(s => $"{s.FamilyName}: {s.Name}"))}.");
+                    if (matches.Count > 1)
+                        return new CommandResultDto(false,
+                            $"Title block '{titleBlockName}' exists in {matches.Count} families ({string.Join(", ", matches.Select(s => s.FamilyName))}). Pass 'Family: Type'.");
+                    tb = matches[0];
                 }
-                if (tb == null) return new CommandResultDto(false, "No title block family found.");
 
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: create sheet {sheetNumber}");
                 tx.Start();
@@ -484,13 +606,21 @@ public sealed partial class AdapterRevitBridge
                 if (view == null) return new CommandResultDto(false, $"View {viewId} not found.");
                 var sheet = doc.GetElement(AllTools.ParseEid(sheetId)) as ViewSheet;
                 if (sheet == null) return new CommandResultDto(false, $"Sheet {sheetId} not found.");
+                // A schedule goes on a sheet as a ScheduleSheetInstance; every other view is a viewport,
+                // and a view can sit on one sheet only.
+                var point = new XYZ(x, y, 0);
+                var isSchedule = view is ViewSchedule;
+                if (!isSchedule && !Viewport.CanAddViewToSheet(doc, sheet.Id, view.Id))
+                    return new CommandResultDto(false, $"View '{view.Name}' cannot be placed on sheet {sheet.SheetNumber}: it is already on a sheet, or its type cannot be placed.");
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: place {viewId} on {sheetId}");
                 tx.Start();
                 try
                 {
-                    var vp = Viewport.Create(doc, sheet.Id, view.Id, new XYZ(x, y, 0));
+                    var placed = isSchedule
+                        ? ScheduleSheetInstance.Create(doc, sheet.Id, view.Id, point).Id
+                        : Viewport.Create(doc, sheet.Id, view.Id, point).Id;
                     tx.Commit();
-                    return new CommandResultDto(true, $"Placed view {viewId} on sheet {sheetId} at ({x},{y}) viewport {vp.Id}", 1, ElementIds: new[] { vp.Id.ToString() });
+                    return new CommandResultDto(true, $"Placed {(isSchedule ? "schedule" : "view")} {viewId} on sheet {sheetId} at ({xMm:F0},{yMm:F0}) mm: {placed}", 1, ElementIds: new[] { placed.ToString() });
                 }
                 catch (Exception inner)
                 {
@@ -624,26 +754,42 @@ public sealed partial class AdapterRevitBridge
                     ? uidoc!.ActiveView
                     : doc.GetElement(AllTools.ParseEid(viewId)) as View;
                 if (view == null) return new CommandResultDto(false, "View not found.");
+                if (view.ViewType is ViewType.ThreeD or ViewType.Schedule or ViewType.DrawingSheet or ViewType.Legend)
+                    return new CommandResultDto(false, $"Dimensions cannot be created in a {view.ViewType} view. Use a plan, section or elevation.");
                 var w1 = doc.GetElement(AllTools.ParseEid(wallId1)) as Wall;
                 var w2 = doc.GetElement(AllTools.ParseEid(wallId2)) as Wall;
                 if (w1 == null || w2 == null) return new CommandResultDto(false, "Walls not found.");
-                var c1 = (w1.Location as LocationCurve)?.Curve;
-                var c2 = (w2.Location as LocationCurve)?.Curve;
-                if (c1 == null || c2 == null) return new CommandResultDto(false, "Walls have no location curve.");
+                if ((w1.Location as LocationCurve)?.Curve is not Line l1 || (w2.Location as LocationCurve)?.Curve is not Line l2)
+                    return new CommandResultDto(false, "create_dimension supports straight walls only.");
+
+                // Two parallel walls: dimension the clear distance between their facing faces.
+                var d1 = l1.Direction;
+                if (d1.CrossProduct(l2.Direction).GetLength() > 1e-3)
+                    return new CommandResultDto(false, "The walls are not parallel. Dimension two parallel walls.");
+
+                var normal = new XYZ(-d1.Y, d1.X, 0).Normalize();
+                var across = normal.DotProduct(l2.Evaluate(0.5, true) - l1.Evaluate(0.5, true));
+                if (Math.Abs(across) < 1e-6)
+                    return new CommandResultDto(false, "The walls are on the same line; there is no distance to dimension.");
+                var toward = across > 0 ? normal : normal.Negate();
+
+                var face1 = FacingFace(doc, w1, toward);
+                var face2 = FacingFace(doc, w2, toward.Negate());
+                if (face1 == null || face2 == null)
+                    return new CommandResultDto(false, "Could not find the facing wall faces to dimension.");
+
+                // The dimension line runs across the walls, one foot beyond the end of the first wall.
+                var anchor = l1.GetEndPoint(1) + d1 * 1.0;
+                var line = Line.CreateBound(anchor, anchor + toward * Math.Abs(across));
 
                 using var tx = new Transaction(doc, "LoadingAI for Revit: create dimension");
                 tx.Start();
                 try
                 {
-                    var ra = new ReferenceArray();
-                    ra.Append(new Reference(w1));
-                    ra.Append(new Reference(w2));
-                    var mid1 = c1.Evaluate(0.5, true);
-                    var mid2 = c2.Evaluate(0.5, true);
-                    var dir = (mid2 - mid1).Normalize();
-                    var perp = new XYZ(-dir.Y, dir.X, 0);
-                    var line = Line.CreateBound(mid1 + perp * 5, mid2 + perp * 5);
-                    var dim = doc.Create.NewDimension(view, line, ra);
+                    var references = new ReferenceArray();
+                    references.Append(face1);
+                    references.Append(face2);
+                    var dim = doc.Create.NewDimension(view, line, references);
                     tx.Commit();
                     return new CommandResultDto(true, $"Created dimension {dim.Id} between {wallId1} and {wallId2} in {view.Name}", 1, ElementIds: new[] { dim.Id.ToString() });
                 }
@@ -675,9 +821,13 @@ public sealed partial class AdapterRevitBridge
             {
                 var bic = AllTools.ParseCategory(category);
                 if (bic == null) return new CommandResultDto(false, $"Unknown category {category}");
-                var elems = new FilteredElementCollector(doc, view.Id)
-                    .OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().Take(50).ToList();
+                var all = new FilteredElementCollector(doc, view.Id)
+                    .OfCategory(bic.Value).WhereElementIsNotElementType().ToElements();
+                var elems = all.Take(MaxTagAll).ToList();
+                if (elems.Count == 0)
+                    return new CommandResultDto(false, $"No {category} are visible in '{view.Name}'.");
                 int tagged = 0;
+                var reasons = new List<string>();
                 using var tx = new Transaction(doc, "LoadingAI for Revit: tag all");
                 tx.Start();
                 try
@@ -686,14 +836,24 @@ public sealed partial class AdapterRevitBridge
                     {
                         try
                         {
-                            var loc = (el.Location as LocationPoint)?.Point ?? XYZ.Zero;
-                            IndependentTag.Create(doc, view.Id, new Reference(el), true, TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, loc);
+                            var at = TagPoint(el, view);
+                            if (at == null) { reasons.Add($"{el.Id}: no location in this view"); continue; }
+                            IndependentTag.Create(doc, view.Id, new Reference(el), true, TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal, at);
                             tagged++;
                         }
-                        catch { }
+                        catch (Exception tagEx) { reasons.Add($"{el.Id}: {tagEx.Message}"); }
                     }
+
+                    if (tagged == 0)
+                    {
+                        tx.RollBack();
+                        return new CommandResultDto(false, $"Failed: tagged 0 of {elems.Count} {category} in '{view.Name}'. {Why(reasons)}");
+                    }
+
                     tx.Commit();
-                    return new CommandResultDto(true, $"Tagged {tagged}/{elems.Count} {category} in {view.Name}", tagged);
+                    var capped = all.Count > elems.Count ? $" (the first {elems.Count} of {all.Count}; the rest were not tagged)" : "";
+                    var missed = tagged < elems.Count ? $" Not tagged: {elems.Count - tagged}. {Why(reasons)}" : "";
+                    return new CommandResultDto(true, $"Tagged {tagged}/{elems.Count} {category} in {view.Name}{capped}.{missed}", tagged);
                 }
                 catch (Exception inner)
                 {
@@ -706,5 +866,36 @@ public sealed partial class AdapterRevitBridge
                 return new CommandResultDto(false, $"Failed: {failEx.Message}");
             }
         }, ct);
+    }
+
+    private const int MaxTagAll = 50;
+
+    /// <summary>Where a tag for this element should sit: its point, the middle of its curve, or the middle of its box in the view.</summary>
+    private static XYZ? TagPoint(Element el, View view)
+    {
+        if (el.Location is LocationPoint point) return point.Point;
+        if (el.Location is LocationCurve { Curve: { } curve }) return curve.Evaluate(0.5, true);
+        var box = el.get_BoundingBox(view);
+        return box == null ? null : (box.Min + box.Max) * 0.5;
+    }
+
+    private static string Why(List<string> reasons)
+        => reasons.Count == 0 ? "" : "Reasons: " + string.Join("; ", reasons.Take(3)) + (reasons.Count > 3 ? "; ..." : "") + ".";
+
+    /// <summary>The side face of a wall whose normal points along <paramref name="facing"/>, as a reference a dimension accepts.</summary>
+    private static Reference? FacingFace(Document doc, Wall wall, XYZ facing)
+    {
+        foreach (var layer in new[] { ShellLayerType.Exterior, ShellLayerType.Interior })
+        {
+            IList<Reference>? faces;
+            try { faces = HostObjectUtils.GetSideFaces(wall, layer); }
+            catch { continue; }
+            if (faces == null || faces.Count == 0) continue;
+            if (doc.GetElement(faces[0]).GetGeometryObjectFromReference(faces[0]) is PlanarFace face
+                && face.FaceNormal.DotProduct(facing) > 0.5)
+                return faces[0];
+        }
+
+        return null;
     }
 }

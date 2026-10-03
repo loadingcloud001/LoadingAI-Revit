@@ -86,6 +86,12 @@ public interface IRevitViewCommand
 
     Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Puts back the graphic overrides the active view had before the colour tools first changed them
+    /// in this Revit session. Overrides that predate the session, or were set by hand, are untouched.
+    /// </summary>
+    Task<CommandResultDto> ResetViewOverridesAsync(CancellationToken ct = default);
+
     Task<CommandResultDto> OverrideColorInViewAsync(
         IReadOnlyList<string>? elementIds = null,
         string? category = null,
@@ -241,8 +247,12 @@ public interface IRevitElementCommand
     Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Moves the whole set in one call, so a host and the elements hosted on it move once. The vector
+    /// is millimetres, like every other method on this bridge; the adapter converts.
+    /// </summary>
     Task<CommandResultDto> MoveElementsAsync(
-        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        IReadOnlyList<string> elementIds, double dxMm, double dyMm, double dzMm,
         CancellationToken ct = default);
 
     Task<CommandResultDto> ChangeElementTypeAsync(
@@ -268,8 +278,13 @@ public interface IRevitCreateCommand
         string levelName,
         double x1, double y1, double x2, double y2,
         string? wallTypeName = null,
+        double? heightMm = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Places a level-based family. <paramref name="z"/> is millimetres <b>above the level</b>, not an
+    /// absolute elevation. A blank level is accepted only when the model has one level.
+    /// </summary>
     Task<CommandResultDto> CreateFamilyInstanceAsync(
         string symbolName,
         double x, double y,
@@ -305,6 +320,7 @@ public interface IRevitCreateCommand
         double startX, double startY, double endX, double endY,
         int count,
         string? levelName = null,
+        string? familyName = null,
         CancellationToken ct = default);
 
     Task<CommandResultDto> RotateElementsAsync(

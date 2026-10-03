@@ -56,6 +56,34 @@ public static class RevitParse
         throw new FormatException($"Invalid ElementId '{s}'");
     }
 
+    /// <summary>
+    /// The tool unit a numeric parameter uses. Any spec that Revit can express in millimetres is a
+    /// length, in square metres an area, in cubic metres a volume, in degrees an angle; everything
+    /// else (counts, ratios, currency, slope) is plain and never converted.
+    /// </summary>
+    public static LoadingAI.Revit.ParamUnitKind UnitKindOf(Parameter p)
+    {
+        try
+        {
+            var spec = p.Definition.GetDataType();
+            if (spec == null || !UnitUtils.IsMeasurableSpec(spec)) return LoadingAI.Revit.ParamUnitKind.Plain;
+            var valid = UnitUtils.GetValidUnits(spec);
+            if (valid.Contains(UnitTypeId.Millimeters)) return LoadingAI.Revit.ParamUnitKind.Length;
+            if (valid.Contains(UnitTypeId.SquareMeters)) return LoadingAI.Revit.ParamUnitKind.Area;
+            if (valid.Contains(UnitTypeId.CubicMeters)) return LoadingAI.Revit.ParamUnitKind.Volume;
+            if (valid.Contains(UnitTypeId.Degrees)) return LoadingAI.Revit.ParamUnitKind.Angle;
+        }
+        catch
+        {
+            // A parameter whose spec cannot be read is treated as plain, the pre-existing behaviour.
+        }
+        return LoadingAI.Revit.ParamUnitKind.Plain;
+    }
+
+    /// <summary>A Double parameter as the tool surface shows it: millimetres, m², m³ or degrees, with the unit.</summary>
+    public static string FormatDouble(Parameter p)
+        => LoadingAI.Revit.ParamUnits.Format(UnitKindOf(p), p.AsDouble());
+
     public static bool TrySetParameter(Element el, string paramName, string value, out string error)
     {
         error = "";
@@ -80,10 +108,18 @@ public static class RevitParse
                     else { error = $"Cannot set integer param '{paramName}' to '{value}'"; return false; }
                     break;
                 case StorageType.Double:
-                    if (double.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var dv))
-                        p.Set(dv);
-                    else { error = $"Cannot set double param '{paramName}' to '{value}'"; return false; }
+                {
+                    // Revit's Set(double) takes internal units (feet, ft², radians). The tool surface is
+                    // millimetres, m², m³ and degrees, so convert here instead of storing the raw number.
+                    var kind = UnitKindOf(p);
+                    if (!LoadingAI.Revit.ParamUnits.TryParse(kind, value, out var internalValue, out var unitError))
+                    {
+                        error = $"Cannot set '{paramName}' to '{value}': {unitError}";
+                        return false;
+                    }
+                    p.Set(internalValue);
                     break;
+                }
                 case StorageType.ElementId:
                     if (long.TryParse(value, out var eid)) p.Set(new ElementId(eid));
                     else { error = $"Cannot set ElementId param '{paramName}' to '{value}'"; return false; }
@@ -95,6 +131,37 @@ public static class RevitParse
         }
         catch (Exception ex) { error = ex.Message; return false; }
         return true;
+    }
+
+    /// <summary>
+    /// Copies one parameter onto another on the same element. Two numeric parameters of the same
+    /// unit kind are copied as numbers, so no unit text is parsed and nothing is lost to rounding;
+    /// every other pairing goes through the text path of <see cref="TrySetParameter"/>.
+    /// </summary>
+    public static bool TryCopyParameter(Element el, string sourceName, string targetName, out string error)
+    {
+        error = "";
+        var src = el.LookupParameter(sourceName);
+        if (src == null) { error = $"Parameter '{sourceName}' not found on element {el.Id}"; return false; }
+
+        if (src.StorageType == StorageType.Double)
+        {
+            var dst = el.LookupParameter(targetName);
+            if (dst != null && !dst.IsReadOnly && dst.StorageType == StorageType.Double
+                && UnitKindOf(src) == UnitKindOf(dst))
+            {
+                try { dst.Set(src.AsDouble()); return true; }
+                catch (Exception ex) { error = ex.Message; return false; }
+            }
+        }
+
+        var text = src.StorageType switch
+        {
+            StorageType.String => src.AsString() ?? "",
+            StorageType.Double => LoadingAI.Revit.ParamUnits.Format(UnitKindOf(src), src.AsDouble()),
+            _ => src.AsValueString() ?? ""
+        };
+        return TrySetParameter(el, targetName, text, out error);
     }
 
     public static bool TryParseDate(string s, out DateTime dt)

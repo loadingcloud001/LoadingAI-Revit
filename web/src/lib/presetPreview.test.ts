@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatApprovalArgs, previewRows, previewWarnings, receiptLine, runKicker } from './presetPreview';
+import { approvalLines, formatApprovalArgs, previewRows, previewWarnings, receiptLine, runKicker } from './presetPreview';
 import type { PresetPayload } from '../bridge';
 
 const preset = (over: Partial<PresetPayload> = {}): PresetPayload => ({
@@ -148,5 +148,17 @@ describe('runKicker', () => {
     // the tool executed.
     expect(runKicker(true)).toBe('Run');
     expect(runKicker(false)).toBe('Result');
+  });
+});
+
+describe('approvalLines', () => {
+  it('prefers the host summary, one line per row', () => {
+    expect(approvalLines({ args: '{"a":1}', summary: 'Delete 3 elements\n\nUndo with Ctrl+Z.' }))
+      .toEqual(['Delete 3 elements', 'Undo with Ctrl+Z.']);
+  });
+
+  it('falls back to the flattened arguments', () => {
+    expect(approvalLines({ args: '{"limit":5}' })).toEqual(['limit: 5']);
+    expect(approvalLines({ args: '{}', summary: '   ' })).toEqual(['(no arguments)']);
   });
 });

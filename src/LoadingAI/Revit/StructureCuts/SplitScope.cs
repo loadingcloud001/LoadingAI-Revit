@@ -16,13 +16,17 @@ internal sealed class SplitBatch
     {
     }
 
-    public SplitBatch(List<Element> items, int offset, int total, IReadOnlyList<string> missed, int suppliedIds)
+    public SplitBatch(
+        List<Element> items, int offset, int total, IReadOnlyList<string> missed, int suppliedIds,
+        int? consumed = null, bool reused = false)
     {
         Items = items;
         Offset = offset;
         Total = total;
         Missed = missed;
         SuppliedIds = suppliedIds;
+        Consumed = consumed ?? items.Count;
+        Reused = reused;
     }
 
     public List<Element> Items { get; }
@@ -37,7 +41,16 @@ internal sealed class SplitBatch
     /// <summary>How many id tokens the caller supplied, including the ones that missed.</summary>
     public int SuppliedIds { get; }
 
-    public int NextOffset => Offset + Items.Count;
+    /// <summary>
+    /// How many ids of the frozen list this page used, including hosts that no longer exist because an
+    /// earlier page re-created them. The next call continues after all of them.
+    /// </summary>
+    public int Consumed { get; }
+
+    /// <summary>True when this page continued a list taken by an earlier call.</summary>
+    public bool Reused { get; }
+
+    public int NextOffset => Offset + Consumed;
 }
 
 /// <summary>
@@ -46,36 +59,53 @@ internal sealed class SplitBatch
 /// </summary>
 internal static class SplitScope
 {
+    private static readonly SplitCursorStore Cursors = new();
+
     public static SplitBatch Collect(
         Document doc,
         UIDocument uidoc,
         Func<Element, bool> wanted,
         SplitOptions options,
-        IReadOnlyList<string> ids)
+        IReadOnlyList<string> ids,
+        string command)
     {
         // Explicit ids are the work set. An empty Revit selection must not replace them, and a
         // miss is kept so the caller can name it instead of falling through to "select first".
-        List<string> missed;
-        List<Element> collected;
-        if (ids.Count > 0)
+        // The list is frozen when a run starts (offset 0): a write run re-creates hosts, so a list
+        // collected afresh would shift under the offset and skip the hosts that moved up.
+        var missed = new List<string>();
+        var key = SplitCursorStore.KeyFor(command, DocumentKey(doc), options.Scope, ids);
+        var page = Cursors.Page(key, options.ContinueFrom, options.Limit, () =>
         {
-            collected = SplitElements.Resolve(doc, ids, wanted, out missed);
-        }
-        else
+            List<Element> collected;
+            if (ids.Count > 0)
+            {
+                collected = SplitElements.Resolve(doc, ids, wanted, out missed);
+            }
+            else
+            {
+                collected = ByScope(doc, uidoc, wanted, options.Scope);
+            }
+
+            return collected.Select(element => SplitElements.Fmt(element.Id)).ToList();
+        });
+
+        // A host an earlier page deleted and re-created is gone from the model: skipped here, but still
+        // counted in the offset so the next call does not repeat or lose a place.
+        var items = new List<Element>(page.Ids.Count);
+        foreach (var token in page.Ids)
         {
-            collected = ByScope(doc, uidoc, wanted, options.Scope);
-            missed = new List<string>();
+            var element = SplitElements.ElementOf(doc, token);
+            if (element != null && wanted(element))
+                items.Add(element);
         }
 
-        var offset = Math.Max(0, options.ContinueFrom);
-        if (offset > collected.Count)
-            offset = collected.Count;
-
-        var remaining = collected.Count - offset;
-        var take = Math.Min(options.Limit, remaining);
-        var page = collected.Skip(offset).Take(take).ToList();
-        return new SplitBatch(page, offset, collected.Count, missed, ids.Count);
+        return new SplitBatch(
+            items, page.Offset, page.Total, page.Reused ? Array.Empty<string>() : missed, ids.Count, page.Ids.Count, page.Reused);
     }
+
+    private static string DocumentKey(Document doc)
+        => string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
 
     public static List<Element> AllInModel(Document doc, Func<Element, bool> wanted)
         => new FilteredElementCollector(doc)

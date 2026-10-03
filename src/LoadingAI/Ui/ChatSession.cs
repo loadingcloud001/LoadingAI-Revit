@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
@@ -95,7 +96,7 @@ internal sealed class ChatSession
     public void ApplyPluginLoadWarnings()
     {
         if (_agent == null) return;
-        var issues = PluginLoader.Issues;
+        var issues = PluginLoader.Issues.Where(i => !i.Notice).ToList();
         if (issues.Count == 0)
         {
             _agent.EnvironmentWarnings = null;
@@ -120,6 +121,8 @@ internal sealed class ChatSession
             author = p.Meta.Author,
             verified = p.Meta.Verified,
             folderPath = p.Meta.FolderPath,
+            source = PluginAllowlist.Current.Source(Path.Combine(p.Meta.FolderPath, p.Meta.EntryAssembly)),
+            removable = PluginLoader.CanRemove(p.Meta.Id, p.Meta.FolderPath, out _),
             tools = p.Meta.Tools.Select(t => new
             {
                 name = t.Name,
@@ -182,8 +185,8 @@ internal sealed class ChatSession
         _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
         RebuildRegistry();
         message = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled.";
-        if (PluginLoader.Issues.Count > 0)
-            message += $" {PluginLoader.Issues.Count} plugin(s) failed to load.";
+        if (PluginLoader.FailureCount > 0)
+            message += $" {PluginLoader.FailureCount} plugin(s) failed to load.";
         return true;
     }
 
@@ -463,6 +466,7 @@ internal sealed class ChatSession
             return hint;
         }
 
+        argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
         if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var validationError))
         {
             var invalid = $"Tool argument error: {validationError}";
@@ -480,6 +484,7 @@ internal sealed class ChatSession
                 return preset.message;
             }
             argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
+            argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
             if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var presetValidationError))
             {
                 var invalid = $"Tool argument error: {presetValidationError}";
@@ -489,7 +494,8 @@ internal sealed class ChatSession
             // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
             if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
             {
-                if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
+                var presetSummary = await ToolGuards.DescribeAsync(entry, argsJson);
+                if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, presetSummary))
                 {
                     const string cancelled = "Cancelled by user.";
                     try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
@@ -505,14 +511,15 @@ internal sealed class ChatSession
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
         else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
         {
-            var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson);
+            var summary = await ToolGuards.DescribeAsync(entry, argsJson);
+            var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson, summary);
             if (denied != null)
             {
                 MarkTurnFailedIfGroupActive();
                 return denied;
             }
 
-            if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
+            if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, summary))
             {
                 const string cancelled = "Cancelled by user.";
                 try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
@@ -546,8 +553,11 @@ internal sealed class ChatSession
             if (!execution.IsSafeToAssimilate)
                 MarkTurnFailedIfGroupActive();
         }
-        else if (execution.Status is ToolExecutionStatus.Failed or ToolExecutionStatus.Cancelled or ToolExecutionStatus.Unknown)
+        else if (execution.Status is ToolExecutionStatus.Cancelled or ToolExecutionStatus.Unknown)
         {
+            // A read or a dry run that merely found nothing ("Please select elements first.") has
+            // changed nothing, so it must not undo the writes before it. A cancelled or unknown
+            // outcome still does: the turn can no longer be trusted.
             MarkTurnFailedIfGroupActive();
         }
 

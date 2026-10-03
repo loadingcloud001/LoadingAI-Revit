@@ -109,7 +109,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                     type = "object",
                     properties = new
                     {
-                        points = new { type = "array" },
+                        points = new { type = "array", items = new { type = "array", items = new { type = "number" } }, description = "At least 3 points as [x,y,z] in mm." },
                         levelName = new { type = "string" },
                         levelId = new { type = "string" }
                     },

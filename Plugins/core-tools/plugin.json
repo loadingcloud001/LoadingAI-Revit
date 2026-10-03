@@ -186,6 +186,16 @@
       ]
     },
     {
+      "name": "reset_view_overrides",
+      "tier": "L2",
+      "description": "Put back the active view's graphic overrides from before LoadingAI coloured it.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
       "name": "set_parameter_by_id",
       "tier": "L2",
       "description": "Set a parameter on a single element by Id.",

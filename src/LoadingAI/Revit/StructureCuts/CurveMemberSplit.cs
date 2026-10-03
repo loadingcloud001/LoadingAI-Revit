@@ -114,6 +114,44 @@ internal static class CurveMemberSplit
         public double TopOffset { get; }
     }
 
+    /// <summary>
+    /// What a write run would do with these plans, decided the way the run decides it, without touching
+    /// the document: members Revit can split in place, members that are deleted and re-created, and
+    /// what hangs off the ones that are. Storey stacks always delete the wall or column they replace.
+    /// A member that passes <see cref="CanNativeSplit(FamilyInstance, bool)"/> can still fall back to
+    /// re-creation at run time, so the re-created count is a floor.
+    /// </summary>
+    public static (int Native, int Recreated, int Dependents) Forecast(
+        IEnumerable<Plan> plans, IEnumerable<Stack>? stacks = null, IEnumerable<ColumnStack>? columns = null)
+    {
+        int native = 0, recreated = 0, dependents = 0;
+        foreach (var plan in plans)
+        {
+            if (plan.Host is FamilyInstance instance && CanNativeSplit(instance, requireUnjoined: false))
+            {
+                native++;
+                continue;
+            }
+
+            recreated++;
+            dependents += SplitElements.Dependent(plan.Host);
+        }
+
+        foreach (var stack in stacks ?? Enumerable.Empty<Stack>())
+        {
+            recreated++;
+            dependents += SplitElements.Dependent(stack.Wall);
+        }
+
+        foreach (var stack in columns ?? Enumerable.Empty<ColumnStack>())
+        {
+            recreated++;
+            dependents += SplitElements.Dependent(stack.Host);
+        }
+
+        return (native, recreated, dependents);
+    }
+
     public static (List<ElementId> Ids, int ParamSkipped, bool Rollback, bool Native, int Dependent) SplitAtCuts(
         Document doc,
         Plan plan,

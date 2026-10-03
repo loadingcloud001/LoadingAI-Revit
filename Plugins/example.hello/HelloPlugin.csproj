@@ -6,9 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>LoadingAI.Plugins.Hello</AssemblyName>
     <RootNamespace>LoadingAI.Plugins.Hello</RootNamespace>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj" />
+    <ProjectReference Include="..\..\src\LoadingAI.Core\LoadingAI.Core.csproj">
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 </Project>

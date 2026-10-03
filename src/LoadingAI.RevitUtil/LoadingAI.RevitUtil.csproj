@@ -10,4 +10,7 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LoadingAI.Core\LoadingAI.Core.csproj" />
+  </ItemGroup>
 </Project>

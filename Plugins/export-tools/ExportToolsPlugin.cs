@@ -28,7 +28,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "export_pdf",
-                Description = "Export sheets/views to PDF (DiRoots). Params: sheetIds array optional (else all sheets), folder, name, combine (default true).",
+                Description = "Export sheets/views to PDF (DiRoots). Params: sheetIds array (from get_sheets_views); leaving it out exports EVERY sheet and can block Revit for minutes, so that also needs confirmAll=true. folder, name, combine (default true).",
                 Parameters = new
                 {
                     type = "object",
@@ -37,7 +37,8 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                         sheetIds = new { type = "array", items = new { type = "string" } },
                         folder = new { type = "string" },
                         name = new { type = "string" },
-                        combine = new { type = "boolean" }
+                        combine = new { type = "boolean" },
+                        confirmAll = new { type = "boolean", description = "Required to export every sheet when sheetIds is empty." }
                     },
                     required = Array.Empty<string>()
                 }
@@ -57,6 +58,8 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
         string dir;
         try { dir = ExportPaths.ResolveDirectory(folder); }
         catch (Exception ex) { return ExportFailed($"Failed: {ex.Message}"); }
+        if (ids.Count == 0 && !args.Bool("confirmAll", false))
+            return ExportFailed("export_pdf without sheetIds would export every sheet and block Revit until it finishes (up to 10 minutes). Pass sheetIds (see get_sheets_views), or confirmAll=true to export all sheets.");
         var result = await context.Bridge.ExportPdfAsync(dir, ids.Count == 0 ? null : ids, name, combine);
         return FromExport(result);
     }

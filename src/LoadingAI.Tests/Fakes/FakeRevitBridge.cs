@@ -41,7 +41,7 @@ internal sealed class FakeRevitBridge : IRevitBridge
         => Task.FromResult<IReadOnlyList<ElementSummaryDto>>(Array.Empty<ElementSummaryDto>());
 
     public Task<IReadOnlyList<WarningDto>> GetWarningsAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<WarningDto>>(Array.Empty<WarningDto>());
+        => Task.FromResult<IReadOnlyList<WarningDto>>(GroupedWarnings);
 
     public IReadOnlyList<WarningItemDto> WarningsRaw { get; set; } = Array.Empty<WarningItemDto>();
 
@@ -66,24 +66,32 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public SyncInfoDto? SyncInfo { get; set; }
 
+    public IReadOnlyList<WarningDto> GroupedWarnings { get; set; } = Array.Empty<WarningDto>();
+
+    public WallMetricsDto? NextWallMetrics { get; set; }
+
+    public ElementDetailsDto? NextElementDetails { get; set; }
+
+    public FindResultDto? NextFind { get; set; }
+
     public Task<SyncInfoDto?> GetSyncInfoAsync(CancellationToken ct = default)
         => Task.FromResult(SyncInfo);
 
     public Task<WallMetricsDto?> GetWallMetricsAsync(string? levelName = null, int limit = 500, CancellationToken ct = default)
-        => Task.FromResult<WallMetricsDto?>(null);
+        => Task.FromResult(NextWallMetrics);
 
     public Task<VisibleElementsDto?> GetVisibleElementsInViewAsync(string? category = null, int limit = 100, CancellationToken ct = default)
         => Task.FromResult<VisibleElementsDto?>(null);
 
     public Task<ElementDetailsDto?> GetElementDetailsAsync(string elementId, CancellationToken ct = default)
-        => Task.FromResult<ElementDetailsDto?>(null);
+        => Task.FromResult(NextElementDetails);
 
     public Task<FindResultDto> FindElementsFilteredAsync(
         string category,
         string? paramName = null, string? op = null, string? value = null,
         int limit = 100, int offset = 0,
         CancellationToken ct = default)
-        => Task.FromResult(new FindResultDto(0, offset, null, Array.Empty<ElementSummaryDto>()));
+        => Task.FromResult(NextFind ?? new FindResultDto(0, offset, null, Array.Empty<ElementSummaryDto>()));
 
     public Task<IReadOnlyList<ElementQuantityDto>> GetElementQuantitiesAsync(
         IReadOnlyList<string>? elementIds = null, CancellationToken ct = default)
@@ -212,6 +220,19 @@ internal sealed class FakeRevitBridge : IRevitBridge
         => Task.FromResult(HasActiveDocument
             ? new CommandResultDto(true, "Reset temporary view in 'Level 1'.", 0, "Level 1")
             : new CommandResultDto(false, "Please open a model first."));
+
+    public int ResetViewOverridesCallCount { get; private set; }
+
+    public CommandResultDto? NextResetViewOverridesResult { get; set; }
+
+    public Task<CommandResultDto> ResetViewOverridesAsync(CancellationToken ct = default)
+    {
+        ResetViewOverridesCallCount++;
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        return Task.FromResult(NextResetViewOverridesResult
+            ?? new CommandResultDto(true, "Restored 3 override(s) in 'Level 1'.", 3, "Level 1"));
+    }
 
     public CommandResultDto? NextOverrideColorResult { get; set; }
 
@@ -644,6 +665,9 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string LevelName, double X1, double Y1, double X2, double Y2, string? WallTypeName)> CreateWallCalls { get; } = new();
 
+    /// <summary>The <c>heightMm</c> of each <c>CreateWallAsync</c> call, parallel to <see cref="CreateWallCalls"/>.</summary>
+    public List<double?> CreateWallHeights { get; } = new();
+
     public List<(string SymbolName, double X, double Y, string? FamilyName, string? LevelName, double Z)> CreateFamilyInstanceCalls { get; } = new();
 
     public List<string> DuplicateElementCalls { get; } = new();
@@ -777,10 +801,10 @@ internal sealed class FakeRevitBridge : IRevitBridge
     }
 
     public Task<CommandResultDto> MoveElementsAsync(
-        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        IReadOnlyList<string> elementIds, double dxMm, double dyMm, double dzMm,
         CancellationToken ct = default)
     {
-        MoveElementsCalls.Add((elementIds, dx, dy, dz));
+        MoveElementsCalls.Add((elementIds, dxMm, dyMm, dzMm));
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (elementIds == null || elementIds.Count == 0)
@@ -806,9 +830,11 @@ internal sealed class FakeRevitBridge : IRevitBridge
         string levelName,
         double x1, double y1, double x2, double y2,
         string? wallTypeName = null,
+        double? heightMm = null,
         CancellationToken ct = default)
     {
         CreateWallCalls.Add((levelName, x1, y1, x2, y2, wallTypeName));
+        CreateWallHeights.Add(heightMm);
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (NextCreateWallResult != null)
@@ -912,6 +938,7 @@ internal sealed class FakeRevitBridge : IRevitBridge
         double startX, double startY, double endX, double endY,
         int count,
         string? levelName = null,
+        string? familyName = null,
         CancellationToken ct = default)
     {
         CreateFamilyInstanceArrayCalls.Add((symbolName, startX, startY, endX, endY, count, levelName));

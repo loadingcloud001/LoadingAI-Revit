@@ -15,5 +15,8 @@ public static class AllTools
     public static bool TrySetParameter(Element el, string paramName, string value, out string error)
         => RevitParse.TrySetParameter(el, paramName, value, out error);
 
+    public static bool TryCopyParameter(Element el, string sourceName, string targetName, out string error)
+        => RevitParse.TryCopyParameter(el, sourceName, targetName, out error);
+
     public static bool TryParseDate(string s, out DateTime dt) => RevitParse.TryParseDate(s, out dt);
 }

@@ -326,7 +326,7 @@ public abstract record FromHostMessage(string Type)
     public sealed record Error(string Text) : FromHostMessage(FromHostKind.Error);
     public sealed record Delta(string Text) : FromHostMessage(FromHostKind.Delta);
 
-    public sealed record ApprovalPayload(string ToolCallId, string ToolName, string Tier, string Args, string? Description);
+    public sealed record ApprovalPayload(string ToolCallId, string ToolName, string Tier, string Args, string? Description, string? Summary = null);
     public sealed record PresetFieldPayload(
         string Id,
         string Label,

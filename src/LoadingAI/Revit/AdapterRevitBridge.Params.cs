@@ -256,12 +256,11 @@ public sealed partial class AdapterRevitBridge
             if (bic == null)
                 return new ParamExportDto(cat, cols, Array.Empty<ParamExportRowDto>(), $"Unknown category {cat}");
 
-            var elems = new FilteredElementCollector(doc)
+            var allIds = new FilteredElementCollector(doc)
                 .OfCategory(bic.Value)
                 .WhereElementIsNotElementType()
-                .ToElements()
-                .Take(lim)
-                .ToList();
+                .ToElementIds();
+            var elems = allIds.Take(lim).Select(id => doc.GetElement(id)).Where(e => e != null).Cast<Element>().ToList();
             var rows = new List<ParamExportRowDto>(elems.Count);
             foreach (var el in elems)
             {
@@ -271,14 +270,17 @@ public sealed partial class AdapterRevitBridge
                     var p = el.LookupParameter(c);
                     string v = "";
                     if (p != null)
-                        v = p.StorageType == StorageType.String
-                            ? (p.AsString() ?? "")
-                            : p.AsValueString() ?? p.AsString() ?? "";
+                        v = p.StorageType switch
+                        {
+                            StorageType.String => p.AsString() ?? "",
+                            StorageType.Double => ParamUnits.FormatNumber(RevitParse.UnitKindOf(p), p.AsDouble()),
+                            _ => p.AsValueString() ?? p.AsString() ?? ""
+                        };
                     vals.Add(v);
                 }
                 rows.Add(new ParamExportRowDto(el.Id.ToString(), vals));
             }
-            return new ParamExportDto(cat, cols, rows);
+            return new ParamExportDto(cat, cols, rows, null, allIds.Count);
         }, ct);
     }
 
@@ -336,12 +338,12 @@ public sealed partial class AdapterRevitBridge
                 var bic = AllTools.ParseCategory(category);
                 if (bic == null) return new CommandResultDto(false, $"Unknown category {category}");
                 var lim = limit < 1 ? 1 : (limit > 1000 ? 1000 : limit);
-                var elems = new FilteredElementCollector(doc)
+                var allIds = new FilteredElementCollector(doc)
                     .OfCategory(bic.Value)
                     .WhereElementIsNotElementType()
-                    .ToElements()
-                    .Take(lim)
-                    .ToList();
+                    .ToElementIds();
+                var total = allIds.Count;
+                var elems = allIds.Take(lim).Select(id => doc.GetElement(id)).Where(e => e != null).Cast<Element>().ToList();
                 int upd = 0;
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: copy {sourceParam}->{targetParam}");
                 tx.Start();
@@ -349,15 +351,13 @@ public sealed partial class AdapterRevitBridge
                 {
                     foreach (var el in elems)
                     {
-                        var pSrc = el.LookupParameter(sourceParam);
-                        if (pSrc == null) continue;
-                        string v = pSrc.StorageType == StorageType.String
-                            ? (pSrc.AsString() ?? "")
-                            : pSrc.AsValueString() ?? "";
-                        if (AllTools.TrySetParameter(el, targetParam, v, out _)) upd++;
+                        if (el.LookupParameter(sourceParam) == null) continue;
+                        if (AllTools.TryCopyParameter(el, sourceParam, targetParam, out _)) upd++;
                     }
                     tx.Commit();
-                    return new CommandResultDto(true, $"Copied {upd}/{elems.Count} {sourceParam}->{targetParam} for {category}", upd);
+                    return new CommandResultDto(true,
+                        $"Copied {sourceParam}->{targetParam}: {upd} of {elems.Count} processed {category} changed ({total} in the model)."
+                        + (total > elems.Count ? $" The other {total - elems.Count} were not touched; raise limit (max 1000)." : ""), upd);
                 }
                 catch
                 {
@@ -389,14 +389,15 @@ public sealed partial class AdapterRevitBridge
                 var bic = AllTools.ParseCategory(category);
                 if (bic == null) return new CommandResultDto(false, $"Unknown category {category}");
                 var lim = limit < 1 ? 1 : (limit > 1000 ? 1000 : limit);
-                var elems = new FilteredElementCollector(doc)
+                var allIds = new FilteredElementCollector(doc)
                     .OfCategory(bic.Value)
                     .WhereElementIsNotElementType()
-                    .ToElements()
-                    .Take(lim)
-                    .ToList();
+                    .ToElementIds();
+                var total = allIds.Count;
+                var elems = allIds.Take(lim).Select(id => doc.GetElement(id)).Where(e => e != null).Cast<Element>().ToList();
                 int upd = 0;
-                var re = new System.Text.RegularExpressions.Regex(pattern);
+                if (!SafeRegex.TryCreate(pattern, out var re, out var reError))
+                    return new CommandResultDto(false, $"Failed: {reError}");
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: replace {paramName}");
                 tx.Start();
                 try
@@ -406,12 +407,24 @@ public sealed partial class AdapterRevitBridge
                         var p = el.LookupParameter(paramName);
                         if (p == null || p.StorageType != StorageType.String) continue;
                         var cur = p.AsString() ?? "";
-                        var nxt = re.Replace(cur, replacement);
+                        string nxt;
+                        try
+                        {
+                            nxt = re!.Replace(cur, replacement);
+                        }
+                        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+                        {
+                            tx.RollBack();
+                            return new CommandResultDto(false,
+                                $"Failed: the pattern /{pattern}/ took longer than {SafeRegex.MatchTimeout.TotalSeconds:0} s on element {el.Id}. Nothing was changed. Use a simpler pattern.");
+                        }
                         if (cur == nxt) continue;
                         if (AllTools.TrySetParameter(el, paramName, nxt, out _)) upd++;
                     }
                     tx.Commit();
-                    return new CommandResultDto(true, $"Replaced {upd}/{elems.Count} {paramName} /{pattern}/ -> {replacement}", upd);
+                    return new CommandResultDto(true,
+                        $"Replaced /{pattern}/ -> {replacement} in {paramName}: {upd} of {elems.Count} processed {category} changed ({total} in the model)."
+                        + (total > elems.Count ? $" The other {total - elems.Count} were not touched; raise limit (max 1000)." : ""), upd);
                 }
                 catch
                 {

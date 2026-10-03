@@ -79,8 +79,8 @@ public sealed class PluginAllowlist
             return true;
         }
 
-        var allowed = LoadHashes(ShippedSetPath);
-        allowed.UnionWith(LoadHashes(AllowlistPath));
+        var allowed = LoadHashes(ShippedSetPath, out var shippedProblem);
+        allowed.UnionWith(LoadHashes(AllowlistPath, out var listProblem));
         if (allowed.Contains(sha256))
         {
             reason = "listed";
@@ -88,6 +88,9 @@ public sealed class PluginAllowlist
         }
 
         reason = $"SHA-256 {sha256} is not in the shipped set or {AllowlistPath}";
+        var unreadable = new[] { shippedProblem, listProblem }.Where(p => p != null).ToList();
+        if (unreadable.Count > 0)
+            reason += " — " + string.Join("; ", unreadable);
         return false;
     }
 
@@ -153,6 +156,25 @@ public sealed class PluginAllowlist
         }
     }
 
+    /// <summary>Where a DLL's trust comes from, for display only: dev, shipped, trusted or unknown. Never a gate.</summary>
+    public string Source(string dllPath)
+    {
+        try
+        {
+            var full = Path.GetFullPath(dllPath);
+            if (!string.IsNullOrWhiteSpace(DevPluginsDir) && IsUnderDirectory(full, DevPluginsDir)) return "dev";
+            if (!File.Exists(full)) return "unknown";
+            var hash = HashFile(full);
+            if (LoadHashes(ShippedSetPath).Contains(hash)) return "shipped";
+            if (LoadHashes(AllowlistPath).Contains(hash)) return "trusted";
+        }
+        catch
+        {
+            // Display only: an unreadable file is simply "unknown".
+        }
+        return "unknown";
+    }
+
     public static string HashFile(string path)
     {
         var bytes = File.ReadAllBytes(path);
@@ -169,8 +191,16 @@ public sealed class PluginAllowlist
         return target.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static HashSet<string> LoadHashes(string path)
+    internal static HashSet<string> LoadHashes(string path) => LoadHashes(path, out _);
+
+    /// <summary>
+    /// Reads a hash list. A file that exists but cannot be parsed yields an empty set (the gate still
+    /// fails closed) and a <paramref name="problem"/> the refusal can quote, so an engineer is not left
+    /// guessing why every trusted plugin was refused.
+    /// </summary>
+    internal static HashSet<string> LoadHashes(string path, out string? problem)
     {
+        problem = null;
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return set;
         try
@@ -184,8 +214,9 @@ public sealed class PluginAllowlist
                 if (!string.IsNullOrWhiteSpace(item)) set.Add(item.Trim());
             }
         }
-        catch
+        catch (Exception ex)
         {
+            problem = $"{path} is unreadable ({ex.Message})";
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
         return set;

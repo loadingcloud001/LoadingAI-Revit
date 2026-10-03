@@ -205,7 +205,8 @@ public sealed record ParamExportDto(
     string Category,
     IReadOnlyList<string> Columns,
     IReadOnlyList<ParamExportRowDto> Rows,
-    string? Error = null);
+    string? Error = null,
+    int Total = 0);
 
 public sealed record QuantityTakeoffRowDto(
     string Id,
@@ -317,7 +318,9 @@ public sealed record SplitRequestDto(
 /// Outcome of one structure-cuts run. <c>Report</c> is the algorithms' own prose,
 /// verbatim; the counters are kept separate from it so a partial run cannot read as
 /// a whole one. <c>Created</c> counts hosts replaced by more than one piece and
-/// <c>Skipped</c> counts hosts left alone for any reason.
+/// <c>Skipped</c> counts hosts left alone for any reason. <c>Failed</c> is the part of
+/// <c>Skipped</c> that was attempted and rolled back; it is optional and defaulted so every
+/// existing construction keeps compiling.
 /// </summary>
 public sealed record SplitResultDto(
     string Report,
@@ -325,7 +328,8 @@ public sealed record SplitResultDto(
     int Openings,
     int Skipped,
     IReadOnlyList<string> NewIds,
-    string? Error = null);
+    string? Error = null,
+    int Failed = 0);
 
 /// <summary>
 /// Input for one formwork setup run. The tool takes no arguments today; the type exists

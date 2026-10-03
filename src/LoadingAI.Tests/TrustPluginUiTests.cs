@@ -33,10 +33,12 @@ public class TrustPluginUiTests
     {
         var shelf = Source("web", "src", "plugins", "PluginShelf.tsx");
         Assert.Contains("Trust this plugin…", shelf);
-        Assert.Contains("const allowlistRefusal = 'DLL not on allowlist';", shelf);
-        Assert.Contains("issue.summary === allowlistRefusal &&", shelf);
-        // A refusal is a row the host can actually trust; the literal has to match both ends.
-        Assert.Contains("DLL not on allowlist", Source("src", "LoadingAI", "Plugins", "Core", "PluginLoader.cs"));
+        Assert.Contains("canTrust(issue) &&", shelf);
+
+        // The pane keys on the host's stable code, never on the wording of the summary.
+        var view = Source("web", "src", "plugins", "pluginView.ts");
+        Assert.Contains("issue.code === 'allowlist-refusal'", view);
+        Assert.Contains("\"allowlist-refusal\"", Source("src", "LoadingAI", "Plugins", "Core", "PluginLoader.cs"));
     }
 
     [Fact]
