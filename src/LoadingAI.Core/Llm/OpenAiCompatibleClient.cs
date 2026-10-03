@@ -174,8 +174,14 @@ public sealed class OpenAiCompatibleClient : IDisposable
     private readonly HttpClient _http;
 
     public OpenAiCompatibleClient()
+        : this(new HttpClientHandler())
     {
-        _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+    }
+
+    /// <summary>Test seam: drive the real client against a scripted handler (InternalsVisibleTo LoadingAI.Tests).</summary>
+    internal OpenAiCompatibleClient(HttpMessageHandler handler)
+    {
+        _http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     public async Task<ChatCompletionResponse> ChatAsync(
