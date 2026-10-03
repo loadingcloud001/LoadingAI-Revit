@@ -1,6 +1,7 @@
 // MIT Example plugin — copy this folder to create your own plugin.
 // Build: dotnet build -c Release (produces LoadingAI.Plugins.Hello.dll)
-// Drop the folder (plugin.json + dll) into %AppData%\LoadingAI\Plugins\hello\ and restart Revit.
+// Copy the folder (plugin.json + dll) to %AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev\hello\ and click Rescan in Settings.
+// A DLL placed in %AppData%\LoadingAI\Plugins is refused until you click "Trust this plugin" in Settings.
 
 using System.Threading.Tasks;
 using LoadingAI.Llm;

@@ -1,6 +1,6 @@
 # ADR-0011 — Plugin trust prompt (user-initiated allowlist write)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-20
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0010](0010-plugin-load-allowlist.md)

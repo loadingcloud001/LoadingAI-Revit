@@ -1,6 +1,6 @@
 # ADR-0010 — Plugin load SHA-256 allowlist
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-20
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0002](0002-plugin-shelf-bridge-first.md)

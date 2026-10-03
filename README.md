@@ -68,7 +68,7 @@ pwsh scripts/pack-addin.ps1 -RevitVersion 2027   # also 2024, 2025, 2026
 |---|---|
 | `src/LoadingAI` | Host: ribbon, WebView2, Adapter, ExternalEvent |
 | `src/LoadingAI.Core` | netstandard2.0, no RevitAPI |
-| `src/LoadingAI.RevitUtil` | Parse helpers for FullAccess plugins |
+| `src/LoadingAI.RevitUtil` | Revit-bound parse and unit helpers for the host adapter (plugins never reference it) |
 | `Plugins/` | Shipped plugins (Core + RevitUtil, never the host) |
 | `web/` | Vite + React pane |
 | `gateway/` | The free-tier gateway: request handler, SQLite counters, Node transport and systemd/cloudflared templates |

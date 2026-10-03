@@ -64,9 +64,9 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0007](0007-port-view-tools-onto-bridge.md) | Port view-tools onto Bridge | Accepted |
 | [0008](0008-port-structure-cuts-onto-bridge.md) | Port structure-cuts onto Bridge | Accepted |
 | [0009](0009-port-qs-formwork-onto-bridge.md) | Port qs-formwork onto Bridge and retire FullAccess | Accepted |
-| [0010](0010-plugin-load-allowlist.md) | Plugin load SHA-256 allowlist (refuse unknown AppData DLL) | Proposed |
-| [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Proposed |
+| [0010](0010-plugin-load-allowlist.md) | Plugin load SHA-256 allowlist (refuse unknown AppData DLL) | Accepted |
+| [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Accepted |
 | [0012](0012-port-opening-tools-onto-bridge.md) | Port opening-tools onto Bridge | Accepted |
-| [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Proposed |
+| [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Accepted |
 | [0014](0014-preview-before-preset-form.md) | Preview before the preset form (Run panel, gates untouched) | Accepted |
 | [0015](0015-confirm-l2-parameter-writes.md) | Confirm L2 parameter writes with a summary | Proposed |

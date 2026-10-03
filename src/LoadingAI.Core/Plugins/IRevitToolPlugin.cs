@@ -5,7 +5,7 @@ namespace LoadingAI.Plugins;
 /// <summary>
 /// The contract every plugin entry point implements. Plugins enumerate their
 /// tools against the host-supplied <see cref="IPluginContext"/>; the loader
-/// filters by the enabled map and binds raw access for opted-in plugins.
+/// filters by the enabled map.
 /// </summary>
 public interface IRevitToolPlugin
 {
