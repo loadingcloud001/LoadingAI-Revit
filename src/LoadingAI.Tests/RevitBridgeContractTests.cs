@@ -125,6 +125,32 @@ public class RevitBridgeContractTests
         Assert.Contains("MarkTurnFailedIfGroupActive();", src);
         Assert.DoesNotContain("result.StartsWith($\"Tool {name} failed:\"", src);
     }
+
+    [Fact]
+    public void Source_DirectPathRequiresApiContextNotJustUiThread()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var gate = Slice(src, "public async Task<T> RunAsync<T>(Func<UIApplication, T> func, TimeSpan timeout", "_handler.Enqueue(");
+        Assert.Contains("t_inHandler || _attached", gate);
+    }
+
+    [Fact]
+    public void Source_ExecuteMarksAndClearsTheApiContext()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var execute = Slice(src, "public void Execute(UIApplication app)", "public string GetName()");
+        Assert.Contains("t_inHandler = true;", execute);
+        Assert.Contains("t_inHandler = false;", execute);
+    }
+
+    [Fact]
+    public void Source_AttachCurrentThreadEnablesDirectPath()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "RevitBridge.cs"));
+        var attach = Slice(src, "public void AttachCurrentThread", "public RevitBridge()");
+        Assert.Contains("_attached = true;", attach);
+    }
+
     private static string UiSrc()
     {
         var dir = Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui");
