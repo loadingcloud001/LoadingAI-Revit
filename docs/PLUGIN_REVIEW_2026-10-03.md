@@ -216,7 +216,7 @@ Same convention as the last review: each has a recommended default that the plan
 3. **Should a failed read undo the turn's earlier writes?** *Recommended: no.* Only a failed or cancelled write, or an unknown outcome, rolls back.
 4. **When a dev plugin and an installed plugin share an id or tool name, which wins?** *Recommended: the dev copy, with a visible note.*
 5. **Exports: keep L1, but require explicit sheet ids (or `confirmAll`) before exporting everything?** *Recommended: yes.*
-6. **zh-HK vocabulary: can someone fluent in construction terminology review the list in Task 15?** *Recommended: ship it behind that review.* "模板" is formwork in HK practice but "template" elsewhere.
+6. **(Decided 2026-10-03: no. The add-in stays English-only; the LLM translates.)** zh-HK vocabulary: can someone fluent in construction terminology review the list in Task 15?** *Recommended: ship it behind that review.* "模板" is formwork in HK practice but "template" elsewhere.
 7. **Should an error-severity Revit failure inside a `structure-cuts` batch roll the whole batch back and say why, instead of showing Revit's dialog?** *Recommended: yes.* The report names the cause and the next step is a smaller `limit`. Warnings are still deleted quietly. (Phase E, Task 19.)
 8. **`create_family_instance` `z`: a height above the level, instead of an absolute elevation?** *Recommended: yes.* The instance is tied to a level, so "Level 3, z 0" should mean on Level 3. (Phase E, Task 16.)
 9. **`move_elements` on the bridge in millimetres, like every other bridge method?** *Recommended: yes.* No model-visible change; it removes a 304.8× trap for the next plugin author. (Phase E, Task 17.)
