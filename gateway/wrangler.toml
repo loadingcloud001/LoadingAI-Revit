@@ -27,4 +27,4 @@ MINIMAX_MODEL = "MiniMax-M3.1-Flash-Preview"
 DAILY_LIMIT = "100"
 # Optional: tickets are signed with MINIMAX_API_KEY unless TICKET_SECRET is set.
 # TICKET_SECRET = "..."        # prefer: npx wrangler secret put TICKET_SECRET
-TICKET_TTL_SECONDS = "1800"
+TICKET_TTL_SECONDS = "7200"
