@@ -145,6 +145,7 @@ export type ApprovalPayload = {
   tier: string;
   args: string;
   description?: string;
+  summary?: string;
 };
 
 export type PresetFieldKind = 'String' | 'Number' | 'Boolean' | 'Select' | 'PickElements' | 'PickBox';

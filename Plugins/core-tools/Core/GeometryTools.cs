@@ -27,6 +27,7 @@ public static class GeometryTools
     {
         Tier = ToolTier.L3,
         RequiresWriteConfirm = true,
+        Describe = json => DescribeMove(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -82,6 +83,7 @@ public static class GeometryTools
     {
         Tier = ToolTier.L3,
         RequiresWriteConfirm = true,
+        Describe = json => DescribeDelete(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -570,6 +572,60 @@ public static class GeometryTools
             return Refused($"Invalid args: {ex.Message}");
         }
         return WriteResult(await context.Bridge.JoinGeometryAsync(id1, id2, j));
+    }
+
+    private static JsonDocument? ParseArgs(string json)
+    {
+        try { return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json); }
+        catch { return null; }
+    }
+
+    private static List<string> ReadIds(JsonElement? root)
+    {
+        var ids = new List<string>();
+        if (root is { } r && r.TryGetProperty("elementIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            ids.AddRange(arr.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!));
+        return ids;
+    }
+
+    private static async Task<string?> DescribeDelete(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        var ids = ReadIds(doc?.RootElement);
+        const string cascade = "Hosted elements, tags and dimensions on them go too. Undo with Ctrl+Z.";
+        if (ids.Count == 0)
+        {
+            var sel = await context.Bridge.GetSelectionSummaryAsync();
+            if (sel.ElementCount == 0) return null;
+            return $"Delete the {sel.ElementCount} selected element(s) ({string.Join(", ", sel.CategoryNames.Take(5))}).\n{cascade}";
+        }
+
+        var lines = new List<string>();
+        foreach (var id in ids.Take(5))
+        {
+            var d = await context.Bridge.GetElementDetailsAsync(id);
+            lines.Add(d == null || !string.IsNullOrEmpty(d.Error) ? $"{id} (not found)" : $"{d.Category} \"{d.Name}\" ({d.Id})");
+        }
+        var more = ids.Count > 5 ? $"\n  … and {ids.Count - 5} more." : "";
+        return $"Delete {ids.Count} element(s):\n  " + string.Join("\n  ", lines) + more + "\n" + cascade;
+    }
+
+    private static async Task<string?> DescribeMove(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        double Num(string name) => doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+        var ids = ReadIds(doc.RootElement);
+        var count = ids.Count;
+        var what = $"{count} element(s)";
+        if (count == 0)
+        {
+            var sel = await context.Bridge.GetSelectionSummaryAsync();
+            if (sel.ElementCount == 0) return null;
+            count = sel.ElementCount;
+            what = $"the {count} selected element(s) ({string.Join(", ", sel.CategoryNames.Take(4))})";
+        }
+        return $"Move {what} by dx {Num("dx")}, dy {Num("dy")}, dz {Num("dz")} mm.\nUndo with Ctrl+Z.";
     }
 
     /// <summary>

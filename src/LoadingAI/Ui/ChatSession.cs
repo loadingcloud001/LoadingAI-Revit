@@ -489,7 +489,8 @@ internal sealed class ChatSession
             // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
             if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
             {
-                if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
+                var presetSummary = await ToolGuards.DescribeAsync(entry, argsJson);
+                if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, presetSummary))
                 {
                     const string cancelled = "Cancelled by user.";
                     try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
@@ -505,14 +506,15 @@ internal sealed class ChatSession
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
         else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
         {
-            var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson);
+            var summary = await ToolGuards.DescribeAsync(entry, argsJson);
+            var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson, summary);
             if (denied != null)
             {
                 MarkTurnFailedIfGroupActive();
                 return denied;
             }
 
-            if (!await _approvals.ConfirmL3NativeAsync(name, argsJson))
+            if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, summary))
             {
                 const string cancelled = "Cancelled by user.";
                 try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }

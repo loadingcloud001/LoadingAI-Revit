@@ -23,6 +23,13 @@ export function formatApprovalArgs(argsJson: string): string[] {
   return out.length ? out : [NO_ARGS];
 }
 
+/** Lines for the approval card: the host's summary when it sent one, else the flattened arguments. */
+export function approvalLines(approval: { args: string; summary?: string }): string[] {
+  const summary = (approval.summary ?? '').trim();
+  if (summary) return summary.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0);
+  return formatApprovalArgs(approval.args);
+}
+
 function parseObject(json: string): Record<string, unknown> | null {
   if (!json) return null;
   try {

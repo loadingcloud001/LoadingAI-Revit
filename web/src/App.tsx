@@ -7,7 +7,7 @@ import { isNearBottom } from './lib/scroll';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
 import { classifyResult, outcomeLabel, TranscriptSlice } from './transcript';
-import { formatApprovalArgs, previewRows, previewWarnings, receiptLine, runKicker } from './lib/presetPreview';
+import { approvalLines, previewRows, previewWarnings, receiptLine, runKicker } from './lib/presetPreview';
 import 'open-model-selector/styles.css';
 import { ModelSelector } from 'open-model-selector';
 
@@ -834,7 +834,7 @@ export default function App() {
                 <div style={{ ...kLabel, color: '#8a1f11' }}>Confirm L3</div>
                 <div>{m.approval.toolName}{m.approval.tier ? ` · ${m.approval.tier}` : ''}</div>
                 <div className="mt-1 text-[11px]" style={{ color: '#5c5c5c' }}>
-                  {formatApprovalArgs(m.approval.args).map(line => <div key={line} className="font-mono">{line}</div>)}
+                  {approvalLines(m.approval).map((line, i) => <div key={`${i}-${line}`} className="font-mono">{line}</div>)}
                 </div>
                 <div className="mt-1" style={{ color: '#5c5c5c' }}>After Allow, Revit will ask once more. Default is No.</div>
                 {isPending ? (

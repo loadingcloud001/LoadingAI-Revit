@@ -127,12 +127,12 @@ internal sealed class ApprovalGate
             : (false, null, "Cancelled by user.");
     }
 
-    public async Task<string?> AwaitL3WebAsync(ToolEntry entry, string name, string argsJson)
+    public async Task<string?> AwaitL3WebAsync(ToolEntry entry, string name, string argsJson, string? summary = null)
     {
         var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_approvalLock) _pendingApprovals[callId] = tcs;
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolApproval(new FromHostMessage.ApprovalPayload(callId, name, entry.Tier.ToString(), argsJson, entry.Definition.Function.Description)))); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolApproval(new FromHostMessage.ApprovalPayload(callId, name, entry.Tier.ToString(), argsJson, entry.Definition.Function.Description, summary)))); } catch { }
         try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting approval {callId})"))); } catch { }
         var timeout = Task.Delay(TimeSpan.FromSeconds(180));
         var completed = await Task.WhenAny(tcs.Task, timeout);
@@ -152,7 +152,7 @@ internal sealed class ApprovalGate
         return null;
     }
 
-    public async Task<bool> ConfirmL3NativeAsync(string name, string argsJson)
+    public async Task<bool> ConfirmL3NativeAsync(string name, string argsJson, string? summary = null)
     {
         var raw = App.Bridge;
         if (raw == null) return false;
@@ -163,7 +163,8 @@ internal sealed class ApprovalGate
                 var td = new TaskDialog("LoadingAI for Revit")
                 {
                     MainInstruction = $"Confirm L3: {name}?",
-                    MainContent = WebHostBridge.Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
+                    MainContent = (string.IsNullOrWhiteSpace(summary) ? WebHostBridge.Truncate(argsJson, 400) : summary)
+                                  + "\n\nUndoable transaction. Default No.",
                     CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
                     DefaultButton = TaskDialogResult.No
                 };
