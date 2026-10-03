@@ -361,6 +361,7 @@ public static class PluginLoader
                 RequiresWriteConfirm = e.RequiresWriteConfirm,
                 Tier = e.Tier,
                 Presets = e.Presets,
+                Describe = e.Describe,
                 Tags = tags
             };
         }

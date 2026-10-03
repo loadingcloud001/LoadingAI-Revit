@@ -41,7 +41,7 @@ internal sealed class FakeRevitBridge : IRevitBridge
         => Task.FromResult<IReadOnlyList<ElementSummaryDto>>(Array.Empty<ElementSummaryDto>());
 
     public Task<IReadOnlyList<WarningDto>> GetWarningsAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<WarningDto>>(Array.Empty<WarningDto>());
+        => Task.FromResult<IReadOnlyList<WarningDto>>(GroupedWarnings);
 
     public IReadOnlyList<WarningItemDto> WarningsRaw { get; set; } = Array.Empty<WarningItemDto>();
 
@@ -66,24 +66,32 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public SyncInfoDto? SyncInfo { get; set; }
 
+    public IReadOnlyList<WarningDto> GroupedWarnings { get; set; } = Array.Empty<WarningDto>();
+
+    public WallMetricsDto? NextWallMetrics { get; set; }
+
+    public ElementDetailsDto? NextElementDetails { get; set; }
+
+    public FindResultDto? NextFind { get; set; }
+
     public Task<SyncInfoDto?> GetSyncInfoAsync(CancellationToken ct = default)
         => Task.FromResult(SyncInfo);
 
     public Task<WallMetricsDto?> GetWallMetricsAsync(string? levelName = null, int limit = 500, CancellationToken ct = default)
-        => Task.FromResult<WallMetricsDto?>(null);
+        => Task.FromResult(NextWallMetrics);
 
     public Task<VisibleElementsDto?> GetVisibleElementsInViewAsync(string? category = null, int limit = 100, CancellationToken ct = default)
         => Task.FromResult<VisibleElementsDto?>(null);
 
     public Task<ElementDetailsDto?> GetElementDetailsAsync(string elementId, CancellationToken ct = default)
-        => Task.FromResult<ElementDetailsDto?>(null);
+        => Task.FromResult(NextElementDetails);
 
     public Task<FindResultDto> FindElementsFilteredAsync(
         string category,
         string? paramName = null, string? op = null, string? value = null,
         int limit = 100, int offset = 0,
         CancellationToken ct = default)
-        => Task.FromResult(new FindResultDto(0, offset, null, Array.Empty<ElementSummaryDto>()));
+        => Task.FromResult(NextFind ?? new FindResultDto(0, offset, null, Array.Empty<ElementSummaryDto>()));
 
     public Task<IReadOnlyList<ElementQuantityDto>> GetElementQuantitiesAsync(
         IReadOnlyList<string>? elementIds = null, CancellationToken ct = default)

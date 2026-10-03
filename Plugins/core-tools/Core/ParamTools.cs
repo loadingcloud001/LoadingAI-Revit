@@ -27,7 +27,7 @@ public static class ParamTools
     internal static ToolEntry CreateSetParameterById(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
-        RequiresWriteConfirm = true,
+        Describe = json => DescribeSetParameterById(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -75,7 +75,7 @@ public static class ParamTools
     internal static ToolEntry CreateSetCommentsOnSelection(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
-        RequiresWriteConfirm = true,
+        Describe = json => DescribeSetComments(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -117,12 +117,13 @@ public static class ParamTools
     {
         Tier = ToolTier.L3,
         RequiresWriteConfirm = true,
+        Describe = json => DescribeBatchSet(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
             {
                 Name = "batch_set_parameter",
-                Description = "Batch set a parameter on all elements matching a category+filter. Previews count, asks confirm, then writes in one transaction.",
+                Description = "Batch set a parameter on the elements matching a category+filter (the first `limit`, default 200, max 1000) in one transaction. The approval card shows how many match.",
                 Parameters = new
                 {
                     type = "object",
@@ -422,7 +423,7 @@ public static class ParamTools
     internal static ToolEntry CreateCopyParams(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
-        RequiresWriteConfirm = true,
+        Describe = json => DescribeCopyParams(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -470,7 +471,7 @@ public static class ParamTools
     internal static ToolEntry CreateReplaceText(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
-        RequiresWriteConfirm = true,
+        Describe = json => DescribeReplaceText(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -520,7 +521,7 @@ public static class ParamTools
     internal static ToolEntry CreateNumberingAuto(IPluginContext context) => new()
     {
         Tier = ToolTier.L2,
-        RequiresWriteConfirm = true,
+        Describe = json => DescribeNumbering(context, json),
         Definition = new ToolDefinition
         {
             Function = new ToolFunction
@@ -559,6 +560,154 @@ public static class ParamTools
         catch { }
         var result = await context.Bridge.NumberElementsAsync(cat, pref, start, pad);
         return WriteResult(result);
+    }
+
+    private static JsonDocument? ParseArgs(string json)
+    {
+        try { return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json); }
+        catch { return null; }
+    }
+
+    private static string? ArgStr(JsonElement root, string name)
+        => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static int ArgInt(JsonElement root, string name, int fallback)
+        => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : fallback;
+
+    private static string Sample(IEnumerable<string> lines)
+        => string.Join("\n", lines.Take(3).Select(l => "  " + l));
+
+    private static async Task<string?> DescribeSetParameterById(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var eid = ArgStr(doc.RootElement, "elementId");
+        var param = ArgStr(doc.RootElement, "paramName");
+        var value = ArgStr(doc.RootElement, "value");
+        if (string.IsNullOrWhiteSpace(eid) || string.IsNullOrWhiteSpace(param)) return null;
+        var details = await context.Bridge.GetElementDetailsAsync(eid!);
+        if (details == null || !string.IsNullOrEmpty(details.Error)) return null;
+        var current = details.Parameters
+            .FirstOrDefault(p => p.Name.Equals(param, StringComparison.OrdinalIgnoreCase))?.Value;
+        var change = current == null ? $"{param} = \"{value}\"" : $"{param}: \"{current}\" → \"{value}\"";
+        return $"Set a parameter on {details.Category} \"{details.Name}\" (id {details.Id}):\n{change}\nUndo with Ctrl+Z.";
+    }
+
+    private static async Task<string?> DescribeSetComments(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        var text = doc == null ? null : ArgStr(doc.RootElement, "text");
+        var sel = await context.Bridge.GetSelectionSummaryAsync();
+        if (sel.ElementCount == 0) return null;
+        var cats = string.Join(", ", sel.CategoryNames.Take(4));
+        return $"Set Comments on {sel.ElementCount} selected element(s) ({cats}) to:\n\"{text}\"\n"
+               + "Existing Comments on them are overwritten. Undo with Ctrl+Z.";
+    }
+
+    private static async Task<string?> DescribeCopyParams(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var r = doc.RootElement;
+        var cat = ArgStr(r, "category");
+        var src = ArgStr(r, "sourceParam");
+        var tgt = ArgStr(r, "targetParam");
+        if (string.IsNullOrWhiteSpace(cat) || string.IsNullOrWhiteSpace(src) || string.IsNullOrWhiteSpace(tgt)) return null;
+        var limit = Polyfills.Clamp(ArgInt(r, "limit", 200), 1, 1000);
+        var dto = await context.Bridge.ExportParamsAsync(cat!, new[] { src!, tgt! }, limit);
+        if (dto == null || !string.IsNullOrEmpty(dto.Error)) return null;
+        var changes = dto.Rows
+            .Where(row => row.Values.Count == 2 && row.Values[0].Length > 0 && row.Values[0] != row.Values[1])
+            .ToList();
+        var more = dto.Total > dto.Rows.Count
+            ? $" Only the first {dto.Rows.Count} of {dto.Total} {cat} are processed." : "";
+        return $"Copy {src} → {tgt} on {cat}: {changes.Count} of {dto.Rows.Count} values would change.{more}\n"
+               + Sample(changes.Select(c => $"{c.Id}: \"{c.Values[1]}\" → \"{c.Values[0]}\"")) + "\nUndo with Ctrl+Z.";
+    }
+
+    private static async Task<string?> DescribeReplaceText(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var r = doc.RootElement;
+        var cat = ArgStr(r, "category");
+        var param = ArgStr(r, "paramName");
+        var pattern = ArgStr(r, "pattern");
+        var replacement = ArgStr(r, "replacement") ?? "";
+        if (string.IsNullOrWhiteSpace(cat) || string.IsNullOrWhiteSpace(param)) return null;
+        if (!SafeRegex.TryCreate(pattern, out var re, out var reError))
+            return $"The pattern cannot run: {reError}";
+        var limit = Polyfills.Clamp(ArgInt(r, "limit", 200), 1, 1000);
+        var dto = await context.Bridge.ExportParamsAsync(cat!, new[] { param! }, limit);
+        if (dto == null || !string.IsNullOrEmpty(dto.Error)) return null;
+        var changes = new List<(string Id, string Old, string New)>();
+        try
+        {
+            foreach (var row in dto.Rows)
+            {
+                var old = row.Values.Count > 0 ? row.Values[0] : "";
+                var next = re!.Replace(old, replacement);
+                if (old != next) changes.Add((row.Id, old, next));
+            }
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return $"The pattern /{pattern}/ is too slow and will be refused. Use a simpler pattern.";
+        }
+        var more = dto.Total > dto.Rows.Count
+            ? $" Only the first {dto.Rows.Count} of {dto.Total} {cat} are processed." : "";
+        return $"Replace /{pattern}/ with \"{replacement}\" in {param} on {cat}: {changes.Count} of {dto.Rows.Count} values would change.{more}\n"
+               + Sample(changes.Select(c => $"{c.Id}: \"{c.Old}\" → \"{c.New}\"")) + "\nUndo with Ctrl+Z.";
+    }
+
+    private static async Task<string?> DescribeNumbering(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var r = doc.RootElement;
+        var cat = ArgStr(r, "category");
+        var prefix = ArgStr(r, "prefix") ?? "";
+        var start = ArgInt(r, "start", 1);
+        var pad = Math.Max(0, ArgInt(r, "pad", 3));
+        int count;
+        string scope;
+        if (!string.IsNullOrWhiteSpace(cat))
+        {
+            var found = await context.Bridge.FindElementsFilteredAsync(cat!, null, null, null, 1, 0);
+            if (!string.IsNullOrEmpty(found.Error)) return null;
+            count = found.Total;
+            scope = cat!;
+        }
+        else
+        {
+            var sel = await context.Bridge.GetSelectionSummaryAsync();
+            count = sel.ElementCount;
+            scope = "selected element(s)";
+        }
+        if (count == 0) return null;
+        string Mark(int n) => prefix + n.ToString().PadLeft(pad, '0');
+        return $"Number {count} {scope}: Mark {Mark(start)} … {Mark(start + count - 1)}.\n"
+               + "Existing Marks are overwritten, in Revit's element order (not click order). Undo with Ctrl+Z.";
+    }
+
+    private static async Task<string?> DescribeBatchSet(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var r = doc.RootElement;
+        var cat = ArgStr(r, "category");
+        var target = ArgStr(r, "targetParam");
+        var value = ArgStr(r, "targetValue");
+        var filterParam = ArgStr(r, "filterParam");
+        var filterOp = ArgStr(r, "filterOp") ?? "=";
+        var filterValue = ArgStr(r, "filterValue");
+        if (string.IsNullOrWhiteSpace(cat) || string.IsNullOrWhiteSpace(target)) return null;
+        var limit = Polyfills.Clamp(ArgInt(r, "limit", 200), 1, 1000);
+        var found = await context.Bridge.FindElementsFilteredAsync(cat!, filterParam, filterOp, filterValue, limit, 0);
+        if (!string.IsNullOrEmpty(found.Error)) return null;
+        var filter = string.IsNullOrWhiteSpace(filterParam) ? "" : $" where {filterParam} {filterOp} \"{filterValue}\"";
+        var rest = found.Total > limit ? $" The other {found.Total - limit} are not touched." : "";
+        return $"Set {target} = \"{value}\" on {Math.Min(found.Total, limit)} of {found.Total} {cat}{filter}.{rest}\nUndo with Ctrl+Z.";
     }
 
     /// <summary>

@@ -733,7 +733,7 @@ public class FakeBridgeToolTests
         Assert.Equal("Copied 0/0 Comments->Mark for Walls", text);
         Assert.Single(bridge.CopyParamsCalls);
         Assert.Equal(200, bridge.CopyParamsCalls[0].Limit);
-        Assert.True(tool.RequiresWriteConfirm);
+        Assert.False(tool.RequiresWriteConfirm);
         Assert.Equal(ToolTier.L2, tool.Tier);
     }
 
@@ -761,7 +761,7 @@ public class FakeBridgeToolTests
 
         Assert.Equal("Replaced 0/0 Comments /old/ -> new", text);
         Assert.Single(bridge.ReplaceTextCalls);
-        Assert.True(tool.RequiresWriteConfirm);
+        Assert.False(tool.RequiresWriteConfirm);
         Assert.Equal(ToolTier.L2, tool.Tier);
     }
 
@@ -780,7 +780,7 @@ public class FakeBridgeToolTests
         Assert.Equal("", bridge.NumberElementsCalls[0].Prefix);
         Assert.Equal(1, bridge.NumberElementsCalls[0].Start);
         Assert.Equal(3, bridge.NumberElementsCalls[0].Pad);
-        Assert.True(tool.RequiresWriteConfirm);
+        Assert.False(tool.RequiresWriteConfirm);
         Assert.Equal(ToolTier.L2, tool.Tier);
     }
 

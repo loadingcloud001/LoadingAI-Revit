@@ -63,6 +63,7 @@ public static class QueryTools
             Tier = entry.Tier,
             Presets = entry.Presets,
             Tags = entry.Tags,
+            Describe = entry.Describe,
             Handler = inner,
             StructuredHandler = async json =>
             {

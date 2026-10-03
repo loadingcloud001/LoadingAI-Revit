@@ -106,4 +106,11 @@ public sealed class ToolEntry
     /// Empty means the selector infers tags from the tool name.
     /// </summary>
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
+    /// <summary>
+    /// Optional, read-only summary of what this exact call is about to do: counts, a sample,
+    /// before → after. The host shows it in the confirm dialog and on the L3 approval card
+    /// (ADR-0015). It must not write the model. Null, empty or a throw falls back to the raw
+    /// arguments.
+    /// </summary>
+    public Func<string, Task<string?>>? Describe { get; init; }
 }
