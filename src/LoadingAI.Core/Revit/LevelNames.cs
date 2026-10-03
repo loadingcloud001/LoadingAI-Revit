@@ -19,6 +19,32 @@ public static class LevelNames
         return $"Level '{wanted}' not found. Did you mean: {string.Join(", ", hints)}?";
     }
 
+    /// <summary>
+    /// Placement tools must never put something on "some" level. A blank name is accepted only when the
+    /// model has exactly one level; an unknown name is an error that lists the levels.
+    /// </summary>
+    public static string? ResolveStrict(string? wanted, IReadOnlyList<string> names, out string? error)
+    {
+        error = null;
+        if (names == null || names.Count == 0)
+        {
+            error = "No levels found.";
+            return null;
+        }
+
+        var list = string.Join(", ", names.Take(12)) + (names.Count > 12 ? ", ..." : "");
+        if (string.IsNullOrWhiteSpace(wanted))
+        {
+            if (names.Count == 1) return names[0];
+            error = $"Provide levelName. Levels: {list}.";
+            return null;
+        }
+
+        var found = Resolve(wanted!, names);
+        if (found == null) error = $"{NotFound(wanted!, names)} Levels: {list}.";
+        return found;
+    }
+
     public static IEnumerable<string> Suggest(string wanted, IReadOnlyList<string> names)
     {
         if (names == null) yield break;

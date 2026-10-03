@@ -135,7 +135,7 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "create_wall",
-                Description = "Create a wall by start/end points (mm) on a level.",
+                Description = "Create a straight wall by start and end points (mm) on a level. heightMm defaults to 3000; wallTypeName defaults to the first basic wall type.",
                 Parameters = new
                 {
                     type = "object",
@@ -143,7 +143,8 @@ public static class GeometryTools
                     {
                         levelName = new { type = "string", description = "Level name, e.g. Level 1" },
                         x1 = new { type = "number" }, y1 = new { type = "number" }, x2 = new { type = "number" }, y2 = new { type = "number" },
-                        wallTypeName = new { type = "string", description = "Optional wall type name" }
+                        wallTypeName = new { type = "string", description = "Optional wall type name" },
+                        heightMm = new { type = "number", description = "Optional wall height in mm, default 3000" }
                     },
                     required = new[] { "levelName", "x1", "y1", "x2", "y2" }
                 }
@@ -155,7 +156,7 @@ public static class GeometryTools
 
     private static async Task<ToolExecutionResult> CreateWallAsync(IPluginContext context, string json)
     {
-        string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null;
+        string levelName = ""; double x1 = 0, y1 = 0, x2 = 0, y2 = 0; string? wallTypeName = null; double? heightMm = null;
         try
         {
             using var d = JsonDocument.Parse(json);
@@ -165,12 +166,13 @@ public static class GeometryTools
             x2 = d.RootElement.GetProperty("x2").GetDouble();
             y2 = d.RootElement.GetProperty("y2").GetDouble();
             if (d.RootElement.TryGetProperty("wallTypeName", out var w) && w.ValueKind == JsonValueKind.String) wallTypeName = w.GetString();
+            if (d.RootElement.TryGetProperty("heightMm", out var h) && h.ValueKind == JsonValueKind.Number) heightMm = h.GetDouble();
         }
         catch (Exception ex)
         {
             return Refused($"Invalid args: {ex.Message}");
         }
-        return WriteResult(await context.Bridge.CreateWallAsync(levelName, x1, y1, x2, y2, wallTypeName));
+        return WriteResult(await context.Bridge.CreateWallAsync(levelName, x1, y1, x2, y2, wallTypeName, heightMm));
     }
 
     internal static ToolEntry CreateCreateFamilyInstance(IPluginContext context) => new()
@@ -182,16 +184,16 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "create_family_instance",
-                Description = "Place a family instance by symbol name at a point (mm) on a level.",
+                Description = "Place a level-based family instance (column, furniture, equipment) by type name at a point (mm). z is the height above the level in mm, default 0. Hosted families such as doors and windows are refused. If several families share the type name, pass familyName.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
-                        symbolName = new { type = "string", description = "Family symbol name, e.g. 'Single-Flush'" },
-                        familyName = new { type = "string", description = "Family name, e.g. 'Door'" },
-                        levelName = new { type = "string", description = "Level name" },
-                        x = new { type = "number" }, y = new { type = "number" }, z = new { type = "number", description = "Optional Z, default 0" }
+                        symbolName = new { type = "string", description = "Family type name, e.g. '600 x 600'" },
+                        familyName = new { type = "string", description = "Family name, e.g. 'Concrete-Rectangular-Column'. Needed when several families have the same type name." },
+                        levelName = new { type = "string", description = "Level name. May be omitted only when the model has a single level." },
+                        x = new { type = "number" }, y = new { type = "number" }, z = new { type = "number", description = "Optional height above the level in mm, default 0" }
                     },
                     required = new[] { "symbolName", "x", "y" }
                 }
@@ -401,7 +403,7 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "create_family_instance_array",
-                Description = "Array family instances along line (Dynamo: FamilyInstance.ByPoint array). Params: symbolName, startX,startY, endX,endY in mm, count, levelName optional.",
+                Description = "Array level-based family instances along a line, count 1 to 50. Params: symbolName, familyName (needed when several families share the type name), startX,startY, endX,endY in mm, count, levelName (optional only when the model has one level). Hosted families are refused.",
                 Parameters = new
                 {
                     type = "object",
@@ -411,6 +413,7 @@ public static class GeometryTools
                         startX = new { type = "number" }, startY = new { type = "number" },
                         endX = new { type = "number" }, endY = new { type = "number" },
                         count = new { type = "integer" },
+                        familyName = new { type = "string" },
                         levelName = new { type = "string" }
                     },
                     required = new[] { "symbolName", "startX", "startY", "endX", "endY", "count" }
@@ -423,7 +426,7 @@ public static class GeometryTools
 
     private static async Task<ToolExecutionResult> CreateFamilyInstanceArrayAsync(IPluginContext context, string json)
     {
-        string sym = ""; double sx = 0, sy = 0, ex = 10, ey = 0; int cnt = 5; string? lvl = null;
+        string sym = ""; double sx = 0, sy = 0, ex = 10, ey = 0; int cnt = 5; string? lvl = null; string? fam = null;
         try
         {
             using var d = JsonDocument.Parse(json);
@@ -434,12 +437,13 @@ public static class GeometryTools
             ey = d.RootElement.GetProperty("endY").GetDouble();
             cnt = d.RootElement.GetProperty("count").GetInt32();
             if (d.RootElement.TryGetProperty("levelName", out var l) && l.ValueKind == JsonValueKind.String) lvl = l.GetString();
+            if (d.RootElement.TryGetProperty("familyName", out var f) && f.ValueKind == JsonValueKind.String) fam = f.GetString();
         }
         catch (Exception ex2)
         {
             return Refused($"Invalid args: {ex2.Message}");
         }
-        return WriteResult(await context.Bridge.CreateFamilyInstanceArrayAsync(sym, sx, sy, ex, ey, cnt, lvl));
+        return WriteResult(await context.Bridge.CreateFamilyInstanceArrayAsync(sym, sx, sy, ex, ey, cnt, lvl, fam));
     }
 
     internal static ToolEntry CreateRotateElements(IPluginContext context) => new()

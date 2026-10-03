@@ -8,6 +8,7 @@ using LoadingAI.Revit.Formwork;
 using LoadingAI.Revit.Openings;
 using LoadingAI.Revit.StructureCuts;
 using LoadingAI.Tools;
+using StructuralType = Autodesk.Revit.DB.Structure.StructuralType;
 
 namespace LoadingAI.Revit;
 
@@ -17,10 +18,48 @@ namespace LoadingAI.Revit;
 /// </summary>
 public sealed partial class AdapterRevitBridge
 {
+    private const double DefaultWallHeightMm = 3000;
+    private const int MaxArrayCount = 50;
+
+    /// <summary>
+    /// The symbol and level a placement tool asked for, or the sentence that says why not. Nothing
+    /// falls back to "the first one in the collector": a wrong family or level is a wrong model.
+    /// </summary>
+    private static string? ResolvePlacement(
+        Document doc, string symbolName, string? familyName, string? levelName,
+        out FamilySymbol? symbol, out Level? level, out StructuralType structuralType)
+    {
+        symbol = null;
+        level = null;
+        structuralType = StructuralType.NonStructural;
+
+        var symbols = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
+        var index = SymbolPick.Choose(symbols.Select(s => (s.FamilyName, s.Name)).ToList(), symbolName, familyName, out var pickError);
+        if (index < 0) return pickError;
+        symbol = symbols[index];
+
+        var refusal = PlacementRules.Refusal(symbol.Name, symbol.Family.FamilyPlacementType.ToString());
+        if (refusal != null) return refusal;
+
+        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+        var resolved = LevelNames.ResolveStrict(levelName, levels.Select(l => l.Name).ToList(), out var levelError);
+        if (resolved == null) return levelError;
+        level = levels.First(l => l.Name == resolved);
+
+        structuralType = PlacementRules.KindFor(symbol.Category?.BuiltInCategory.ToString()) switch
+        {
+            PlacementKind.Column => StructuralType.Column,
+            PlacementKind.Footing => StructuralType.Footing,
+            _ => StructuralType.NonStructural,
+        };
+        return null;
+    }
+
     public Task<CommandResultDto> CreateWallAsync(
         string levelName,
         double x1, double y1, double x2, double y2,
         string? wallTypeName = null,
+        double? heightMm = null,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -46,11 +85,16 @@ public sealed partial class AdapterRevitBridge
                 }
                 else
                 {
-                    var wt = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().FirstOrDefault();
-                    if (wt == null) return new CommandResultDto(false, "No wall types found.");
+                    // A plain wall, never a curtain or stacked type that happens to sort first.
+                    var wt = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+                        .FirstOrDefault(t => t.Kind == WallKind.Basic);
+                    if (wt == null) return new CommandResultDto(false, "No basic wall type found. Pass wallTypeName.");
                     wallTypeId = wt.Id;
                 }
 
+                var height = heightMm ?? DefaultWallHeightMm;
+                if (height < 100 || height > 300000)
+                    return new CommandResultDto(false, $"heightMm must be between 100 and 300000 (got {height:F0}).");
                 var p1 = new XYZ(Metric.MmToFt(x1), Metric.MmToFt(y1), 0);
                 var p2 = new XYZ(Metric.MmToFt(x2), Metric.MmToFt(y2), 0);
                 var line = Line.CreateBound(p1, p2);
@@ -58,12 +102,12 @@ public sealed partial class AdapterRevitBridge
                 tx.Start();
                 try
                 {
-                    var wall = Wall.Create(doc, line, wallTypeId, level.Id, 10, 0, false, false);
+                    var wall = Wall.Create(doc, line, wallTypeId, level.Id, Metric.MmToFt(height), 0, false, false);
                     tx.Commit();
                     var id = wall.Id.ToString();
                     return new CommandResultDto(
                         true,
-                        $"Created wall {id} on {level.Name} from ({x1:F0},{y1:F0}) to ({x2:F0},{y2:F0}) mm type {wallTypeId}.",
+                        $"Created wall {id} on {level.Name} from ({x1:F0},{y1:F0}) to ({x2:F0},{y2:F0}) mm, height {height:F0} mm, type {wallTypeId}.",
                         1,
                         ElementIds: new[] { id });
                 }
@@ -95,35 +139,23 @@ public sealed partial class AdapterRevitBridge
 
             try
             {
-                var symbols = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
-                FamilySymbol? sym = null;
-                if (!string.IsNullOrWhiteSpace(familyName))
-                    sym = symbols.FirstOrDefault(s =>
-                        s.FamilyName.Equals(familyName, StringComparison.OrdinalIgnoreCase)
-                        && s.Name.Equals(symbolName, StringComparison.OrdinalIgnoreCase));
-                sym ??= symbols.FirstOrDefault(s => s.Name.Equals(symbolName, StringComparison.OrdinalIgnoreCase));
-                if (sym == null)
-                    return new CommandResultDto(false, $"Symbol '{symbolName}' not found. Available: {string.Join(", ", symbols.Take(10).Select(s => s.Name))}");
+                var refusal = ResolvePlacement(doc, symbolName, familyName, levelName, out var sym, out var lvl, out var structural);
+                if (refusal != null) return new CommandResultDto(false, refusal);
 
-                Level? lvl = null;
-                if (!string.IsNullOrWhiteSpace(levelName))
-                    lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                        .FirstOrDefault(l => l.Name.Equals(levelName, StringComparison.OrdinalIgnoreCase));
-                lvl ??= new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault();
-                if (lvl == null) return new CommandResultDto(false, "No levels found.");
-
-                if (!sym.IsActive) sym.Activate();
-                var pt = new XYZ(Metric.MmToFt(x), Metric.MmToFt(y), Metric.MmToFt(z));
+                // z is a height above the level, in the same millimetres as x and y.
+                var pt = new XYZ(Metric.MmToFt(x), Metric.MmToFt(y), lvl!.Elevation + Metric.MmToFt(z));
                 using var tx = new Transaction(doc, "LoadingAI for Revit: create instance");
                 tx.Start();
                 try
                 {
-                    var inst = doc.Create.NewFamilyInstance(pt, sym, lvl, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                    // Activating edits the document, so it belongs inside the transaction.
+                    if (!sym!.IsActive) sym.Activate();
+                    var inst = doc.Create.NewFamilyInstance(pt, sym, lvl, structural);
                     tx.Commit();
                     var id = inst.Id.ToString();
                     return new CommandResultDto(
                         true,
-                        $"Created instance {id} '{symbolName}' at ({x:F0},{y:F0},{z:F0}) mm on {lvl.Name}.",
+                        $"Created instance {id} '{sym.Name}' ({sym.FamilyName}) at ({x:F0},{y:F0}) mm, {z:F0} mm above {lvl.Name}.",
                         1,
                         ElementIds: new[] { id });
                 }
@@ -360,51 +392,41 @@ public sealed partial class AdapterRevitBridge
         double startX, double startY, double endX, double endY,
         int count,
         string? levelName = null,
+        string? familyName = null,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
         {
             var doc = uiApp.ActiveUIDocument?.Document;
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
+            if (count < 1 || count > MaxArrayCount)
+                return new CommandResultDto(false, $"count must be between 1 and {MaxArrayCount} (got {count}).");
 
             try
             {
-                var cnt = Polyfills.Clamp(count, 1, 50);
-                var symbol = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-                    .FirstOrDefault(s => s.Name.Equals(symbolName, StringComparison.OrdinalIgnoreCase));
-                if (symbol == null) return new CommandResultDto(false, $"Symbol {symbolName} not found.");
-                if (!symbol.IsActive) symbol.Activate();
-
-                Level? level = null;
-                if (!string.IsNullOrWhiteSpace(levelName))
-                {
-                    var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
-                    var names = levels.Select(l => l.Name).ToList();
-                    var resolved = LevelNames.Resolve(levelName, names);
-                    if (resolved != null) level = levels.First(l => l.Name == resolved);
-                }
-                level ??= new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault();
-                if (level == null) return new CommandResultDto(false, "No level.");
+                var refusal = ResolvePlacement(doc, symbolName, familyName, levelName, out var symbol, out var level, out var structural);
+                if (refusal != null) return new CommandResultDto(false, refusal);
 
                 var sx = Metric.MmToFt(startX); var sy = Metric.MmToFt(startY);
                 var exFt = Metric.MmToFt(endX); var eyFt = Metric.MmToFt(endY);
-                using var tx = new Transaction(doc, $"LoadingAI for Revit: array {symbolName} x{cnt}");
+                using var tx = new Transaction(doc, $"LoadingAI for Revit: array {symbolName} x{count}");
                 tx.Start();
                 try
                 {
+                    if (!symbol!.IsActive) symbol.Activate();
                     var ids = new List<ElementId>();
-                    for (int i = 0; i < cnt; i++)
+                    for (int i = 0; i < count; i++)
                     {
-                        double t = (double)i / (cnt - 1 == 0 ? 1 : cnt - 1);
-                        var pt = new XYZ(sx + (exFt - sx) * t, sy + (eyFt - sy) * t, 0);
-                        var inst = doc.Create.NewFamilyInstance(pt, symbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                        double t = (double)i / (count - 1 == 0 ? 1 : count - 1);
+                        var pt = new XYZ(sx + (exFt - sx) * t, sy + (eyFt - sy) * t, level!.Elevation);
+                        var inst = doc.Create.NewFamilyInstance(pt, symbol, level, structural);
                         ids.Add(inst.Id);
                     }
                     tx.Commit();
                     var idStrs = ids.Select(id => id.ToString()).ToList();
                     return new CommandResultDto(
                         true,
-                        $"Created {idStrs.Count} {symbolName} array {string.Join(",", idStrs.Take(5))}",
+                        $"Created {idStrs.Count} {symbol.Name} on {level!.Name}: {string.Join(",", idStrs.Take(5))}{(idStrs.Count > 5 ? ",..." : "")}",
                         idStrs.Count,
                         ElementIds: idStrs);
                 }

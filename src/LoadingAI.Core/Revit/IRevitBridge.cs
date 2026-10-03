@@ -268,8 +268,13 @@ public interface IRevitCreateCommand
         string levelName,
         double x1, double y1, double x2, double y2,
         string? wallTypeName = null,
+        double? heightMm = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Places a level-based family. <paramref name="z"/> is millimetres <b>above the level</b>, not an
+    /// absolute elevation. A blank level is accepted only when the model has one level.
+    /// </summary>
     Task<CommandResultDto> CreateFamilyInstanceAsync(
         string symbolName,
         double x, double y,
@@ -305,6 +310,7 @@ public interface IRevitCreateCommand
         double startX, double startY, double endX, double endY,
         int count,
         string? levelName = null,
+        string? familyName = null,
         CancellationToken ct = default);
 
     Task<CommandResultDto> RotateElementsAsync(
