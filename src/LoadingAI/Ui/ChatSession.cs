@@ -550,8 +550,11 @@ internal sealed class ChatSession
             if (!execution.IsSafeToAssimilate)
                 MarkTurnFailedIfGroupActive();
         }
-        else if (execution.Status is ToolExecutionStatus.Failed or ToolExecutionStatus.Cancelled or ToolExecutionStatus.Unknown)
+        else if (execution.Status is ToolExecutionStatus.Cancelled or ToolExecutionStatus.Unknown)
         {
+            // A read or a dry run that merely found nothing ("Please select elements first.") has
+            // changed nothing, so it must not undo the writes before it. A cancelled or unknown
+            // outcome still does: the turn can no longer be trusted.
             MarkTurnFailedIfGroupActive();
         }
 
