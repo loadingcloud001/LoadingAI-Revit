@@ -16,6 +16,7 @@ public static class ViewTools
         yield return CreateOverrideColorInView(context);
         yield return CreateColorByConstructionSchedule(context);
         yield return CreateColorByParameter(context);
+        yield return CreateResetViewOverrides(context);
         yield return CreateCreateSheet(context);
         yield return CreatePlaceViewOnSheet(context);
         yield return CreateDuplicateViewEx(context);
@@ -137,7 +138,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "reset_temporary_view",
-                Description = "Reset (disable) temporary hide/isolate in the active view.",
+                Description = "Reset (disable) temporary hide/isolate in the active view. Does not touch colour overrides; use reset_view_overrides for those.",
                 Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
             }
         },
@@ -156,7 +157,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "override_color_in_view",
-                Description = "Set temporary color override for elements or a whole category in the active view. Use e.g. 'color those doors red'.",
+                Description = "Colour elements or a whole category in the active view with a solid fill. The override is saved in the view and syncs like any edit; it is not a temporary mode. Undo with Ctrl+Z or reset_view_overrides. Use e.g. 'color those doors red'.",
                 Parameters = new
                 {
                     type = "object",
@@ -165,7 +166,7 @@ public static class ViewTools
                         elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses current selection." },
                         category = new { type = "string", description = "Category to color. Alternative to elementIds." },
                         color = new { type = "string", description = "Color name (red, blue, green, yellow, orange) or hex #RRGGBB" },
-                        reset = new { type = "boolean", description = "True to reset override. Default false." }
+                        reset = new { type = "boolean", description = "True to put back what the view had before LoadingAI coloured these elements. Default false." }
                     },
                     required = Array.Empty<string>()
                 }
@@ -211,7 +212,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "color_by_construction_schedule",
-                Description = "Bulk color elements in active view by construction schedule bottom-up (earliest blue → latest red) in ONE transaction. Avoids per-level find+override loops. Provide startDate and intervalDays, optional categories and palette.",
+                Description = "Bulk colour elements in the active view by construction schedule, bottom-up (earliest blue → latest red), in ONE transaction, with a solid fill saved in the view. Undo with reset_view_overrides. Provide startDate and intervalDays, optional categories and palette.",
                 Parameters = new
                 {
                     type = "object",
@@ -258,7 +259,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "color_by_parameter",
-                Description = "Color elements in the active view by any instance parameter value (Mark, Comments, Type, Level, …). One color per distinct value. Optional category; if omitted uses current selection, else Walls.",
+                Description = "Colour elements in the active view by any instance parameter value (Mark, Comments, Type, Level, …), one colour per distinct value, with a solid fill saved in the view. Undo with reset_view_overrides. Optional category; if omitted uses current selection, else Walls.",
                 Parameters = new
                 {
                     type = "object",
@@ -304,6 +305,25 @@ public static class ViewTools
         return WriteResult(await context.Bridge.ColorByParameterAsync(paramName, cat, selIds, palette));
     }
 
+    internal static ToolEntry CreateResetViewOverrides(IPluginContext context) => new()
+    {
+        Tier = ToolTier.L2,
+        Definition = new ToolDefinition
+        {
+            Function = new ToolFunction
+            {
+                Name = "reset_view_overrides",
+                Description = "Put back the graphic overrides the active view had before override_color_in_view, color_by_parameter or color_by_construction_schedule changed them. Works for this Revit session only; Ctrl+Z also undoes a colouring. Does not touch temporary hide/isolate (use reset_temporary_view).",
+                Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
+            }
+        },
+        Handler = async _ => (await ResetViewOverridesAsync(context)).Text,
+        StructuredHandler = _ => ResetViewOverridesAsync(context)
+    };
+
+    private static async Task<ToolExecutionResult> ResetViewOverridesAsync(IPluginContext context)
+        => WriteResult(await context.Bridge.ResetViewOverridesAsync());
+
     internal static ToolEntry CreateCreateSheet(IPluginContext context) => new()
     {
         Tier = ToolTier.L3,
@@ -313,7 +333,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "create_sheet",
-                Description = "Create a new sheet with a title block. pyRevit: Create Sheets",
+                Description = "Create a new sheet. titleBlockName is a title block type name or 'Family: Type'; when omitted the first loaded title block is used.",
                 Parameters = new
                 {
                     type = "object",
@@ -356,7 +376,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "place_view_on_sheet",
-                Description = "Place a view onto a sheet at (x,y) mm. pyRevit: Place Views on Sheets",
+                Description = "Place a view or schedule onto a sheet at (x,y) mm from the sheet origin. A view can be on one sheet only; the result says why a view cannot be placed.",
                 Parameters = new
                 {
                     type = "object",
@@ -524,7 +544,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "create_dimension",
-                Description = "Create a dimension between two walls in a view (active if omitted). pyRevit: Dimension",
+                Description = "Dimension the clear distance between two parallel straight walls, face to face, in a plan, section or elevation view (the active view when viewId is omitted).",
                 Parameters = new
                 {
                     type = "object",
@@ -567,7 +587,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "tag_all",
-                Description = "Tag up to 50 elements of a category in the active view. pyRevit: Tag All",
+                Description = "Tag up to 50 elements of a category in the active view, each tag placed on its element. Needs a loaded tag family for the category; the result says how many were tagged and why the rest were not.",
                 Parameters = new
                 {
                     type = "object",

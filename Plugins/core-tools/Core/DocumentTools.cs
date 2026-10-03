@@ -44,12 +44,14 @@ public static class DocumentTools
         return new ToolEntry
         {
             Tier = ToolTier.L2,
+            Describe = _ => Task.FromResult<string?>(
+                "Reload every Revit link from its saved path.\nThis is not a model edit, so Ctrl+Z will not reverse it."),
             Definition = new ToolDefinition
             {
                 Function = new ToolFunction
                 {
                     Name = "reload_links",
-                    Description = "Reload all RVT links (pyRevit: Reload Links). No params.",
+                    Description = "Reload every Revit link from its saved path. Reports how many loaded and which failed. Not an undoable edit.",
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },

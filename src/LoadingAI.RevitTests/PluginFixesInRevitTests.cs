@@ -249,4 +249,122 @@ public class PluginFixesInRevitTests
             group.RollBack();
         }
     }
+
+    // ---- Task 18 -------------------------------------------------------------------------
+
+    [Test]
+    public void ColourOverrides_AreSolid_AndResetViewOverridesPutsTheOldLookBack()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        var view = doc.ActiveView;
+        if (view == null || view.IsTemplate) Assert.Ignore("Activate a normal, non-template view first.");
+
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests colour overrides");
+        group.Start();
+        try
+        {
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
+            var wall = NewWall(doc, level, 0, 0, 4000, 0);
+            Assert.That(view!.GetElementOverrides(wall.Id).ProjectionLineColor.IsValid, Is.False, "fixture: a new wall has no override");
+
+            var painted = Run(Adapter.OverrideColorInViewAsync(new[] { wall.Id.ToString() }, null, "red"));
+            Assert.That(painted.Ok, Is.True, painted.Message);
+            var after = view.GetElementOverrides(wall.Id);
+            Assert.That(after.ProjectionLineColor.Red, Is.EqualTo(255));
+            Assert.That(after.SurfaceForegroundPatternId, Is.Not.EqualTo(ElementId.InvalidElementId), "a solid fill, so the colour shows when shaded (R7)");
+
+            // A second colouring must not become the thing reset restores.
+            Run(Adapter.OverrideColorInViewAsync(new[] { wall.Id.ToString() }, null, "blue"));
+
+            var reset = Run(Adapter.ResetViewOverridesAsync());
+            Assert.That(reset.Ok, Is.True, reset.Message);
+            Assert.That(view.GetElementOverrides(wall.Id).ProjectionLineColor.IsValid, Is.False, "back to no override");
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
+
+    [Test]
+    public void TagAll_PutsTheTagOnTheWall_NotOnTheOrigin()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        if (doc.ActiveView is not ViewPlan view) { Assert.Ignore("Activate a floor plan first."); return; }
+
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests tag_all");
+        group.Start();
+        try
+        {
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
+            NewWall(doc, level, 40000, 0, 44000, 0);
+
+            var result = Run(Adapter.TagAllInActiveViewAsync("Walls"));
+            if (!result.Ok) Assert.Ignore("Load a Wall Tag family into the open model. " + result.Message);
+
+            var tag = new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>().First();
+            Assert.That(tag.TagHeadPosition.X, Is.EqualTo(Metric.MmToFt(42000)).Within(Metric.MmToFt(5000)), "R6: the tag sits on the wall, not at 0,0");
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
+
+    [Test]
+    public void CreateDimension_BetweenTwoParallelWalls_MeasuresFaceToFace()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        if (doc.ActiveView is not ViewPlan) { Assert.Ignore("Activate a floor plan first."); return; }
+
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests create_dimension");
+        group.Start();
+        try
+        {
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
+            var a = NewWall(doc, level, 0, 0, 5000, 0);
+            var b = NewWall(doc, level, 0, 3000, 5000, 3000);
+
+            var result = Run(Adapter.CreateDimensionBetweenWallsAsync(a.Id.ToString(), b.Id.ToString()));
+
+            Assert.That(result.Ok, Is.True, result.Message + " (R5)");
+            var dimension = (Dimension)doc.GetElement(AllTools.ParseEid(result.ElementIds![0]));
+            var expected = Metric.MmToFt(3000) - (a.Width + b.Width) / 2;
+            Assert.That(dimension.Value!.Value, Is.EqualTo(expected).Within(1e-3));
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
+
+    [Test]
+    public void ReloadLinks_WithNoLinks_SucceedsWithZeroOfZero()
+    {
+        var result = Run(Adapter.ReloadLinksAsync());
+        if (new FilteredElementCollector(_uiApp.ActiveUIDocument.Document).OfClass(typeof(RevitLinkType)).GetElementCount() > 0)
+            Assert.Ignore("This model has links; the outcome depends on them. Check R4 by hand.");
+
+        Assert.That(result.Ok, Is.True, result.Message);
+        Assert.That(result.Message, Does.Contain("Reloaded 0/0 RVT links"));
+    }
+
+    [Test]
+    public void CreateSheet_WithAnUnknownTitleBlock_SaysWhatIsLoaded()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests create_sheet");
+        group.Start();
+        try
+        {
+            var result = Run(Adapter.CreateSheetAsync("LAI-T1", "Test", "No Such Block"));
+
+            Assert.That(result.Ok, Is.False);
+            Assert.That(result.Message, Does.Contain("itle block"));
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
 }

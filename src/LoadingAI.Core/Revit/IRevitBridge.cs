@@ -86,6 +86,12 @@ public interface IRevitViewCommand
 
     Task<CommandResultDto> ResetViewVisibilityAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Puts back the graphic overrides the active view had before the colour tools first changed them
+    /// in this Revit session. Overrides that predate the session, or were set by hand, are untouched.
+    /// </summary>
+    Task<CommandResultDto> ResetViewOverridesAsync(CancellationToken ct = default);
+
     Task<CommandResultDto> OverrideColorInViewAsync(
         IReadOnlyList<string>? elementIds = null,
         string? category = null,

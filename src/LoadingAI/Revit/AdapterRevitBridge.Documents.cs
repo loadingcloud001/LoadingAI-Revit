@@ -59,23 +59,27 @@ public sealed partial class AdapterRevitBridge
             {
                 var links = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType))
                     .Cast<RevitLinkType>().ToList();
-                using var tx = new Transaction(doc, "LoadingAI for Revit: reload links");
-                tx.Start();
-                try
+                // Loading and reloading a link is not a model edit and is done outside a transaction.
+                int ok = 0;
+                var failed = new List<string>();
+                foreach (var lt in links)
                 {
-                    int ok = 0;
-                    foreach (var lt in links)
+                    try
                     {
-                        try { lt.Reload(); ok++; } catch { }
+                        var result = lt.Reload();
+                        if (result.LoadResult == LinkLoadResultType.LinkLoaded) ok++;
+                        else failed.Add($"{lt.Name}: {result.LoadResult}");
                     }
-                    tx.Commit();
-                    return new CommandResultDto(true, $"Reloaded {ok}/{links.Count} RVT links", ok);
+                    catch (Exception ex)
+                    {
+                        failed.Add($"{lt.Name}: {ex.Message}");
+                    }
                 }
-                catch (Exception inner)
-                {
-                    try { tx.RollBack(); } catch { }
-                    return new CommandResultDto(false, $"Failed: {inner.Message}");
-                }
+
+                var message = $"Reloaded {ok}/{links.Count} RVT links";
+                if (failed.Count > 0)
+                    message += ". Failed: " + string.Join("; ", failed.Take(5)) + (failed.Count > 5 ? "; ..." : "");
+                return new CommandResultDto(links.Count == 0 || ok > 0, message, ok);
             }
             catch (Exception failEx)
             {

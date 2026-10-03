@@ -221,6 +221,19 @@ internal sealed class FakeRevitBridge : IRevitBridge
             ? new CommandResultDto(true, "Reset temporary view in 'Level 1'.", 0, "Level 1")
             : new CommandResultDto(false, "Please open a model first."));
 
+    public int ResetViewOverridesCallCount { get; private set; }
+
+    public CommandResultDto? NextResetViewOverridesResult { get; set; }
+
+    public Task<CommandResultDto> ResetViewOverridesAsync(CancellationToken ct = default)
+    {
+        ResetViewOverridesCallCount++;
+        if (!HasActiveDocument)
+            return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
+        return Task.FromResult(NextResetViewOverridesResult
+            ?? new CommandResultDto(true, "Restored 3 override(s) in 'Level 1'.", 3, "Level 1"));
+    }
+
     public CommandResultDto? NextOverrideColorResult { get; set; }
 
     public CommandResultDto? NextColorByScheduleResult { get; set; }
