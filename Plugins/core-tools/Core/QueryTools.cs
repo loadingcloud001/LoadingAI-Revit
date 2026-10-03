@@ -133,7 +133,7 @@ public static class QueryTools
                         properties = new
                         {
                             levelName = new { type = "string", description = "Optional level name to filter walls" },
-                            limit = new { type = "integer", description = "Max walls to sample for detail, default 500" }
+                            limit = new { type = "integer", description = "Deprecated and ignored: totals always cover every wall." }
                         },
                         required = Array.Empty<string>()
                     }
@@ -152,7 +152,7 @@ public static class QueryTools
                 {
                     var dto = await context.Bridge.GetWallMetricsAsync(levelName, limit);
                     if (dto == null) return "Please open a model first.";
-                    var s = $"Walls: {dto.Count} (sampled {dto.Sampled})";
+                    var s = $"Walls: {dto.Count}";
                     if (!string.IsNullOrWhiteSpace(dto.LevelName)) s += $" on level '{dto.LevelName}'";
                     s += $"\nTotal length: {Metric.Length(dto.TotalLengthFt)}";
                     s += $"\nTotal area: {Metric.Area(dto.TotalAreaSqFt)}";
@@ -424,14 +424,15 @@ public static class QueryTools
                         return "Please open a model first.";
                     var warnings = await context.Bridge.GetWarningsAsync();
                     if (warnings.Count == 0) return "No warnings.";
-                    var s = $"Warnings: {warnings.Count}\n";
+                    var total = warnings.Sum(w => w.Count);
+                    var s = $"Warnings: {total} in {warnings.Count} kind(s)\n";
                     int i = 0;
-                    foreach (var w in warnings.Take(limit))
+                    foreach (var w in warnings.OrderByDescending(x => x.Count).Take(limit))
                     {
-                        var ids = w.FailingElementIds.Count > 0 ? $" (Ids: {string.Join(", ", w.FailingElementIds)})" : "";
-                        s += $"{++i}. {w.Description}{ids}\n";
+                        var ids = w.FailingElementIds.Count > 0 ? $" (e.g. ids: {string.Join(", ", w.FailingElementIds)})" : "";
+                        s += $"{++i}. x{w.Count} {w.Description}{ids}\n";
                     }
-                    if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more.";
+                    if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more kind(s).";
                     return s;
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
@@ -857,7 +858,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_clash_by_bb",
-                    Description = "Find clashing element pairs by bounding box overlap (Navis clash). Params: category1, category2, limit.",
+                    Description = "Find element pairs whose axis-aligned bounding boxes overlap. A screening tool, not a solid clash test: it checks the first 200 elements of each category, and a hosted door or window always overlaps its wall. Params: category1, category2, limit.",
                     Parameters = new
                     {
                         type = "object",
@@ -893,7 +894,7 @@ public static class QueryTools
                     if (dto.ClashCount == 0)
                         return $"No clashes found between {dto.Category1} and {dto.Category2} (sampled 200 each).";
                     var lines = string.Join("\n", dto.Clashes.Select(p => $"{p.IdA}({p.CategoryA}) <-> {p.IdB}({p.CategoryB})"));
-                    return $"Clashes ({dto.ClashCount}):\n{lines}";
+                    return $"Bounding-box overlaps ({dto.ClashCount}{(dto.ClashCount >= lim ? ", limit reached" : "")}), first 200 of each category:\n{lines}";
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
             }
@@ -910,7 +911,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "get_model_health_score",
-                    Description = "Overall health score: warnings, views, worksets, rooms. No params. (pyRevit Health)",
+                    Description = "Rough health score from the warning count (70%) and the number of views (30%). It is not a model audit. No params.",
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
@@ -937,7 +938,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "sync_info",
-                    Description = "Get worksharing central and sync status (pyRevit). No params.",
+                    Description = "Get the worksharing central path and whether the model is workshared. It does not report the last sync time. No params.",
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
@@ -973,7 +974,7 @@ public static class QueryTools
                 Function = new ToolFunction
                 {
                     Name = "audit_warnings_fix",
-                    Description = "List warnings with suggested fix (pyRevit: Audit). Params: limit.",
+                    Description = "List individual warnings with the first failing element ids to check. Read-only; it fixes nothing. Params: limit.",
                     Parameters = new { type = "object", properties = new { limit = new { type = "integer" } }, required = Array.Empty<string>() }
                 }
             },
