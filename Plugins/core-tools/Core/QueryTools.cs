@@ -568,7 +568,7 @@ public static class QueryTools
                         if (!context.Bridge.HasActiveDocument) return "Please open a model first.";
                         return "Please select elements first or provide elementIds.";
                     }
-                    var s = $"Quantities for {list.Count} element(s):\n";
+                    var s = $"Quantities for {list.Count} element(s){(list.Count >= 50 ? " (capped at 50 per call; pass fewer ids for the rest)" : "")}:\n";
                     foreach (var q in list)
                     {
                         if (q.Name == "not found") { s += $"{q.Id}: not found\n"; continue; }

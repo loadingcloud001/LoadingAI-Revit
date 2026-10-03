@@ -106,6 +106,9 @@ public static class ParamTools
         var sel = await context.Bridge.GetSelectionSummaryAsync();
         if (sel.ElementCount == 0)
             return ToolExecutionResult.Failed("Please select elements first.", ToolWriteCertainty.NotCommitted);
+        var truncated = SelectionGuards.TruncationRefusal(sel);
+        if (truncated != null)
+            return ToolExecutionResult.Failed(truncated, ToolWriteCertainty.NotCommitted);
         var result = await context.Bridge.SetParametersAsync(sel.ElementIds, "Comments", text);
         return WriteResult(result);
     }
@@ -342,7 +345,7 @@ public static class ParamTools
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             // L1: writing a file is not a model write, so this reports NoWrite.
             return ToolExecutionResult.Succeeded(
-                $"Exported {dto.Rows.Count} {cat} to {path}\nColumns: {string.Join(", ", dto.Columns)}\nFirst 3:\n" + string.Join("\n", sb.ToString().Split('\n').Take(4)),
+                $"Exported {dto.Rows.Count}{(dto.Total > dto.Rows.Count ? $" of {dto.Total}" : "")} {cat} to {path}\nColumns: {string.Join(", ", dto.Columns)}\nFirst 3:\n" + string.Join("\n", sb.ToString().Split('\n').Take(4)),
                 ToolWriteCertainty.NoWrite);
         }
         catch (Exception ex)

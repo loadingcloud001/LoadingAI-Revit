@@ -205,7 +205,8 @@ public sealed record ParamExportDto(
     string Category,
     IReadOnlyList<string> Columns,
     IReadOnlyList<ParamExportRowDto> Rows,
-    string? Error = null);
+    string? Error = null,
+    int Total = 0);
 
 public sealed record QuantityTakeoffRowDto(
     string Id,

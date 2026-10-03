@@ -120,7 +120,9 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
             var requested = args.Strings("elementIds");
             return DryRun(requested.Count == 0 ? "current selection" : requested.Count + " requested element(s)");
         }
-        var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        var (ids, selectionRefusal) = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        if (selectionRefusal != null)
+            return ToolExecutionResult.Failed(selectionRefusal, ToolWriteCertainty.NotCommitted);
         if (ids.Count == 0)
             return ToolExecutionResult.Failed("Please select elements first.", ToolWriteCertainty.NotCommitted);
         var result = await context.Bridge.CreateFormworkPanelsAsync(new FormworkPanelsRequestDto(
@@ -222,7 +224,9 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
                 ? "list the FW_* parameter catalogue"
                 : "copy " + wanted.Count + " parameter(s) onto panels");
         }
-        var ids = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        var (ids, selectionRefusal) = await ResolveIdsAsync(context, args.Strings("elementIds"));
+        if (selectionRefusal != null)
+            return ToolExecutionResult.Failed(selectionRefusal, ToolWriteCertainty.NotCommitted);
         var names = args.Strings("paramNames");
         var result = await context.Bridge.CopyFormworkParentParamsAsync(new CopyParamsRequestDto(ids, names));
         // An empty paramNames asks for the catalogue and returns before tx.Start, so it reads
@@ -234,11 +238,13 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     /// Element ids, falling back to the current selection when the caller passed none.
     /// Returns an empty list when there is no selection, which each caller reports.
     /// </summary>
-    private static async Task<List<string>> ResolveIdsAsync(IPluginContext context, List<string> explicitIds)
+    private static async Task<(List<string> Ids, string? Refusal)> ResolveIdsAsync(IPluginContext context, List<string> explicitIds)
     {
-        if (explicitIds.Count > 0) return explicitIds;
+        if (explicitIds.Count > 0) return (explicitIds, null);
         var sel = await context.Bridge.GetSelectionSummaryAsync();
-        return sel.ElementIds?.ToList() ?? new List<string>();
+        var refusal = SelectionGuards.TruncationRefusal(sel);
+        if (refusal != null) return (new List<string>(), refusal);
+        return (sel.ElementIds?.ToList() ?? new List<string>(), null);
     }
 
     /// <summary>

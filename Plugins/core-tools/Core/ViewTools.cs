@@ -71,6 +71,8 @@ public static class ViewTools
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             eids = sel.ElementIds.ToList();
         }
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return Refused("Please select elements first.");
@@ -119,6 +121,8 @@ public static class ViewTools
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             eids = sel.ElementIds.ToList();
         }
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return Refused("Please select elements first.");
@@ -191,6 +195,8 @@ public static class ViewTools
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat))
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             eids = sel.ElementIds.ToList();
         }
         if ((eids == null || eids.Count == 0) && string.IsNullOrWhiteSpace(cat)) return Refused("Please select elements first.");
@@ -291,6 +297,8 @@ public static class ViewTools
         if (string.IsNullOrWhiteSpace(cat))
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             if (sel.ElementCount > 0) selIds = sel.ElementIds.ToList();
         }
         return WriteResult(await context.Bridge.ColorByParameterAsync(paramName, cat, selIds, palette));

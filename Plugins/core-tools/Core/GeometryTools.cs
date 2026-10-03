@@ -70,6 +70,8 @@ public static class GeometryTools
         if (eids.Count == 0)
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             eids = sel.ElementIds.ToList();
         }
         if (eids.Count == 0) return Refused("Please select elements first.");
@@ -114,6 +116,8 @@ public static class GeometryTools
         if (eids.Count == 0)
         {
             var sel = await context.Bridge.GetSelectionSummaryAsync();
+            var truncated = SelectionGuards.TruncationRefusal(sel);
+            if (truncated != null) return Refused(truncated);
             eids = sel.ElementIds.ToList();
         }
         if (eids.Count == 0) return Refused("Please select elements first.");
