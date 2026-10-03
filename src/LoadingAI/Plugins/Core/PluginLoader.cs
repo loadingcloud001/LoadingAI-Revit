@@ -311,6 +311,11 @@ public static class PluginLoader
                     foreach (var te in ts)
                         meta.Tools.Add(new PluginToolMeta { Name = te.Definition.Function.Name, Tier = te.Tier.ToString(), Description = te.Definition.Function.Description ?? "", EnabledByDefault = te.Tier != ToolTier.L3 });
                 }
+                else
+                {
+                    foreach (var problem in ManifestDrift(meta, ts))
+                        Log($"{folder}: {problem}");
+                }
                 if (string.IsNullOrWhiteSpace(meta.Id) || meta.Id == Path.GetFileName(folder)) { meta.Id = inst.Id; meta.Name = inst.Name; meta.Version = inst.Version; }
                 TrackLifecycle(ctx, inst);
             }
@@ -330,6 +335,38 @@ public static class PluginLoader
             return null;
         }
         return new DiscoveredPlugin { Meta = meta, Tools = tools };
+    }
+
+    /// <summary>
+    /// What plugin.json declares against what the plugin's code registered. Empty means they agree.
+    /// The code is authoritative (the tier gate and the default-off rule read the code); the manifest
+    /// is display data, so a difference is reported, never enforced.
+    /// </summary>
+    public static IReadOnlyList<string> ManifestDrift(PluginMeta meta, IEnumerable<ToolEntry> tools)
+    {
+        var problems = new List<string>();
+        var byName = new Dictionary<string, ToolEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in tools) byName.TryAdd(t.Definition.Function.Name ?? "", t);
+
+        foreach (var declared in meta.Tools)
+        {
+            if (!byName.TryGetValue(declared.Name, out var entry))
+            {
+                problems.Add($"plugin.json declares '{declared.Name}' but the plugin registers no such tool");
+                continue;
+            }
+            if (!string.Equals(declared.Tier, entry.Tier.ToString(), StringComparison.OrdinalIgnoreCase))
+                problems.Add($"'{declared.Name}' is {declared.Tier} in plugin.json but {entry.Tier} in code");
+            var expectedDefault = entry.Tier != ToolTier.L3;
+            if (declared.EnabledByDefault != expectedDefault)
+                problems.Add($"'{declared.Name}' enabledByDefault is {declared.EnabledByDefault} in plugin.json but the host uses {expectedDefault}");
+        }
+
+        foreach (var name in byName.Keys)
+            if (!meta.Tools.Any(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                problems.Add($"the plugin registers '{name}' but plugin.json does not list it");
+
+        return problems;
     }
 
     internal static IEnumerable<ToolEntry> OverlayTags(IEnumerable<ToolEntry> entries, IReadOnlyList<PluginToolMeta> metaTools)
