@@ -41,7 +41,7 @@ public static class ParamTools
                     {
                         elementId = new { type = "string", description = "ElementId" },
                         paramName = new { type = "string", description = "Parameter name, e.g. Comments, Mark, Level" },
-                        value = new { type = "string", description = "Value to set" }
+                        value = new { type = "string", description = "Value to set. Length parameters take millimetres, area m², volume m³, angles degrees: a plain number, or a number with its unit such as '3000 mm' or '3 m'." }
                     },
                     required = new[] { "elementId", "paramName", "value" }
                 }
@@ -130,7 +130,7 @@ public static class ParamTools
                         filterOp = new { type = "string", description = "Filter op =, !=, empty, notempty, contains", @enum = new[] { "=", "!=", "contains", "empty", "notempty" } },
                         filterValue = new { type = "string", description = "Filter value" },
                         targetParam = new { type = "string", description = "Param to set, e.g. Comments, Mark" },
-                        targetValue = new { type = "string", description = "Value to set" },
+                        targetValue = new { type = "string", description = "Value to set. Length parameters take millimetres, area m², volume m³, angles degrees: a plain number, or a number with its unit such as '3000 mm' or '3 m'." },
                         limit = new { type = "integer", description = "Max to update, default 200" }
                     },
                     required = new[] { "category", "targetParam", "targetValue" }
@@ -286,7 +286,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "export_params_to_excel",
-                Description = "Export element parameters to CSV (Excel compatible) — pyRevit: Export/DiRoots. Params: category, paramNames (comma), filePath optional, limit.",
+                Description = "Export element parameters to CSV (Excel compatible) — pyRevit: Export/DiRoots. Params: category, paramNames (comma), filePath optional, limit. Numeric values are in mm / m² / m³ / degrees.",
                 Parameters = new
                 {
                     type = "object",
@@ -360,7 +360,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "import_excel_to_params",
-                Description = "Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName.",
+                Description = "Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName. Numeric values are read in mm / m² / m³ / degrees.",
                 Parameters = new
                 {
                     type = "object",
@@ -425,7 +425,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "copy_params",
-                Description = "Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit.",
+                Description = "Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit. Length, area, volume and angle values are copied as numbers, not text.",
                 Parameters = new
                 {
                     type = "object",

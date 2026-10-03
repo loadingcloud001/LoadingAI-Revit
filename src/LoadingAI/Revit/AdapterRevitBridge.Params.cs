@@ -271,9 +271,12 @@ public sealed partial class AdapterRevitBridge
                     var p = el.LookupParameter(c);
                     string v = "";
                     if (p != null)
-                        v = p.StorageType == StorageType.String
-                            ? (p.AsString() ?? "")
-                            : p.AsValueString() ?? p.AsString() ?? "";
+                        v = p.StorageType switch
+                        {
+                            StorageType.String => p.AsString() ?? "",
+                            StorageType.Double => ParamUnits.FormatNumber(RevitParse.UnitKindOf(p), p.AsDouble()),
+                            _ => p.AsValueString() ?? p.AsString() ?? ""
+                        };
                     vals.Add(v);
                 }
                 rows.Add(new ParamExportRowDto(el.Id.ToString(), vals));
@@ -349,12 +352,8 @@ public sealed partial class AdapterRevitBridge
                 {
                     foreach (var el in elems)
                     {
-                        var pSrc = el.LookupParameter(sourceParam);
-                        if (pSrc == null) continue;
-                        string v = pSrc.StorageType == StorageType.String
-                            ? (pSrc.AsString() ?? "")
-                            : pSrc.AsValueString() ?? "";
-                        if (AllTools.TrySetParameter(el, targetParam, v, out _)) upd++;
+                        if (el.LookupParameter(sourceParam) == null) continue;
+                        if (AllTools.TryCopyParameter(el, sourceParam, targetParam, out _)) upd++;
                     }
                     tx.Commit();
                     return new CommandResultDto(true, $"Copied {upd}/{elems.Count} {sourceParam}->{targetParam} for {category}", upd);

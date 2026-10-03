@@ -538,7 +538,13 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
                 var cat = el.Category?.Name ?? "NoCat";
                 var type = doc.GetElement(el.GetTypeId()) as ElementType;
                 var level = doc.GetElement(el.LevelId) as Level;
-                var loc = el.Location is LocationPoint lp ? $"Point {lp.Point}" : el.Location is LocationCurve lc ? $"Curve {lc.Curve}" : "No location";
+                static string Mm(XYZ pt) => string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "({0:0.#}, {1:0.#}, {2:0.#})",
+                    Metric.FtToMm(pt.X), Metric.FtToMm(pt.Y), Metric.FtToMm(pt.Z));
+                var loc = el.Location is LocationPoint lp ? $"Point {Mm(lp.Point)} mm"
+                    : el.Location is LocationCurve lc ? $"Curve {Mm(lc.Curve.GetEndPoint(0))} to {Mm(lc.Curve.GetEndPoint(1))} mm"
+                    : "No location";
                 var parameters = new List<ParameterValueDto>();
                 int n = 0;
                 foreach (Parameter p in el.Parameters)
@@ -548,7 +554,7 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
                     {
                         StorageType.String => p.AsString() ?? "",
                         StorageType.Integer => p.AsInteger().ToString(),
-                        StorageType.Double => p.AsDouble().ToString("F3"),
+                        StorageType.Double => RevitParse.FormatDouble(p),
                         StorageType.ElementId => p.AsElementId().ToString(),
                         _ => "?"
                     };
