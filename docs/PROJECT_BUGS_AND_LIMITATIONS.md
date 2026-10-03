@@ -319,6 +319,8 @@ Deliberately unchanged. The meaning is now documented on the property itself. Be
 - A rename is a mechanical but wide change: Core, all shipped plugins, `ToolGuards`, `PluginLoader`, and 35 test assertions, plus the wording of Accepted ADRs 0001/0004/0006/0009.
 - If the confusion ever causes a real incident, write a **Proposed** ADR before renaming or inverting anything (CONTRIBUTING: an ADR is required before breaking an Accepted freeze).
 
+**Update 2026-10-03 (plugin review).** The impact statement above, "nothing currently in tree loses a confirmation it was meant to have", does not hold for two tools. `set_parameter_by_id` and `set_comments_on_selection` each showed their own TaskDialog until `e1d7ff9` ("route param writes through typed IRevitCommand", 2026-08-27) deleted it and kept the flag, so they now write with no prompt. `copy_params`, `replace_text` and `numbering_auto` never had one (ADR-0001 pins that as Compat parity). All five are L2 and on by default. Details and the fix are in `PLUGIN_REVIEW_2026-10-03.md` (PL-01); the fix needs a Proposed ADR-0015 because of this freeze.
+
 ### qs-formwork rework, 2026-10-01
 
 Plan: `docs/superpowers/plans/2026-10-01-qs-formwork-rework.md`. ADR: `docs/adr/0013-qs-formwork-structured-results.md`.
@@ -370,3 +372,7 @@ Questions for the next discussion:
 ## Full review 2026-10-03
 
 A full logic, function, code and UI/UX review, with the hardening that followed, is in [`FULL_REVIEW_2026-10-03.md`](FULL_REVIEW_2026-10-03.md). The plan that was executed is `docs/superpowers/plans/2026-10-03-review-hardening.md`.
+
+## Plugin review 2026-10-03
+
+A logic, function, code and UI/UX review of all eight plugins and the plugin machinery (loader, Trust flow, shelf, argument pipeline) is in [`PLUGIN_REVIEW_2026-10-03.md`](PLUGIN_REVIEW_2026-10-03.md). The plan is two files: `docs/superpowers/plans/2026-10-03-plugin-hardening.md` (Tasks 1–15, verifiable in CI) and `docs/superpowers/plans/2026-10-03-plugin-revit-fixes.md` (Tasks 16–19, each gated on a Revit 2027 run). It reopens B14 for two tools (PL-01), keeps B4/B5/B8 open (PL-14), and adds units, truncation, argument-pipeline and plugin-manager findings.
