@@ -95,7 +95,7 @@ internal sealed class ChatSession
     public void ApplyPluginLoadWarnings()
     {
         if (_agent == null) return;
-        var issues = PluginLoader.Issues;
+        var issues = PluginLoader.Issues.Where(i => !i.Notice).ToList();
         if (issues.Count == 0)
         {
             _agent.EnvironmentWarnings = null;
@@ -182,8 +182,8 @@ internal sealed class ChatSession
         _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
         RebuildRegistry();
         message = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled.";
-        if (PluginLoader.Issues.Count > 0)
-            message += $" {PluginLoader.Issues.Count} plugin(s) failed to load.";
+        if (PluginLoader.FailureCount > 0)
+            message += $" {PluginLoader.FailureCount} plugin(s) failed to load.";
         return true;
     }
 

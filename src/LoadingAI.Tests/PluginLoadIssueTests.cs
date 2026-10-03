@@ -56,7 +56,7 @@ public class PluginLoadIssueTests
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Plugins", "Core", "PluginLoader.cs"));
         Assert.Contains("if (!PluginAllowlist.Current.IsAllowed(dll, out var sha, out var why))", src);
         Assert.Contains(
-            "RecordIssue(folder, meta.Id, Path.GetFileName(dll), \"DLL not on allowlist\", why, AllowlistRefusalHint, sha)",
+            "RecordIssue(folder, meta.Id, Path.GetFileName(dll), \"DLL not on allowlist\", why, hint, sha, code)",
             src);
     }
 

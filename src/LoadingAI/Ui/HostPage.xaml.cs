@@ -124,8 +124,8 @@ public partial class HostPage : Page
         PostToWeb(new FromHostMessage.Plugins(_session.GetPluginsPayload(), PluginLoader.Issues));
         if (!string.IsNullOrWhiteSpace(extraStatus))
             PostToWeb(new FromHostMessage.Status(extraStatus));
-        else if (PluginLoader.Issues.Count > 0)
-            PostToWeb(new FromHostMessage.Status($"{PluginLoader.Issues.Count} plugin(s) failed to load. See Settings → Tools."));
+        else if (PluginLoader.FailureCount > 0)
+            PostToWeb(new FromHostMessage.Status($"{PluginLoader.FailureCount} plugin(s) failed to load. See Settings → Tools."));
     }
 
     /// <summary>

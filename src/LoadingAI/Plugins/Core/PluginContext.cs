@@ -37,7 +37,8 @@ public sealed class PluginContext : IPluginContext
     {
         get
         {
-            var id = Path.GetFileName(_pluginDir) ?? "plugin";
+            var id = Path.GetFileName(_pluginDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(id)) id = "plugin";
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "PluginData", id);
             Directory.CreateDirectory(dir);
             return dir;
