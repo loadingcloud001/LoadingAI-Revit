@@ -1,9 +1,9 @@
 import { PluginInfo, PluginLoadIssue, postToHost } from '../bridge';
+import { copyText } from '../lib/clipboard';
+import { canTrust, diagnostics, groupAriaLabel, issueLines, sourceBadge, splitIssues, toolAriaLabel, verifiedLabel } from './pluginView';
 
 const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
 const btn = 'px-2 py-1 border bg-white text-[11px]';
-// PluginLoader records this summary when a DLL is off the allowlist; only those rows can be trusted.
-const allowlistRefusal = 'DLL not on allowlist';
 
 function tierStats(plugins: PluginInfo[], tier: string) {
   const tools = plugins.flatMap(p => p.tools).filter(t => t.tier === tier);
@@ -21,6 +21,7 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
     );
   }
 
+  const { failures, notices } = splitIssues(loadIssues);
   const total = plugins.reduce((n, p) => n + p.tools.length, 0);
   const on = plugins.reduce((n, p) => n + p.tools.filter(t => t.enabled).length, 0);
   const l1 = tierStats(plugins, 'L1');
@@ -36,6 +37,9 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
       <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
         <span className="font-semibold">Tools</span>
         <span className="text-[10px] text-muted-foreground">{on}/{total} on</span>
+        <span className="flex-1" />
+        <button type="button" className={btn} onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
+        <button type="button" className={btn} onClick={() => { void copyText(diagnostics(plugins, loadIssues)); }}>Copy diagnostics</button>
       </div>
       <div className="px-2 py-1.5 flex flex-wrap gap-1" style={{ borderBottom: '1px solid #d0d0d0' }}>
         <button type="button" className={btn} onClick={() => toggleTier('L1', l1.allOn)}>L1 {l1.allOn ? 'all off' : 'all on'} · {l1.on}/{l1.total}</button>
@@ -45,13 +49,13 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
       <div className="px-2 py-1 text-[10px]" style={{ color: '#6a6a6a', borderBottom: '1px solid #ececec' }}>
         Ticks apply to chat immediately. {l3On.length > 0 ? `L3 on (${l3On.length}): ${l3On.slice(0, 8).join(', ')}${l3On.length > 8 ? '…' : ''}.` : 'L3 (delete/move/create/save) default off.'}
       </div>
-      {loadIssues.length > 0 && (
+      {failures.length > 0 && (
         <div className="px-2 py-1.5 text-[11px]" style={{ color: '#8a1f11', background: '#fff8f6', borderBottom: '1px solid #d0d0d0' }}>
-          {loadIssues.map((issue, i) => (
+          {failures.map((issue, i) => (
             <div key={`${issue.pluginId || issue.folder}-${i}`} className="mb-1 last:mb-0">
               <div className="font-semibold">{issue.pluginId || issue.folder} failed to load</div>
               <div>{issue.summary}{issue.hint ? ` — ${issue.hint}` : ''}</div>
-              {issue.summary === allowlistRefusal && (
+              {canTrust(issue) && (
                 <button
                   type="button"
                   className={`${btn} mt-1`}
@@ -60,6 +64,19 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
                   Trust this plugin…
                 </button>
               )}
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[10px]">Details</summary>
+                {issueLines(issue).map((line, j) => <div key={j} className="font-mono text-[10px] break-all">{line}</div>)}
+              </details>
+            </div>
+          ))}
+        </div>
+      )}
+      {notices.length > 0 && (
+        <div className="px-2 py-1.5 text-[11px]" style={{ color: '#5c5c5c', background: '#f7f7f7', borderBottom: '1px solid #d0d0d0' }}>
+          {notices.map((issue, i) => (
+            <div key={`${issue.pluginId || issue.folder}-n${i}`} className="mb-1 last:mb-0">
+              <span className="font-semibold">{issue.pluginId || issue.folder}</span>: {issue.summary}. {issue.detail}
             </div>
           ))}
         </div>
@@ -67,30 +84,39 @@ export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[
       {plugins.map(p => {
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);
         const someOn = p.tools.some(t => t.enabled);
+        const badge = sourceBadge(p);
         return (
           <div key={p.id} style={{ borderBottom: '1px solid #d0d0d0' }}>
             <div style={{ ...row, background: '#f7f7f7' }}>
               <div className="min-w-0">
-                <div className="truncate">{p.name} <span className="text-[10px] text-muted-foreground">{p.id}</span></div>
+                <div className="truncate">{p.name} <span className="text-[10px] text-muted-foreground">{p.id} {p.version}</span></div>
+                <div className="text-[10px]" style={{ color: badge.tone === 'ok' ? '#1f6b3a' : '#8a5a11' }}>{badge.label} · {verifiedLabel(p)}</div>
               </div>
-              <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
-                <input
-                  type="checkbox"
-                  checked={allOn}
-                  ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
-                  onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
-                />
-                {allOn ? 'All on' : someOn ? 'Partial' : 'All off'}
-              </label>
+              <div className="flex items-center gap-2 shrink-0">
+                {p.removable && (
+                  <button type="button" className={btn} onClick={() => postToHost({ type: 'removePlugin', pluginId: p.id })}>Remove</button>
+                )}
+                <label className="flex items-center gap-1 text-[11px] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    aria-label={groupAriaLabel(p)}
+                    checked={allOn}
+                    ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                    onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
+                  />
+                  {allOn ? 'All on' : someOn ? 'Partial' : 'All off'}
+                </label>
+              </div>
             </div>
             {p.tools.map(t => (
               <div key={t.name} style={{ ...row, background: t.enabled ? '#fff' : '#fafafa' }}>
                 <div className="min-w-0 pr-2">
-                  <div className="font-mono text-[11px] truncate">{t.name} <span style={{ color: t.tier === 'L3' ? '#8a1f11' : '#6a6a6a' }}>{t.tier}</span></div>
+                  <div className="font-mono text-[11px] truncate" title={t.description}>{t.name} <span style={{ color: t.tier === 'L3' ? '#8a1f11' : '#6a6a6a' }}>{t.tier}</span></div>
                 </div>
                 <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
                   <input
                     type="checkbox"
+                    aria-label={toolAriaLabel(t)}
                     checked={t.enabled}
                     onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })}
                   />

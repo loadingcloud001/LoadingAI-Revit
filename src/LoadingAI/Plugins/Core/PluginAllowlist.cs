@@ -156,6 +156,25 @@ public sealed class PluginAllowlist
         }
     }
 
+    /// <summary>Where a DLL's trust comes from, for display only: dev, shipped, trusted or unknown. Never a gate.</summary>
+    public string Source(string dllPath)
+    {
+        try
+        {
+            var full = Path.GetFullPath(dllPath);
+            if (!string.IsNullOrWhiteSpace(DevPluginsDir) && IsUnderDirectory(full, DevPluginsDir)) return "dev";
+            if (!File.Exists(full)) return "unknown";
+            var hash = HashFile(full);
+            if (LoadHashes(ShippedSetPath).Contains(hash)) return "shipped";
+            if (LoadHashes(AllowlistPath).Contains(hash)) return "trusted";
+        }
+        catch
+        {
+            // Display only: an unreadable file is simply "unknown".
+        }
+        return "unknown";
+    }
+
     public static string HashFile(string path)
     {
         var bytes = File.ReadAllBytes(path);

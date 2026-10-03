@@ -127,9 +127,94 @@ public static class PluginLoader
         return false;
     }
 
+    /// <summary>
+    /// Dropped into a plugin folder before it is deleted. A DLL that is still loaded blocks the delete
+    /// part-way; the marker makes the next scan skip the folder and purge it instead of loading a
+    /// half-deleted plugin.
+    /// </summary>
+    public const string RemoveMarkerName = ".remove";
+
+    /// <summary>Marks a plugin folder for removal, then tries to delete it now.</summary>
+    public static bool TryRemove(string pluginId, string? folderPath, IReadOnlyList<string> roots, out string message)
+    {
+        if (!CanRemove(pluginId, folderPath, roots, out message)) return false;
+        var folder = Path.GetFullPath(folderPath!);
+        try
+        {
+            File.WriteAllText(Path.Combine(folder, RemoveMarkerName), DateTime.UtcNow.ToString("O"));
+        }
+        catch (Exception ex)
+        {
+            message = $"Could not mark {folder} for removal: {ex.Message}";
+            return false;
+        }
+
+        try
+        {
+            Directory.Delete(folder, true);
+            message = $"Removed {pluginId}.";
+        }
+        catch
+        {
+            message = $"{pluginId} is in use. It will be deleted the next time plugins are scanned or Revit restarts.";
+        }
+        return true;
+    }
+
+    /// <summary>Deletes plugin folders carrying the removal marker. Returns how many were purged.</summary>
+    public static int PurgeMarked(IEnumerable<string> roots)
+    {
+        var purged = 0;
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+            foreach (var dir in Directory.GetDirectories(root))
+            {
+                if (!File.Exists(Path.Combine(dir, RemoveMarkerName))) continue;
+                try { Directory.Delete(dir, true); purged++; }
+                catch (Exception ex) { Log($"purge {dir} deferred: {ex.Message}"); }
+            }
+        }
+        return purged;
+    }
+
+    /// <summary>
+    /// Text for the Trust dialog. It repeats what the plugin's own plugin.json claims, labelled as a
+    /// claim, and says plainly that a trusted DLL runs inside Revit with the engineer's permissions.
+    /// </summary>
+    public static string DescribeForTrust(string dll, string sha256, string pluginFolder)
+    {
+        var claims = "";
+        try
+        {
+            var path = Path.Combine(pluginFolder, "plugin.json");
+            if (File.Exists(path))
+            {
+                var meta = JsonSerializer.Deserialize<PluginMeta>(File.ReadAllText(path),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (meta != null)
+                {
+                    var tools = string.Join(", ", meta.Tools.Take(12).Select(t => $"{t.Name} ({t.Tier})"));
+                    if (meta.Tools.Count > 12) tools += $", … {meta.Tools.Count - 12} more";
+                    claims = $"\nIt calls itself \"{meta.Name}\" {meta.Version} by {meta.Author}, with tools: {tools}.\n"
+                             + "These are the plugin's own claims; nothing has verified them.\n";
+                }
+            }
+        }
+        catch
+        {
+            // The dialog still works without the claims.
+        }
+
+        return $"{dll}\nSHA-256 {sha256}\n{claims}\n"
+               + "A trusted plugin runs inside Revit with your permissions and can do anything you can, "
+               + "including ignoring tool tiers and Confirm L3. Trust it only if you built it or have reviewed it.";
+    }
+
     public static List<DiscoveredPlugin> Discover(RevitBridge bridge, IPluginContextFactory factory)
     {
         UnloadContexts();
+        PurgeMarked(new[] { DevPluginsDir, RuntimePluginsDir });
         lock (_issuesLock) _issues.Clear();
         var result = new List<DiscoveredPlugin>();
         var seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -270,6 +355,9 @@ public static class PluginLoader
         meta = new PluginMeta();
         dll = "";
         issue = null;
+
+        if (File.Exists(Path.Combine(folder, RemoveMarkerName)))
+            return false; // marked for removal: skipped silently, purged by the next scan
 
         var manifestPath = Path.Combine(folder, "plugin.json");
         if (!File.Exists(manifestPath))

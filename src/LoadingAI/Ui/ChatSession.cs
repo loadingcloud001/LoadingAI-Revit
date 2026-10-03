@@ -120,6 +120,8 @@ internal sealed class ChatSession
             author = p.Meta.Author,
             verified = p.Meta.Verified,
             folderPath = p.Meta.FolderPath,
+            source = PluginAllowlist.Current.Source(Path.Combine(p.Meta.FolderPath, p.Meta.EntryAssembly)),
+            removable = PluginLoader.CanRemove(p.Meta.Id, p.Meta.FolderPath, out _),
             tools = p.Meta.Tools.Select(t => new
             {
                 name = t.Name,
