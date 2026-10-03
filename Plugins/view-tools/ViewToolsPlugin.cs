@@ -195,7 +195,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                         z = new { type = "number" },
                         name = new { type = "string" }
                     },
-                    required = Array.Empty<string>()
+                    required = new[] { "x1", "y1", "x2", "y2" }
                 }
             }
         },
@@ -246,8 +246,8 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                         startY = new { type = "number" },
                         endX = new { type = "number" },
                         endY = new { type = "number" },
-                        starts = new { type = "array" },
-                        ends = new { type = "array" },
+                        starts = new { type = "array", items = new { type = "array", items = new { type = "number" } }, description = "Start points as [x,y] in mm." },
+                        ends = new { type = "array", items = new { type = "array", items = new { type = "number" } }, description = "End points as [x,y] in mm, same count as starts." },
                         viewId = new { type = "string" }
                     },
                     required = Array.Empty<string>()

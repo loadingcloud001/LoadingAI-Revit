@@ -358,6 +358,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static object ScopeProperty() => new
     {
         type = "string",
+        @enum = new[] { "selection", "visible", "all" },
         description = "Optional. selection (default), visible, or all. Used when host ids are omitted."
     };
 
@@ -406,7 +407,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static object CategoriesProperty() => new
     {
         type = "array",
-        items = new { type = "string" },
+        items = new { type = "string", @enum = new[] { "walls", "columns", "beams", "floors" } },
         description = "Optional. walls, columns, beams, floors. Default all four."
     };
 
