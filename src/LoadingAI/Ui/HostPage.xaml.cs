@@ -409,30 +409,39 @@ public partial class HostPage : Page
                     }
 
                 case ToHostMessage.RemovePlugin { PluginId: var pluginId }:
-                    if (!string.IsNullOrWhiteSpace(pluginId) && !pluginId.Equals("core", StringComparison.OrdinalIgnoreCase))
                     {
-                        var plugin = _session.FindPlugin(pluginId);
-                        if (plugin != null && !string.IsNullOrWhiteSpace(plugin.Meta.FolderPath) && Directory.Exists(plugin.Meta.FolderPath))
+                        var plugin = string.IsNullOrWhiteSpace(pluginId) ? null : _session.FindPlugin(pluginId);
+                        if (plugin == null)
                         {
-                            var td = new TaskDialog("LoadingAI for Revit")
-                            {
-                                MainInstruction = $"Remove plugin {pluginId}?",
-                                MainContent = plugin.Meta.FolderPath,
-                                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                                DefaultButton = TaskDialogResult.No
-                            };
-                            if (td.Show() != TaskDialogResult.Yes)
-                            {
-                                PostToWeb(new FromHostMessage.Status("Remove cancelled."));
-                                break;
-                            }
-                            try { Directory.Delete(plugin.Meta.FolderPath, true); PostToWeb(new FromHostMessage.Status($"Removed {pluginId}. Restart Revit to unload.")); }
-                            catch (Exception ex) { PostToWeb(new FromHostMessage.Error($"Remove failed: {ex.Message}. Close Revit and delete manually: {plugin.Meta.FolderPath}")); }
+                            PostToWeb(new FromHostMessage.Error($"Plugin {pluginId} not found or is built-in."));
+                            break;
                         }
-                        else PostToWeb(new FromHostMessage.Error($"Plugin {pluginId} not found or is built-in."));
+                        if (!PluginLoader.CanRemove(plugin.Meta.Id, plugin.Meta.FolderPath, out var refusal))
+                        {
+                            PostToWeb(new FromHostMessage.Error(refusal));
+                            break;
+                        }
+                        if (!Directory.Exists(plugin.Meta.FolderPath))
+                        {
+                            PostToWeb(new FromHostMessage.Error($"Plugin {pluginId} not found or is built-in."));
+                            break;
+                        }
+                        var td = new TaskDialog("LoadingAI for Revit")
+                        {
+                            MainInstruction = $"Remove plugin {pluginId}?",
+                            MainContent = plugin.Meta.FolderPath,
+                            CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                            DefaultButton = TaskDialogResult.No
+                        };
+                        if (td.Show() != TaskDialogResult.Yes)
+                        {
+                            PostToWeb(new FromHostMessage.Status("Remove cancelled."));
+                            break;
+                        }
+                        try { Directory.Delete(plugin.Meta.FolderPath, true); PostToWeb(new FromHostMessage.Status($"Removed {pluginId}. Restart Revit to unload.")); }
+                        catch (Exception ex) { PostToWeb(new FromHostMessage.Error($"Remove failed: {ex.Message}. Close Revit and delete manually: {plugin.Meta.FolderPath}")); }
+                        break;
                     }
-                    else PostToWeb(new FromHostMessage.Error("Cannot remove core plugin."));
-                    break;
 
                 case ToHostMessage.ReloadPlugins:
                     if (_session.TryReloadPlugins(out var reloadMsg))

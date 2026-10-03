@@ -53,6 +53,56 @@ public static class PluginLoader
     public static string AllowlistRefusalHint =>
         $@"put the plugin in {DevPluginsDir}, or record the SHA-256 (stage 2 will add a trust dialog)";
 
+    /// <summary>Shipped core plugin id (Plugins/core-tools/plugin.json). Never removable from Settings.</summary>
+    public const string CorePluginId = "core-tools";
+
+    /// <summary>
+    /// Settings "Remove" may delete only a plugin's own folder: a direct child of a scanned root.
+    /// A loose manifest's FolderPath is the root itself, and deleting that would wipe every plugin.
+    /// </summary>
+    public static bool CanRemove(string pluginId, string? folderPath, out string reason)
+        => CanRemove(pluginId, folderPath, new[] { RuntimePluginsDir, DevPluginsDir }, out reason);
+
+    /// <summary>Test seam: same guard against explicit scanned roots.</summary>
+    public static bool CanRemove(string pluginId, string? folderPath, IReadOnlyList<string> roots, out string reason)
+    {
+        reason = "";
+        if (string.Equals(pluginId, CorePluginId, StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "Cannot remove the core plugin.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            reason = $"Plugin {pluginId} has no folder.";
+            return false;
+        }
+
+        string full;
+        try { full = Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
+        catch (Exception ex)
+        {
+            reason = $"Bad plugin folder {folderPath}: {ex.Message}";
+            return false;
+        }
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root)) continue;
+            var r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(full, r, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = $"{full} is the plugin root, not a plugin folder. Remove that plugin's files by hand.";
+                return false;
+            }
+            if (string.Equals(Path.GetDirectoryName(full), r, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        reason = $"{full} is not a plugin folder under {string.Join(" or ", roots)}.";
+        return false;
+    }
+
     private static string LogPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadingAI", "plugins.log");
 
