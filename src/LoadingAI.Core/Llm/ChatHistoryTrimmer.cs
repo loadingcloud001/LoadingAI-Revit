@@ -4,18 +4,22 @@ public static class ChatHistoryTrimmer
 {
     public const int KeepMessages = 40;
     public const int MaxToolResultChars = 2000;
+    /// <summary>Tool results the model has not answered yet (after the last user message) keep more.</summary>
+    public const int MaxCurrentTurnToolResultChars = 8000;
 
     public static void Trim(List<ChatMessage> history)
     {
         if (history.Count == 0) return;
 
+        var lastUser = history.FindLastIndex(m => m.Role == "user");
         for (int i = 0; i < history.Count; i++)
         {
             var msg = history[i];
             if (msg.Role != "tool") continue;
+            var cap = lastUser >= 0 && i > lastUser ? MaxCurrentTurnToolResultChars : MaxToolResultChars;
             var text = LlmJson.GetContentString(msg.Content);
-            if (text.Length > MaxToolResultChars)
-                msg.Content = text.Substring(0, MaxToolResultChars) + "\n[omitted]";
+            if (text.Length > cap)
+                msg.Content = text.Substring(0, cap) + "\n[omitted]";
         }
 
         var lastMulti = -1;
@@ -36,22 +40,18 @@ public static class ChatHistoryTrimmer
 
         if (history.Count <= KeepMessages + 1) return;
 
+        var hasSystem = history[0].Role == "system";
         int keepFrom = history.Count - KeepMessages;
-        if (history[0].Role == "system")
-        {
-            var system = history[0];
-            while (keepFrom < history.Count && history[keepFrom].Role == "tool")
-                keepFrom++;
-            var tail = history.Skip(keepFrom).ToList();
-            history.Clear();
-            history.Add(system);
-            history.AddRange(tail);
-        }
-        else
-        {
-            var tail = history.Skip(history.Count - KeepMessages).ToList();
-            history.Clear();
-            history.AddRange(tail);
-        }
+        while (keepFrom < history.Count && history[keepFrom].Role == "tool")
+            keepFrom++;
+
+        // A long turn must not lose the instruction it is executing.
+        var pinned = lastUser >= (hasSystem ? 1 : 0) && lastUser < keepFrom ? history[lastUser] : null;
+        var system = hasSystem ? history[0] : null;
+        var tail = history.Skip(keepFrom).ToList();
+        history.Clear();
+        if (system != null) history.Add(system);
+        if (pinned != null) history.Add(pinned);
+        history.AddRange(tail);
     }
 }
