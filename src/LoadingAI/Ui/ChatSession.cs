@@ -463,6 +463,7 @@ internal sealed class ChatSession
             return hint;
         }
 
+        argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
         if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var validationError))
         {
             var invalid = $"Tool argument error: {validationError}";
@@ -480,6 +481,7 @@ internal sealed class ChatSession
                 return preset.message;
             }
             argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
+            argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
             if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var presetValidationError))
             {
                 var invalid = $"Tool argument error: {presetValidationError}";
