@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import worker from '../src/index.js';
-import { issueTicket as signTicket } from '../src/quota.js';
+import worker, { upstreamBody } from '../src/index.js';
+import { DEFAULT_TICKET_TTL_SECONDS, issueTicket as signTicket } from '../src/quota.js';
 
 const DEVICE = 'device-abc12345';
 const OTHER_DEVICE = 'device-xyz98765';
@@ -97,7 +97,7 @@ test('POST /v1/quota consumes one request and returns a ticket', async () => {
   const body = await res.json();
   assert.equal(body.used, 1);
   assert.equal(body.remaining, 99);
-  assert.equal(body.ticketTtlSeconds, 1800);
+  assert.equal(body.ticketTtlSeconds, 7200);
   assert.match(ticketPayload(body.ticket), new RegExp(`^${DEVICE}\\.\\d+$`));
 
   const peek = await (await worker.fetch(quotaRequest('GET'), env)).json();
@@ -407,4 +407,99 @@ test('a send costs exactly one KV write', async () => {
   assert.match(puts[0].key, /^q:device-abc12345:\d{4}-\d{2}-\d{2}$/);
   assert.equal(puts[0].value, '1');
   assert.equal(puts[0].options.expirationTtl, 60 * 60 * 48);
+});
+
+const AUTH = () => ({ 'x-loadingai-device': DEVICE });
+
+test('chat forwards only allow-listed fields and caps max_tokens', async (t) => {
+  const env = makeEnv();
+  const ticket = await issueTicket(env);
+  const calls = stubUpstream(t);
+
+  const res = await worker.fetch(
+    chatRequest(
+      { ...AUTH(), 'x-loadingai-ticket': ticket },
+      { messages: [{ role: 'user', content: 'hi' }], stream: true, temperature: 0.2, n: 8, max_tokens: 999999, model: 'expensive' },
+    ),
+    env,
+  );
+
+  assert.equal(res.status, 200);
+  const forwarded = JSON.parse(calls[0].init.body);
+  assert.equal(forwarded.n, undefined);
+  assert.equal(forwarded.max_tokens, 8192);
+  assert.equal(forwarded.model, 'MiniMax-M3.1-Flash-Preview');
+  assert.equal(forwarded.stream, true);
+  assert.equal(forwarded.temperature, 0.2);
+});
+
+test('chat leaves max_tokens unset when the client does not ask', async (t) => {
+  const env = makeEnv();
+  const ticket = await issueTicket(env);
+  const calls = stubUpstream(t);
+  await worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env);
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, undefined);
+});
+
+test('chat drops unknown upstream parameters', async (t) => {
+  const env = makeEnv();
+  const ticket = await issueTicket(env);
+  const calls = stubUpstream(t);
+  await worker.fetch(
+    chatRequest(
+      { ...AUTH(), 'x-loadingai-ticket': ticket },
+      { messages: [], response_format: { type: 'json_object' }, user: 'x', logit_bias: { 1: 100 }, tools: [{ type: 'function' }], tool_choice: 'auto' },
+    ),
+    env,
+  );
+  const forwarded = JSON.parse(calls[0].init.body);
+  assert.deepEqual(Object.keys(forwarded).sort(), ['messages', 'model', 'tool_choice', 'tools']);
+});
+
+test('upstreamBody passes max_tokens at or below the cap and honours MAX_OUTPUT_TOKENS', () => {
+  assert.equal(upstreamBody({ max_tokens: 100 }, {}).max_tokens, 100);
+  assert.equal(upstreamBody({ max_tokens: 8192 }, {}).max_tokens, 8192);
+  assert.equal(upstreamBody({ max_tokens: 5000 }, { MAX_OUTPUT_TOKENS: '1000' }).max_tokens, 1000);
+  assert.equal(upstreamBody({ max_tokens: 'lots' }, {}).max_tokens, undefined);
+  assert.equal(upstreamBody({ max_tokens: -5 }, {}).max_tokens, undefined);
+});
+
+test('upstreamBody falls back to defaults for invalid MAX_OUTPUT_TOKENS', () => {
+  for (const bad of ['abc', '0', '-3', '']) {
+    assert.equal(upstreamBody({ max_tokens: 99999 }, { MAX_OUTPUT_TOKENS: bad }).max_tokens, 8192);
+  }
+});
+
+test('upstreamBody keeps the model under gateway control', () => {
+  assert.equal(upstreamBody({ model: 'expensive' }, {}).model, 'MiniMax-M3.1-Flash-Preview');
+  assert.equal(upstreamBody({ model: 'expensive' }, { MINIMAX_MODEL: 'other' }).model, 'other');
+});
+
+test('chat answers 504 when upstream sends no headers in time', async (t) => {
+  const env = makeEnv({ UPSTREAM_TIMEOUT_MS: '20' });
+  const ticket = await issueTicket(env);
+  const original = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = (url, init) =>
+    new Promise((_, reject) => {
+      init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+
+  const res = await worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env);
+  assert.equal(res.status, 504);
+  assert.equal((await res.json()).error.code, 'upstream_timeout');
+});
+
+test('an invalid UPSTREAM_TIMEOUT_MS falls back to the default instead of aborting at once', async (t) => {
+  const env = makeEnv({ UPSTREAM_TIMEOUT_MS: 'soon' });
+  const ticket = await issueTicket(env);
+  stubUpstream(t);
+  const res = await worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env);
+  assert.equal(res.status, 200);
+});
+
+test('tickets last two hours by default', () => {
+  assert.equal(DEFAULT_TICKET_TTL_SECONDS, 7200);
 });

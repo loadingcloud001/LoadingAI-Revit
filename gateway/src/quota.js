@@ -17,7 +17,7 @@ export const DEFAULT_LIMIT = 100;
 const COUNTER_TTL_SECONDS = 60 * 60 * 48;
 
 /** Long enough that a multi-round agent run never loses its ticket mid-flight. */
-export const DEFAULT_TICKET_TTL_SECONDS = 60 * 30;
+export const DEFAULT_TICKET_TTL_SECONDS = 60 * 60 * 2;
 
 const encoder = new TextEncoder();
 
