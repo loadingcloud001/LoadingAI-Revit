@@ -33,7 +33,8 @@ const DEFAULT_CLIENT_TOKEN = 'loadingai-addin-v1';
 /** The only request fields the add-in sends; anything else never reaches the paid upstream. */
 const FORWARDED_FIELDS = ['messages', 'tools', 'tool_choice', 'temperature', 'stream'];
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 120_000;
+// Below the add-in's own 120 s non-stream timeout, so the gateway's clear 504 arrives before the client gives up.
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 100_000;
 const MAX_UPSTREAM_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_TOKENS_LIMIT = 1_000_000;
 

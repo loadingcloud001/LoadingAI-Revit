@@ -4,7 +4,7 @@
 **Scope:** logic, function, code quality, UI/UX, gateway, CI. Then brainstormed enhancements and debug targets.
 **Plan:** [`docs/superpowers/plans/2026-10-03-review-hardening.md`](superpowers/plans/2026-10-03-review-hardening.md).
 
-## What was run
+## What was run (baseline before the fixes; see "Execution status" at the end for the current numbers)
 
 | Suite | Where | Result |
 |---|---|---|
@@ -63,7 +63,7 @@ Every finding below comes from reading the code and tracing the call path. **CON
 `HostPage.xaml.cs:412` protects the id `"core"`, but the shipped id is `core-tools`, so the core plugin can be removed. `PluginLoader.Discover` also loads *loose* manifests placed directly in `Plugins\`, which gives that plugin `FolderPath == Plugins\`. Removing it would then `Directory.Delete(Plugins\, recursive)` and wipe every plugin.
 *Fix:* add a `PluginLoader.CanRemove` check: no core, no root folders, folder must be under a plugin root (plan Task 6).
 
-**N7 — Run-state hazards in `ChatSession`.** CONFIRMED (the first two). — **Fixed in `ab1147e` for the items listed.** Still open: the UI Clear button and `RebuildRegistry` callers mid-run, and Stop during the quota wait (the call takes no token).
+**N7 — Run-state hazards in `ChatSession`.** CONFIRMED (the first two). — **Fixed in `ab1147e` for the items listed.** The slash `/clear` and `/resume` branches and `ResumeCheckpoint` are guarded, but the shipped pane sends typed `/clear` and the Clear button as a `clear` message that reaches `ChatSession.ClearHistory()` unguarded, so the guarded `/clear` branch is not reachable from the pane. Still open: that Clear path, `RebuildRegistry` callers mid-run, and Stop during the quota wait (the call takes no token).
 - Stop pressed during "Checking LoadingAI allowance…" is ignored. `_cts` is created only *after* the quota await, so `CancelAndDeny` cancels nothing and the run starts anyway.
 - `Task.Run(…, ct)` (`ChatSession.cs:426`): if `ct` is already cancelled when the task is scheduled, the delegate never runs. The `finally` that resets `_isRunning` never runs either, and the pane answers "Already working" until Revit restarts.
 - `/clear`, `/resume` and `ResumeCheckpoint` rewrite history while a run is appending to it.

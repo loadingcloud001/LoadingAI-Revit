@@ -167,7 +167,7 @@ Set in `/etc/loadingai-gateway.env` (see `deploy/env.example`):
 | `DAILY_LIMIT` | `100` | sends per device per UTC day |
 | `TICKET_TTL_SECONDS` | `7200` | how long a send's ticket stays valid |
 | `MAX_OUTPUT_TOKENS` | `8192` | optional; a ceiling applied only when a client sends `max_tokens` (max `1000000`). The shipped add-in never sends it, so this does **not** bound output for the real client |
-| `UPSTREAM_TIMEOUT_MS` | `120000` | optional; wait for upstream response headers before answering `504` (max `600000`). Non-streamed replies only send headers after the full completion, so for them this bounds the whole reply |
+| `UPSTREAM_TIMEOUT_MS` | `100000` | optional; wait for upstream response headers before answering `504` (max `600000`). Kept below the add-in's own 120 s non-stream timeout so the 504 message reaches the user; it is also the effective ceiling for a silently thinking model on the built-in provider. Non-streamed replies only send headers after the full completion, so for them this bounds the whole reply |
 | `HOST` | `127.0.0.1` | bind address – leave on loopback |
 | `PORT` | `8787` | must match the tunnel ingress service |
 | `QUOTA_DB` | `quota.db` | counter database; `/var/lib/loadingai-gateway/quota.db` in the unit |
