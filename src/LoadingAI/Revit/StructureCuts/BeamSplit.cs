@@ -36,7 +36,7 @@ internal static class BeamSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsBeam, options, beamIds);
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsBeam, options, beamIds, "split_beams_by_columns");
         var beams = batch.Items;
         if (beams.Count == 0 && batch.Total == 0)
             return SplitElements.NoHostMessage(options, batch, "beams", "No beams found.");
@@ -72,7 +72,9 @@ internal static class BeamSplit
         if (options.DryRun)
         {
             var pieces = plans.Sum(plan => plan.Cuts.Count + 1);
+            var (forecastNative, forecastRebuilt, forecastLost) = CurveMemberSplit.Forecast(plans);
             return "Dry-run. " + $"Would split {plans.Count} beams into {pieces} pieces. No changes made."
+                + SplitForecast.Note(forecastNative, forecastRebuilt, forecastLost)
                 + SkipNote(skippedNoCurve, skippedNoCrossing, 0)
                 + SplitReport.Progress(batch)
                 + links.Report()
@@ -127,7 +129,9 @@ internal static class BeamSplit
                 }
             }
 
-            tx.Commit();
+            var rolledBack = tx.Commit();
+            if (rolledBack != null)
+                return rolledBack;
         }
 
         var message = $"Split {split} beams into {piecesMade} pieces."
@@ -146,7 +150,7 @@ internal static class BeamSplit
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
         message += links.Report() + SplitElements.MissedNote(batch.Missed);
 
-        outcome?.Record(created, 0, skippedNoCurve + skippedNoCrossing + skippedUnchanged + skippedFailed);
+        outcome?.Record(created, 0, skippedNoCurve + skippedNoCrossing + skippedUnchanged + skippedFailed, skippedFailed);
 
         SplitElements.Select(uidoc, created);
         return message;

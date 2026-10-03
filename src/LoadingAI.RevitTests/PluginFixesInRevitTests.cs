@@ -367,4 +367,77 @@ public class PluginFixesInRevitTests
             group.RollBack();
         }
     }
+
+    // ---- Task 19 -------------------------------------------------------------------------
+
+    private SplitRequestDto LevelRequest(int limit, int continueFrom, bool dryRun)
+        => new(null, null, new[] { "walls" }, "all", continueFrom, limit, dryRun, false, true);
+
+    private static IEnumerable<Wall> AllWalls(Document doc)
+        => new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>();
+
+    [Test]
+    public void SplitByLevels_InPages_LeavesNoWallUnsplit()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests split paging");
+        group.Start();
+        try
+        {
+            var baseLevel = NewLevel(doc, "LAI-Split 0", 0);
+            NewLevel(doc, "LAI-Split 1", 3000);
+            NewLevel(doc, "LAI-Split 2", 6000);
+            for (var i = 0; i < 12; i++)
+                NewWall(doc, baseLevel, 0, i * 1000, 5000, i * 1000, heightMm: 9000);
+
+            var offset = 0;
+            var pages = 0;
+            while (true)
+            {
+                var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(limit: 5, continueFrom: offset, dryRun: false)))!;
+                Assert.That(result.Report, Does.Not.StartWith("Failed"), result.Report);
+                pages++;
+                var next = Regex.Match(result.Report, @"nextOffset = (\d+)");
+                if (!next.Success) break;
+                offset = int.Parse(next.Groups[1].Value);
+                Assert.That(pages, Is.LessThan(10), "paging must terminate");
+            }
+
+            Assert.That(pages, Is.EqualTo(3), "12 walls at 5 per page");
+            var tall = AllWalls(doc).Where(w => w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() > Metric.MmToFt(3000) + 1e-3).ToList();
+            Assert.That(tall, Is.Empty, "R8: every 9 m wall was cut at the storey planes; none was skipped by a shifted offset");
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
+
+    [Test]
+    public void SplitByLevels_DryRun_ForecastsTheRebuildAndWritesNothing()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests split dry run");
+        group.Start();
+        try
+        {
+            var baseLevel = NewLevel(doc, "LAI-Split 0", 0);
+            NewLevel(doc, "LAI-Split 1", 3000);
+            for (var i = 0; i < 3; i++)
+                NewWall(doc, baseLevel, 0, i * 1000, 5000, i * 1000, heightMm: 6000);
+            var before = AllWalls(doc).Count();
+
+            var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(limit: 50, continueFrom: 0, dryRun: true)))!;
+
+            Assert.That(result.Report, Does.StartWith("Dry-run. "));
+            Assert.That(result.Report, Does.Contain("No changes made."));
+            Assert.That(result.Report, Does.Contain("re-created: 3"));
+            Assert.That(result.Created, Is.Zero);
+            Assert.That(AllWalls(doc).Count(), Is.EqualTo(before));
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
 }

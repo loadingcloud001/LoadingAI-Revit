@@ -35,7 +35,7 @@ internal static class FloorSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsFloorLike, options, floorIds);
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.IsFloorLike, options, floorIds, "split_floors_by_beams");
         var floors = batch.Items;
         if (floors.Count == 0 && batch.Total == 0)
             return SplitElements.NoHostMessage(options, batch, "floors", "No floors found.");
@@ -99,7 +99,9 @@ internal static class FloorSplit
             var pieces = plans.Sum(plan => plan.Regions.Count);
             var openings = plans.Sum(plan => plan.Regions.Sum(region => region.Holes.Count));
             var sloped = plans.Count(plan => plan.Leans);
+            var forecastLost = plans.Sum(plan => SplitElements.Dependent(plan.Floor));
             return "Dry-run. " + $"Would split {plans.Count} floors into {pieces} pieces. Openings: {openings}. No changes made."
+                + SplitForecast.Note(0, plans.Count, forecastLost)
                 + notes
                 + (sloped > 0 ? $" Replaced with a slope arrow: {sloped}." : "");
         }
@@ -150,7 +152,9 @@ internal static class FloorSplit
                 created.AddRange(ids);
             }
 
-            tx.Commit();
+            var rolledBack = tx.Commit();
+            if (rolledBack != null)
+                return rolledBack;
         }
 
         var message = $"Split {splitFloors} floors into {piecesMade} pieces. Openings: {openingsMade}."
@@ -169,7 +173,7 @@ internal static class FloorSplit
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
         message += linkBeams.Report() + linkColumns.Report() + SplitElements.MissedNote(batch.Missed);
 
-        outcome?.Record(created, openingsMade, skips.Total);
+        outcome?.Record(created, openingsMade, skips.Total, skips.Partial + skips.DeleteFailed);
 
         SplitElements.Select(uidoc, created);
         return message;

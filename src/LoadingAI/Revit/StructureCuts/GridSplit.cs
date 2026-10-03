@@ -24,7 +24,7 @@ internal static class GridSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds);
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds, "split_by_grids");
         if (batch.Items.Count == 0 && batch.Total == 0)
             return SplitElements.NoHostMessage(options, batch, SplitElements.HostNoun(categories));
 
@@ -101,8 +101,12 @@ internal static class GridSplit
         {
             var curvePieces = curvePlans.Sum(plan => plan.Cuts.Count + 1);
             var floorPieces = floorPlans.Sum(plan => plan.Regions.Count);
+            var (forecastNative, forecastRebuilt, forecastLost) = CurveMemberSplit.Forecast(curvePlans);
+            forecastRebuilt += floorPlans.Count;
+            forecastLost += floorPlans.Sum(plan => SplitElements.Dependent(plan.Floor));
             return "Dry-run. "
                 + $"Would split {curvePlans.Count} members into {curvePieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
+                + SplitForecast.Note(forecastNative, forecastRebuilt, forecastLost)
                 + notes;
         }
 
@@ -169,7 +173,9 @@ internal static class GridSplit
                 created.AddRange(ids);
             }
 
-            tx.Commit();
+            var rolledBack = tx.Commit();
+            if (rolledBack != null)
+                return rolledBack;
         }
 
         var message = $"Split {split} elements into {piecesMade} pieces."
@@ -189,7 +195,7 @@ internal static class GridSplit
             message += " Created: " + SplitReport.Ids(created.Select(SplitElements.Fmt)) + ".";
         message += SplitElements.MissedNote(batch.Missed);
 
-        outcome?.Record(created, openings, skips.Total);
+        outcome?.Record(created, openings, skips.Total, skips.Failed);
 
         SplitElements.Select(uidoc, created);
         return message;

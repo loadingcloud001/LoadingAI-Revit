@@ -440,7 +440,7 @@ public sealed partial class AdapterRevitBridge
             try
             {
                 var report = run(uiApp, options, outcome);
-                return new SplitResultDto(report, outcome.Created, outcome.Openings, outcome.Skipped, outcome.NewIds);
+                return new SplitResultDto(report, outcome.Created, outcome.Openings, outcome.Skipped, outcome.NewIds, null, outcome.Failed);
             }
             catch (Exception ex)
             {

@@ -19,15 +19,19 @@ internal sealed class SplitOutcome
     /// <summary>Hosts left alone, for every reason the run names.</summary>
     public int Skipped { get; set; }
 
+    /// <summary>Hosts a write attempted and rolled back. They are part of <see cref="Skipped"/>.</summary>
+    public int Failed { get; set; }
+
     /// <summary>The new pieces, in the same order the run's report names them.</summary>
     public List<string> NewIds { get; } = new();
 
     /// <summary>Records a completed run. Pass an empty list when nothing was written.</summary>
-    public void Record(IReadOnlyList<ElementId> created, int openings, int skipped)
+    public void Record(IReadOnlyList<ElementId> created, int openings, int skipped, int failed = 0)
     {
         Created = created.Count;
         Openings = openings;
         Skipped = skipped;
+        Failed = failed;
         NewIds.Clear();
         foreach (var id in created)
             NewIds.Add(SplitElements.Fmt(id));

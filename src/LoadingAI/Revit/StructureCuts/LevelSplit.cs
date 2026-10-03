@@ -29,7 +29,7 @@ internal static class LevelSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds);
+        var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds, "split_by_levels");
         if (batch.Items.Count == 0 && batch.Total == 0)
             return SplitElements.NoHostMessage(options, batch, SplitElements.HostNoun(categories));
 
@@ -105,8 +105,12 @@ internal static class LevelSplit
             var stackPieces = stackPlans.Sum(stack => stack.Pieces.Count);
             var columnPieces = columnStacks.Sum(stack => stack.Pieces.Count);
             var floorPieces = floorPlans.Sum(plan => plan.Regions.Count);
+            var (forecastNative, forecastRebuilt, forecastLost) = CurveMemberSplit.Forecast(curvePlans, stackPlans, columnStacks);
+            forecastRebuilt += floorPlans.Count;
+            forecastLost += floorPlans.Sum(plan => SplitElements.Dependent(plan.Floor));
             return "Dry-run. "
                 + $"Would split {curvePlans.Count + stackPlans.Count + columnStacks.Count} members into {curvePieces + stackPieces + columnPieces} pieces and {floorPlans.Count} floors into {floorPieces} pieces. No changes made."
+                + SplitForecast.Note(forecastNative, forecastRebuilt, forecastLost)
                 + notes;
         }
 
@@ -230,7 +234,9 @@ internal static class LevelSplit
                 created.AddRange(ids);
             }
 
-            tx.Commit();
+            var rolledBack = tx.Commit();
+            if (rolledBack != null)
+                return rolledBack;
         }
 
         var message = $"Split {split} elements into {piecesMade} pieces."
@@ -252,7 +258,7 @@ internal static class LevelSplit
             message += " Replaced: " + SplitReport.Ids(replaced.Select(SplitElements.Fmt)) + ".";
         message += SplitElements.MissedNote(batch.Missed);
 
-        outcome?.Record(created, openings, skips.Total);
+        outcome?.Record(created, openings, skips.Total, skips.Failed);
 
         SplitElements.Select(uidoc, created);
         return message;
