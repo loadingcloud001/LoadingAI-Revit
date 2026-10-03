@@ -11,6 +11,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" />
   </ItemGroup>
+  <!-- net48 (Revit 2024) does not reference System.Net.Http implicitly; the stream and mode tests build HttpMessageHandler stubs. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LoadingAI\LoadingAI.csproj">
       <AdditionalProperties>SkipHostPluginBuild=true;SkipCopyAddin=true</AdditionalProperties>
