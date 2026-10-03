@@ -5594,7 +5594,9 @@ git commit -m "docs(plugins): trust flow, scan order, threat model and units; Ac
 
 # Phase D — Language
 
-### Task 15: Chinese keywords in the tool selector (PL-16)
+### Task 15: Chinese keywords in the tool selector (PL-16) — WITHDRAWN 2026-10-03
+
+> **Withdrawn by the owner.** The add-in stays English-only; the LLM translates the user's language. The aliases and `ToolSelectorZhTests` were removed. The text below is kept for the record only.
 
 **Files:**
 - Modify: `src/LoadingAI.Core/Llm/ToolSelector.cs`
