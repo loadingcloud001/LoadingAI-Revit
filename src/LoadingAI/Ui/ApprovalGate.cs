@@ -156,17 +156,26 @@ internal sealed class ApprovalGate
     {
         var raw = App.Bridge;
         if (raw == null) return false;
-        return await raw.RunAsync(_ =>
+        try
         {
-            var td = new TaskDialog("LoadingAI for Revit")
+            return await raw.RunAsync(_ =>
             {
-                MainInstruction = $"Confirm L3: {name}?",
-                MainContent = WebHostBridge.Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
-                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                DefaultButton = TaskDialogResult.No
-            };
-            return td.Show() == TaskDialogResult.Yes;
-        });
+                var td = new TaskDialog("LoadingAI for Revit")
+                {
+                    MainInstruction = $"Confirm L3: {name}?",
+                    MainContent = WebHostBridge.Truncate(argsJson, 400) + "\n\nUndoable transaction. Default No.",
+                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                    DefaultButton = TaskDialogResult.No
+                };
+                return td.Show() == TaskDialogResult.Yes;
+            }, RevitBridge.UserDialogTimeout);
+        }
+        catch (BridgeOperationUnknownException ex)
+        {
+            // An unanswered confirm is a No: never run a write the engineer did not accept.
+            HostLog.Write($"Confirm L3 {name} not answered: {ex.Message}");
+            return false;
+        }
     }
 
     public async Task RunPresetPickAsync(string toolCallId, string fieldId)

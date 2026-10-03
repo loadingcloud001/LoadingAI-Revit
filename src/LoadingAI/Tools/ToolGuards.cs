@@ -36,7 +36,7 @@ public static class ToolGuards
                         DefaultButton = TaskDialogResult.No
                     };
                     return td.Show() == TaskDialogResult.Yes;
-                });
+                }, RevitBridge.UserDialogTimeout);
                 if (!ok) return "Cancelled by user.";
                 return await inner(json);
             },
@@ -55,7 +55,7 @@ public static class ToolGuards
                             DefaultButton = TaskDialogResult.No
                         };
                         return td.Show() == TaskDialogResult.Yes;
-                    });
+                    }, RevitBridge.UserDialogTimeout);
                     if (!ok) return ToolExecutionResult.Cancelled("Cancelled by user.");
                     return await structured(argsJson);
                 }

@@ -10,9 +10,16 @@ public sealed class RevitBridge : IDisposable
     private readonly BridgeHandler _handler;
     private readonly BridgeActionRegistry _actions = new();
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
+
+    /// <summary>Waits on a human (TaskDialog). Matches the 15-minute preset form timeout.</summary>
+    public static readonly TimeSpan UserDialogTimeout = TimeSpan.FromMinutes(15);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
     private volatile int _uiThreadId;
+    /// <summary>True only while this thread is inside BridgeHandler.Execute (a valid Revit API context).</summary>
+    [ThreadStatic] private static bool t_inHandler;
+    /// <summary>Set by in-Revit test hosts that already own the API thread.</summary>
+    private volatile bool _attached;
     private readonly object _turnLock = new();
     private TransactionGroup? _turnGroup;
     private Document? _turnDocument;
@@ -45,6 +52,7 @@ public sealed class RevitBridge : IDisposable
     {
         RevitContext.Set(app);
         _uiThreadId = Environment.CurrentManagedThreadId;
+        _attached = true;
         NoteUiApplication(app);
     }
 
@@ -61,8 +69,11 @@ public sealed class RevitBridge : IDisposable
     {
         var actionId = _actions.Begin();
 
+        // Same thread is not enough: a WPF/WebView handler on the UI thread is outside API
+        // context. Run inline only when nested inside Execute or on an attached test thread.
         if (_uiThreadId != 0
             && Environment.CurrentManagedThreadId == _uiThreadId
+            && (t_inHandler || _attached)
             && RevitContext.UiApplication is { } current)
         {
             _actions.MarkRunning(actionId);
@@ -302,6 +313,7 @@ public sealed class RevitBridge : IDisposable
             // catch here used to drop the rest of the batch so waiters sat until
             // DefaultTimeout (120s). Drain leftover actions instead.
             _owner._executing = true;
+            t_inHandler = true;
             var local = new Queue<Action<UIApplication>>();
             try
             {
@@ -322,7 +334,11 @@ public sealed class RevitBridge : IDisposable
                 DrainTo(local);
                 InvokeAll(app, local);
             }
-            finally { _owner._executing = false; }
+            finally
+            {
+                t_inHandler = false;
+                _owner._executing = false;
+            }
         }
 
         private void DrainTo(Queue<Action<UIApplication>> dest)

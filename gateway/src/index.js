@@ -30,6 +30,14 @@ const TICKET_HEADER = 'x-loadingai-ticket';
 const CLIENT_HEADER = 'x-loadingai-client';
 const DEFAULT_CLIENT_TOKEN = 'loadingai-addin-v1';
 
+/** The only request fields the add-in sends; anything else never reaches the paid upstream. */
+const FORWARDED_FIELDS = ['messages', 'tools', 'tool_choice', 'temperature', 'stream'];
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+// Below the add-in's own 120 s non-stream timeout, so the gateway's clear 504 arrives before the client gives up.
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 100_000;
+const MAX_UPSTREAM_TIMEOUT_MS = 600_000;
+const MAX_OUTPUT_TOKENS_LIMIT = 1_000_000;
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -44,6 +52,27 @@ function fail(status, message, code, extra = {}) {
 function dailyLimit(env) {
   const parsed = Number.parseInt(env.DAILY_LIMIT ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LIMIT;
+}
+
+/** Whole decimal digits only (no '1.5', '1e9' or '120000ms'), clamped to `max` so a timer delay cannot overflow. */
+function positiveInt(raw, fallback, max = Number.MAX_SAFE_INTEGER) {
+  const text = String(raw ?? '').trim();
+  if (!/^\d+$/.test(text)) return fallback;
+  const parsed = Number(text);
+  return parsed > 0 ? Math.min(parsed, max) : fallback;
+}
+
+export function upstreamBody(payload, env) {
+  const body = {};
+  for (const key of FORWARDED_FIELDS) {
+    if (payload[key] !== undefined) body[key] = payload[key];
+  }
+  const asked = payload.max_tokens;
+  if (typeof asked === 'number' && Number.isFinite(asked) && asked >= 1) {
+    body.max_tokens = Math.min(Math.floor(asked), positiveInt(env.MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_LIMIT));
+  }
+  body.model = env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview';
+  return body;
 }
 
 function ticketTtl(env) {
@@ -192,15 +221,29 @@ async function handleChat(request, env) {
   // The callers' Authorization header, if any, is deliberately dropped: the
   // upstream key is the only credential that reaches the model.
   const base = (env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1').replace(/\/+$/, '');
-  const upstream = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-      accept: request.headers.get('accept') || 'application/json',
-    },
-    body: JSON.stringify({ ...payload, model: env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview' }),
-  });
+  // Bounds the wait for response headers only; a long stream that is flowing is never cut.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), positiveInt(env.UPSTREAM_TIMEOUT_MS, DEFAULT_UPSTREAM_TIMEOUT_MS, MAX_UPSTREAM_TIMEOUT_MS));
+  let upstream;
+  try {
+    upstream = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        accept: request.headers.get('accept') || 'application/json',
+      },
+      body: JSON.stringify(upstreamBody(payload, env)),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return fail(504, 'The model did not answer in time. Send your message again.', 'upstream_timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

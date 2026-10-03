@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties }
 import ReactMarkdown from 'react-markdown';
 import { AppSettings, Attachment, ChatMode, PlanPayload, ApprovalPayload, PresetPayload, PresetFieldPayload, ProviderConfig, ProviderPreset, QuotaPayload, TodoPayload, ContextPayload, CheckpointInfo, PluginInfo, PluginLoadIssue, ProgressPayload, onHostMessage, postToHost, BUILTIN_PROVIDER_NAME, isBuiltinProvider, providersOnly } from './bridge';
 import { parseInput } from './cli/inputParser';
-import { SLASH_COMMANDS, filterCommands } from './cli/slashCommands';
+import { SLASH_COMMANDS, LOCAL_COMMANDS, filterCommands } from './cli/slashCommands';
+import { isNearBottom } from './lib/scroll';
 import { filterMentions } from './cli/mentions';
 import { PluginShelf } from './plugins/PluginShelf';
 import { classifyResult, outcomeLabel, TranscriptSlice } from './transcript';
@@ -161,6 +162,8 @@ export default function App() {
   const [modelsLoading, setModelsLoading] = useState<string | null>(null);
 
   const [mode, setMode] = useState<ChatMode>('build');
+  const [runMode, setRunMode] = useState<ChatMode>('build');
+  const stickToBottomRef = useRef(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [reasoning, setReasoning] = useState<{ text: string; isStreaming?: boolean } | null>(null);
@@ -393,27 +396,31 @@ export default function App() {
     return () => { clearTimeout(t); off(); };
   }, []);
 
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, isRunning, currentPlan, pendingApproval, pendingPreset, reasoning]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, isRunning, currentPlan, pendingApproval, pendingPreset, reasoning]);
 
   const providers = settings?.providers ?? [];
   const activeProvider = useMemo(() => providers.find(p => p.id === (selectedProviderId || settings?.activeProviderId)) ?? providers[0] ?? null, [providers, selectedProviderId, settings?.activeProviderId]);
 
-  const handleSend = (overrideText?: string) => {
+  const handleSend = (overrideText?: string, overrideMode?: ChatMode) => {
     const raw = (typeof overrideText === 'string' ? overrideText : input);
     const parsed = parseInput(raw);
     const text = parsed.cleanText.trim();
     const atts = [...attachments];
-    const isLocalSlash = parsed.slash && ['clear', 'help', 'checkpoints', 'resume'].includes(parsed.slash.name);
+    const isLocalSlash = !!parsed.slash && LOCAL_COMMANDS.includes(parsed.slash.name);
     if ((!text && atts.length === 0 && !isLocalSlash) || isRunning) {
       if (!isLocalSlash) return;
     }
     if (parsed.slash) {
-      if (parsed.slash.name === 'clear') { handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
+      if (parsed.slash.name === 'clear') { stickToBottomRef.current = true; handleClear(); setInput(''); setSlashOpen(false); setMentionOpen(false); return; }
       if (parsed.slash.name === 'help') {
+        stickToBottomRef.current = true;
         setMessages(m => [...m, { id: nextId(), role: 'system', text: `Commands: ${SLASH_COMMANDS.map(c => `${c.label} ${c.argsHint ?? ''} — ${c.description}`).join('\n')}\n\n@mentions: @selection @activeView @visible @warnings @levels @sheets` }]);
         setInput(''); setSlashOpen(false); return;
       }
-      if (parsed.slash.name === 'checkpoints') { postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); return; }
+      if (parsed.slash.name === 'checkpoints') { stickToBottomRef.current = true; postToHost({ type: 'listCheckpoints' } as any); setMessages(m => [...m, { id: nextId(), role: 'you', text: raw }]); setInput(''); setSlashOpen(false); return; }
     }
     const cur = settingsRef.current ?? settings;
     const active = cur?.providers.find(p => p.id === (selectedProviderId || cur?.activeProviderId)) ?? cur?.providers[0];
@@ -427,8 +434,9 @@ export default function App() {
       const ns: AppSettings = { ...cur, activeProviderId: selectedProviderId };
       setSettings(ns); settingsRef.current = ns; postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
     }
-    let effMode = mode;
-    if (parsed.effectiveMode) effMode = parsed.effectiveMode;
+    const effMode: ChatMode = overrideMode ?? parsed.effectiveMode ?? mode;
+    setRunMode(effMode);
+    stickToBottomRef.current = true;
     if (raw.trim()) { inputHistoryRef.current = [raw.trim(), ...inputHistoryRef.current.filter(x => x !== raw.trim())].slice(0, 50); historyIdxRef.current = -1; }
     setMessages(m => [...m, { id: nextId(), role: 'you', text: raw.trim() || (atts.length ? '(image)' : ''), attachments: atts.length ? atts : undefined }]);
     setInput(''); setAttachments([]); setReasoning(null); setSlashOpen(false); setMentionOpen(false);
@@ -771,7 +779,7 @@ export default function App() {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ background: '#f7f7f7' }}>
+      <div ref={scrollRef} onScroll={e => { stickToBottomRef.current = isNearBottom(e.currentTarget); }} className="flex-1 overflow-y-auto" style={{ background: '#f7f7f7' }}>
         {reasoning && (
           <div style={rowStyle}>
             <div style={kLabel}>Think</div>
@@ -786,7 +794,7 @@ export default function App() {
               <div key={i} className="text-xs py-0.5">{i + 1}. {s.title}{s.tool ? `  (${s.tool})` : ''}</div>
             ))}
             <div className="flex gap-1.5 mt-2">
-              <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={() => { setMode('build'); setCurrentPlan(null); handleSend('Execute the plan.'); }}>Run</button>
+              <button type="button" className={btn} style={{ background: '#2b2b2b', color: '#fff', borderColor: '#2b2b2b' }} onClick={() => { setMode('build'); setCurrentPlan(null); handleSend('Execute the plan.', 'build'); }}>Run</button>
               <button type="button" className={btn} onClick={() => setCurrentPlan(null)}>Edit</button>
             </div>
           </div>
@@ -843,7 +851,7 @@ export default function App() {
           flush();
           return nodes;
         })()}
-        {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{mode === 'plan' ? 'Planning…' : mode === 'ask' ? 'Thinking…' : 'Working…'}</div>}
+        {isRunning && <div style={{ ...rowStyle, fontStyle: 'italic', color: '#6a6a6a' }}>{runMode === 'plan' ? 'Planning…' : runMode === 'ask' ? 'Thinking…' : 'Working…'}</div>}
       </div>
 
       {pendingPreset && (() => {

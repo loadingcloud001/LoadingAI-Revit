@@ -60,6 +60,8 @@ internal sealed class ChatSession
 
     public void InitTools()
     {
+        // The pane can raise Loaded again after Unloaded; re-discovery would unload live plugin contexts.
+        if (_agent != null && _discovered.Count > 0) return;
         var bridge = App.Bridge;
         if (bridge == null)
         {
@@ -172,6 +174,11 @@ internal sealed class ChatSession
             message = "Please open a model first.";
             return false;
         }
+        if (_isRunning)
+        {
+            message = "Stop the current run before reloading plugins.";
+            return false;
+        }
         _discovered = PluginLoader.Discover(bridge, new PluginContextFactory(bridge));
         RebuildRegistry();
         message = $"Reloaded {_discovered.Count} plugins, {_registry.GetToolDefinitions().Count} tools enabled.";
@@ -219,6 +226,11 @@ internal sealed class ChatSession
             else if (slash.Equals("build", StringComparison.OrdinalIgnoreCase)) mode = "build";
             else if (slash.Equals("clear", StringComparison.OrdinalIgnoreCase))
             {
+                if (_isRunning)
+                {
+                    _web.Post(new FromHostMessage.Error("Stop the current run before /clear."));
+                    return;
+                }
                 _cts?.Cancel();
                 _agent?.ClearHistory();
                 try { HistoryStore.Append("system", "Cleared."); } catch { }
@@ -241,6 +253,11 @@ internal sealed class ChatSession
             }
             else if (slash.Equals("resume", StringComparison.OrdinalIgnoreCase))
             {
+                if (_isRunning)
+                {
+                    _web.Post(new FromHostMessage.Error("Stop the current run before /resume."));
+                    return;
+                }
                 var cps2 = CheckpointStore.List();
                 var last = cps2.FirstOrDefault();
                 if (last == null) { _web.Post(new FromHostMessage.Error("No checkpoints to resume.")); return; }
@@ -256,7 +273,6 @@ internal sealed class ChatSession
         }
 
         if (string.IsNullOrWhiteSpace(text) && attachments.Count == 0) return;
-        _lastUserText = text;
         if (_isRunning)
         {
             _web.Post(new FromHostMessage.Error("Already working, please wait or press Stop."));
@@ -290,6 +306,11 @@ internal sealed class ChatSession
         }
 
         _isRunning = true;
+        _lastUserText = text;
+        // Created before the quota wait so Stop during "Checking allowance" is not lost.
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
 
         if (DefaultLlm.IsBuiltin(provider.Id))
         {
@@ -302,11 +323,15 @@ internal sealed class ChatSession
                 _web.Post(new FromHostMessage.Error(quota.Message ?? $"{DefaultLlm.DisplayName} is unavailable."));
                 return;
             }
+            if (ct.IsCancellationRequested)
+            {
+                BuiltinQuota.ClearTicket();
+                _isRunning = false;
+                _web.Post(new FromHostMessage.Error("Cancelled."));
+                return;
+            }
         }
 
-        _cts?.Dispose();
-        _cts = new CancellationTokenSource();
-        var ct = _cts.Token;
         var agent = _agent;
         var progress = new ProgressReporter(snap =>
         {
@@ -423,7 +448,7 @@ internal sealed class ChatSession
                     });
                 }
             }
-        }, ct);
+        });
     }
 
     public async Task<string> ExecuteToolAsync(string name, string argsJson)

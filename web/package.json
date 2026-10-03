@@ -12,15 +12,11 @@
   },
   "dependencies": {
     "@radix-ui/react-popover": "^1.1.23",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "lucide-react": "^1.33.0",
     "open-model-selector": "^0.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-markdown": "^9.0.1",
-    "tailwind-merge": "^3.6.0"
+    "react-markdown": "^9.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

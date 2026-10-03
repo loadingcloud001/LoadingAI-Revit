@@ -17,9 +17,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'hide', label: '/hide', description: 'Hide current selection' },
   { name: 'resume', label: '/resume', description: 'Resume last session', argsHint: '[checkpoint id]' },
   { name: 'checkpoints', label: '/checkpoints', description: 'List checkpoints' },
-  { name: 'history', label: '/history', description: 'Show history length' },
-  { name: 'models', label: '/models', description: 'List models for the current provider' },
 ];
+
+/** `clear`, `help` and `checkpoints` are handled in the pane (`checkpoints` posts `listCheckpoints`); `resume` is sent to the host as a send with slash 'resume' (no LLM call). */
+export const LOCAL_COMMANDS = ['clear', 'help', 'checkpoints', 'resume'];
+/** Sent to the model as natural language. */
+export const PASSTHROUGH_COMMANDS = ['export', 'isolate', 'hide'];
 
 export function findSlash(input: string): { cmd: SlashCommand | null; args: string; raw: string } {
   const s = input.trimStart();

@@ -283,12 +283,10 @@ public sealed class AgentLoop
                 bool isError = false;
                 try
                 {
-                    toolResult = await toolExecutor(tc.Function.Name, tc.Function.Arguments);
-                    // heuristic error detection
-                    if (toolResult.StartsWith("Tool error", StringComparison.OrdinalIgnoreCase) || toolResult.Contains("Failed", StringComparison.OrdinalIgnoreCase) && toolResult.Length < 500)
-                    {
-                        // keep but not mark error unless explicit
-                    }
+                    if (_registry.TryGet(tc.Function.Name, out var gated) && !ModeAllowsTier(mode, gated.Tier))
+                        toolResult = $"Tool {tc.Function.Name} is not available in {mode} mode (read-only). Tell the user to switch to /build to run it.";
+                    else
+                        toolResult = await toolExecutor(tc.Function.Name, tc.Function.Arguments);
                 }
                 catch (Exception ex)
                 {
@@ -341,6 +339,12 @@ public sealed class AgentLoop
                 _history[0].Content = sys;
         }
     }
+
+    /// <summary>Plan and Ask are read-only: only L1 tools may execute, whatever the model calls.</summary>
+    public static bool ModeAllowsTier(string? mode, ToolTier tier)
+        => tier == ToolTier.L1
+           || !(string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Later-round hint for <see cref="ToolSelector.Recall"/>: user text plus recent tool names and results.
