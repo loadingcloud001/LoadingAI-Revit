@@ -159,6 +159,8 @@ Concurrent messages from multiple Revit instances, a retried client, or a parall
 - Add concurrent consume tests.
 - Define whether retries after network failure consume quota.
 
+**Update 2026-10-03:** downgraded to Low. The Node gateway uses synchronous `node:sqlite`, so two requests cannot interleave between the read and the write inside one process. The race only returns with more than one process or a move back to Workers KV. See `FULL_REVIEW_2026-10-03.md`.
+
 ### B7 — Medium: plan/task state is not connected to tool execution
 
 **Evidence**
@@ -250,6 +252,8 @@ BIM model names, element IDs, prompts, tool results, and error text can accumula
 - Redact or hash model/user content by default.
 - Add rotation, retention, and a documented “delete local logs” action.
 
+**Update 2026-10-03:** bounded, still plaintext. `BoundedLog` rotates at 2 MB, but logs are on by default, there is no "delete local data" action, and checkpoints (20 x full history, including base64 images) are not bounded by size.
+
 ### B12 — Low/medium: free-tier identity and ticket lifecycle are weak boundaries
 
 **Evidence**
@@ -270,6 +274,8 @@ The 100/day limit is per-install/device-file rather than a strong identity. Long
 - Renew or bind tickets to an active run.
 - Document that the free tier is abuse-resistant, not hard authentication.
 - If abuse becomes material, add a stronger device/install attestation or account layer.
+
+**Update 2026-10-03:** the default ticket lifetime is now 2 hours (was 30 minutes), which mitigates the mid-run expiry. A renewal endpoint is still open and needs an ADR. The gateway now forwards only known request fields and bounds the upstream header wait; output length and per-ticket call volume are still unbounded.
 
 ### B13 — Architecture/version drift: the local opening branch is not merge-safe
 
@@ -361,6 +367,6 @@ Questions for the next discussion:
 3. Is the 100/day free tier intended to be a soft anti-abuse limit or a strict quota?
 4. Do you want the next pass to focus on model safety, plugin safety, gateway behavior, or test infrastructure?
 
+## Full review 2026-10-03
 
-
-
+A full logic, function, code and UI/UX review, with the hardening that followed, is in [`FULL_REVIEW_2026-10-03.md`](FULL_REVIEW_2026-10-03.md). The plan that was executed is `docs/superpowers/plans/2026-10-03-review-hardening.md`.
