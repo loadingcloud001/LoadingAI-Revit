@@ -1,4 +1,4 @@
-import { findSlash, SlashCommand } from './slashCommands';
+import { findSlash, LOCAL_COMMANDS, PASSTHROUGH_COMMANDS, SlashCommand } from './slashCommands';
 import { extractMentions } from './mentions';
 
 export type ParsedInput = {
@@ -20,10 +20,10 @@ export function parseInput(raw: string): ParsedInput {
     // For slash commands, cleanText is args if command is mode-forcing; otherwise keep raw without slash prefix but keep args
     if (cmd.mode) {
       cleanText = args;
-    } else if (cmd.name === 'export' || cmd.name === 'isolate' || cmd.name === 'hide') {
+    } else if (PASSTHROUGH_COMMANDS.includes(cmd.name)) {
       // keep as natural language for LLM, but also expose slash for HostPage shortcut
       cleanText = raw.replace(/^\//, '');
-    } else if (cmd.name === 'clear' || cmd.name === 'help' || cmd.name === 'resume' || cmd.name === 'checkpoints') {
+    } else if (LOCAL_COMMANDS.includes(cmd.name)) {
       cleanText = '';
     }
   }
