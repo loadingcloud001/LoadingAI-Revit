@@ -17,11 +17,12 @@ public class WriteHonestyAndProviderCatalogTests
     private static readonly HashSet<string> ImplementedApiKinds =
         new(System.StringComparer.OrdinalIgnoreCase) { "openai", "responses" };
 
-    // Bug 1: RotateElementsAsync swallowed per-element failures with `catch { }` and
-    // then returned Ok=true with the full requested count, so a rotate that moved
-    // 9 of 12 elements reported "Rotated 12 elements".
+    // Bug 1 (2026-09-29): RotateElementsAsync swallowed per-element failures with `catch { }` and then
+    // returned Ok=true with the full requested count, so a rotate that moved 9 of 12 elements reported
+    // "Rotated 12 elements". The set is now rotated in one call: Revit rotates every element or throws,
+    // and the throw rolls the transaction back.
     [Fact]
-    public void RotateElements_DoesNotSwallowPerElementFailures()
+    public void RotateElements_IsAllOrNothing()
     {
         var src = AdapterSource.Containing("public Task<CommandResultDto> RotateElementsAsync");
         var i = src.IndexOf("public Task<CommandResultDto> RotateElementsAsync", System.StringComparison.Ordinal);
@@ -30,20 +31,17 @@ public class WriteHonestyAndProviderCatalogTests
         Assert.True(end > i, "could not bound the RotateElementsAsync slice");
         var slice = src.Substring(i, end - i);
 
-        // No silent per-element skip.
-        Assert.DoesNotContain("RotateElement(doc, id, axis, rad); } catch { }", slice);
+        Assert.DoesNotContain("foreach (var id in eids)", slice);
+        Assert.DoesNotContain("RotateElement(doc, id, axis, rad)", slice);
 
-        // Failures are collected rather than dropped.
-        Assert.Contains("failed.Add(", slice);
+        var rotate = slice.IndexOf("ElementTransformUtils.RotateElements(doc, eids, axis, rad);", System.StringComparison.Ordinal);
+        Assert.True(rotate >= 0, "the set must be rotated in one call");
+        var commit = slice.IndexOf("tx.Commit();", rotate, System.StringComparison.Ordinal);
+        Assert.True(commit > rotate, "the commit follows the rotate");
+        var rollback = slice.IndexOf("tx.RollBack();", commit, System.StringComparison.Ordinal);
+        Assert.True(rollback > commit, "a throw from the rotate lands in the catch that rolls back");
 
-        // Success is gated behind the failure check, and the transaction only
-        // commits once every element succeeded.
-        var guard = slice.IndexOf("if (failed.Count > 0)", System.StringComparison.Ordinal);
-        Assert.True(guard >= 0, "no partial-failure guard");
-        var commit = slice.IndexOf("tx.Commit();", guard, System.StringComparison.Ordinal);
-        Assert.True(commit > guard, "success must be gated behind the failure check");
-
-        // The success count is only reachable on the all-succeeded path.
+        // The success count is only reachable on the all-rotated path.
         Assert.Contains("$\"Rotated {eids.Count} elements", slice);
     }
 

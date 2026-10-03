@@ -241,8 +241,12 @@ public interface IRevitElementCommand
     Task<CommandResultDto> DeleteElementsAsync(
         IReadOnlyList<string> elementIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Moves the whole set in one call, so a host and the elements hosted on it move once. The vector
+    /// is millimetres, like every other method on this bridge; the adapter converts.
+    /// </summary>
     Task<CommandResultDto> MoveElementsAsync(
-        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        IReadOnlyList<string> elementIds, double dxMm, double dyMm, double dzMm,
         CancellationToken ct = default);
 
     Task<CommandResultDto> ChangeElementTypeAsync(

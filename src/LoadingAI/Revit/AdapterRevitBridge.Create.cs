@@ -475,30 +475,20 @@ public sealed partial class AdapterRevitBridge
                 tx.Start();
                 try
                 {
-                    // All-or-nothing: a rotate that silently skips elements reports a
-                    // false success and leaves the model in a half-transformed state.
-                    var failed = new List<string>();
-                    foreach (var id in eids)
-                    {
-                        try { ElementTransformUtils.RotateElement(doc, id, axis, rad); }
-                        catch (Exception elementEx) { failed.Add($"{id}: {elementEx.Message}"); }
-                    }
-
-                    if (failed.Count > 0)
-                    {
-                        try { tx.RollBack(); } catch { }
-                        return new CommandResultDto(
-                            false,
-                            $"Failed: could not rotate {failed.Count} of {eids.Count} elements {angleDegrees}° ({string.Join("; ", failed)}). No elements were changed.");
-                    }
-
+                    // One call for the whole set, for the reason given on MoveElementsAsync. It rotates
+                    // every element or throws, and the throw rolls the transaction back, so a
+                    // half-rotated model cannot be reported as a success.
+                    ElementTransformUtils.RotateElements(doc, eids, axis, rad);
                     tx.Commit();
-                    return new CommandResultDto(true, $"Rotated {eids.Count} elements {angleDegrees}° around {origin}", eids.Count);
+                    return new CommandResultDto(
+                        true,
+                        $"Rotated {eids.Count} elements {angleDegrees}° around ({Metric.FtToMm(origin.X):F0}, {Metric.FtToMm(origin.Y):F0}) mm",
+                        eids.Count);
                 }
                 catch (Exception ex)
                 {
                     try { tx.RollBack(); } catch { }
-                    return new CommandResultDto(false, $"Failed: {ex.Message}");
+                    return new CommandResultDto(false, $"Failed: {ex.Message}. No elements were changed.");
                 }
             }
             catch (Exception ex)
@@ -528,9 +518,13 @@ public sealed partial class AdapterRevitBridge
                 tx.Start();
                 try
                 {
-                    var newIds = ElementTransformUtils.MirrorElements(doc, eids, plane, false);
+                    // mirrorCopies is false: the elements are mirrored where they stand, nothing is copied.
+                    ElementTransformUtils.MirrorElements(doc, eids, plane, false);
                     tx.Commit();
-                    return new CommandResultDto(true, $"Mirrored {eids.Count} -> {newIds.Count} new elements", newIds.Count);
+                    return new CommandResultDto(
+                        true,
+                        $"Mirrored {eids.Count} element(s) in place across the line ({x1:F0},{y1:F0})-({x2:F0},{y2:F0}) mm.",
+                        eids.Count);
                 }
                 catch (Exception ex)
                 {

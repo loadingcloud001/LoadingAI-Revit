@@ -209,4 +209,44 @@ public class PluginFixesInRevitTests
             group.RollBack();
         }
     }
+
+    // ---- Task 17 -------------------------------------------------------------------------
+
+    [Test]
+    public void MoveElements_MovesAHostedDoorWithItsWallExactlyOnce()
+    {
+        var doc = _uiApp.ActiveUIDocument.Document;
+        var symbol = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
+            .FirstOrDefault(s => s.Family.FamilyPlacementType == FamilyPlacementType.OneLevelBasedHosted);
+        if (symbol == null) Assert.Ignore("Load a door or window family (a wall-hosted one) into the open model.");
+
+        using var group = new TransactionGroup(doc, "LoadingAI.RevitTests move wall and door");
+        group.Start();
+        try
+        {
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
+            var wall = NewWall(doc, level, 0, 0, 6000, 0);
+            FamilyInstance door;
+            using (var tx = new Transaction(doc, "LoadingAI.RevitTests door"))
+            {
+                tx.Start();
+                if (!symbol!.IsActive) symbol.Activate();
+                door = doc.Create.NewFamilyInstance(
+                    new XYZ(Metric.MmToFt(3000), 0, level.Elevation), symbol, wall, level,
+                    Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                tx.Commit();
+            }
+
+            var before = ((LocationPoint)door.Location).Point.X;
+            var result = Run(Adapter.MoveElementsAsync(new[] { wall.Id.ToString(), door.Id.ToString() }, 1000, 0, 0));
+
+            Assert.That(result.Ok, Is.True, result.Message);
+            var after = ((LocationPoint)door.Location).Point.X;
+            Assert.That(after - before, Is.EqualTo(Metric.MmToFt(1000)).Within(1e-4), "the door moves with its wall once, not twice (R10)");
+        }
+        finally
+        {
+            group.RollBack();
+        }
+    }
 }

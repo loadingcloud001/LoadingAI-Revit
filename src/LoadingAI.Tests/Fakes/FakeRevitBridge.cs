@@ -788,10 +788,10 @@ internal sealed class FakeRevitBridge : IRevitBridge
     }
 
     public Task<CommandResultDto> MoveElementsAsync(
-        IReadOnlyList<string> elementIds, double dx, double dy, double dz,
+        IReadOnlyList<string> elementIds, double dxMm, double dyMm, double dzMm,
         CancellationToken ct = default)
     {
-        MoveElementsCalls.Add((elementIds, dx, dy, dz));
+        MoveElementsCalls.Add((elementIds, dxMm, dyMm, dzMm));
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (elementIds == null || elementIds.Count == 0)

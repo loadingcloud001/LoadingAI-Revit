@@ -33,7 +33,7 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "move_elements",
-                Description = "Move elements by vector (mm).",
+                Description = "Move elements by a vector (mm). The set moves together, so a wall and the doors hosted on it move once.",
                 Parameters = new
                 {
                     type = "object",
@@ -76,7 +76,7 @@ public static class GeometryTools
             eids = sel.ElementIds.ToList();
         }
         if (eids.Count == 0) return Refused("Please select elements first.");
-        return WriteResult(await context.Bridge.MoveElementsAsync(eids, Metric.MmToFt(dx), Metric.MmToFt(dy), Metric.MmToFt(dz)));
+        return WriteResult(await context.Bridge.MoveElementsAsync(eids, dx, dy, dz));
     }
 
     internal static ToolEntry CreateDeleteElements(IPluginContext context) => new()
@@ -455,7 +455,7 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "rotate_elements",
-                Description = "Rotate elements around Z (pyRevit: Rotate). Params: elementIds, angleDegrees, originX,originY optional (else centroid).",
+                Description = "Rotate elements around a vertical axis. Params: elementIds, angleDegrees, originX,originY in mm (optional; default the centre of the elements' bounding boxes). The set rotates together.",
                 Parameters = new
                 {
                     type = "object",
@@ -499,7 +499,7 @@ public static class GeometryTools
             Function = new ToolFunction
             {
                 Name = "mirror_elements",
-                Description = "Mirror elements across line (pyRevit). Params: elementIds, x1,y1,x2,y2 in mm.",
+                Description = "Mirror elements in place across the vertical plane through the line (x1,y1)-(x2,y2), all in mm. Makes no copies.",
                 Parameters = new
                 {
                     type = "object",
