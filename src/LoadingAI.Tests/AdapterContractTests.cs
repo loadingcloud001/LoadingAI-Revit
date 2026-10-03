@@ -77,6 +77,14 @@ public class AdapterContractTests
         Assert.Contains("DefaultTimeout", src);
     }
 
+    [Fact]
+    public void Source_DeleteReportsDependentsFromDocDelete()
+    {
+        var src = AdapterSource.Containing("public Task<CommandResultDto> DeleteElementsAsync");
+        Assert.Contains("var deleted = doc.Delete(ids);", src);
+        Assert.Contains("dependent element(s)", src);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

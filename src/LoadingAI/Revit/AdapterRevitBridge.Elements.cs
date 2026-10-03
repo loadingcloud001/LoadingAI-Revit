@@ -32,9 +32,15 @@ public sealed partial class AdapterRevitBridge
             try
             {
                 var ids = elementIds.Select(AllTools.ParseEid).ToList();
-                doc.Delete(ids);
+                // Revit also deletes dependents (hosted doors, tags, dimensions); report the real total.
+                var deleted = doc.Delete(ids);
                 tx.Commit();
-                return new CommandResultDto(true, $"Deleted {ids.Count} element(s). Undo with Ctrl+Z.", ids.Count);
+                var total = deleted?.Count ?? ids.Count;
+                var dependents = total - ids.Count;
+                var text = dependents > 0
+                    ? $"Deleted {ids.Count} requested element(s) and {dependents} dependent element(s) ({total} total). Undo with Ctrl+Z."
+                    : $"Deleted {ids.Count} element(s). Undo with Ctrl+Z.";
+                return new CommandResultDto(true, text, total);
             }
             catch (Exception ex)
             {
