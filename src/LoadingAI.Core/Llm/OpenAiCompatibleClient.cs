@@ -184,6 +184,32 @@ public sealed class OpenAiCompatibleClient : IDisposable
         _http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
+    /// <summary>Longest silence tolerated between two stream lines before the call fails.</summary>
+    internal TimeSpan StreamIdleTimeout { get; set; } = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// netstandard2.0 ReadLineAsync takes no token, so a stalled provider would hang Stop forever.
+    /// Races the read against the idle timeout and the caller's token.
+    /// </summary>
+    internal static async Task<string?> ReadLineWithIdleTimeoutAsync(StreamReader reader, TimeSpan idle, CancellationToken ct)
+    {
+        var read = reader.ReadLineAsync();
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var delay = Task.Delay(idle, delayCts.Token);
+        var done = await Task.WhenAny(read, delay).ConfigureAwait(false);
+        if (done == read)
+        {
+            delayCts.Cancel();
+            try { return await read.ConfigureAwait(false); }
+            // Stop disposes the response, which can fault the read before the token is observed.
+            catch when (ct.IsCancellationRequested) { ct.ThrowIfCancellationRequested(); throw; }
+        }
+        // The abandoned read faults once the response is disposed; observe it so it is not unobserved.
+        _ = read.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        ct.ThrowIfCancellationRequested();
+        throw new TimeoutException($"Provider stream sent nothing for {idle.TotalSeconds:0}s.");
+    }
+
     public async Task<ChatCompletionResponse> ChatAsync(
         ProviderConfig provider,
         List<ChatMessage> messages,
@@ -624,6 +650,8 @@ public sealed class OpenAiCompatibleClient : IDisposable
         httpReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
         using var resp = await _http.SendAsync(httpReq, HttpCompletionOption.ResponseHeadersRead, ct);
+        // Stop must abort a body read that is already in flight.
+        using var abortOnCancel = ct.Register(() => { try { resp.Dispose(); } catch { } });
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync();
@@ -650,7 +678,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync();
+            var line = await ReadLineWithIdleTimeoutAsync(reader, StreamIdleTimeout, ct);
             if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
             if (line.StartsWith(":")) continue;
