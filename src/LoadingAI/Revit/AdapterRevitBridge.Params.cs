@@ -395,7 +395,8 @@ public sealed partial class AdapterRevitBridge
                     .Take(lim)
                     .ToList();
                 int upd = 0;
-                var re = new System.Text.RegularExpressions.Regex(pattern);
+                if (!SafeRegex.TryCreate(pattern, out var re, out var reError))
+                    return new CommandResultDto(false, $"Failed: {reError}");
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: replace {paramName}");
                 tx.Start();
                 try
@@ -405,7 +406,17 @@ public sealed partial class AdapterRevitBridge
                         var p = el.LookupParameter(paramName);
                         if (p == null || p.StorageType != StorageType.String) continue;
                         var cur = p.AsString() ?? "";
-                        var nxt = re.Replace(cur, replacement);
+                        string nxt;
+                        try
+                        {
+                            nxt = re!.Replace(cur, replacement);
+                        }
+                        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+                        {
+                            tx.RollBack();
+                            return new CommandResultDto(false,
+                                $"Failed: the pattern /{pattern}/ took longer than {SafeRegex.MatchTimeout.TotalSeconds:0} s on element {el.Id}. Nothing was changed. Use a simpler pattern.");
+                        }
                         if (cur == nxt) continue;
                         if (AllTools.TrySetParameter(el, paramName, nxt, out _)) upd++;
                     }
