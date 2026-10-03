@@ -503,3 +503,50 @@ test('an invalid UPSTREAM_TIMEOUT_MS falls back to the default instead of aborti
 test('tickets last two hours by default', () => {
   assert.equal(DEFAULT_TICKET_TTL_SECONDS, 7200);
 });
+
+test('upstreamBody forwards only a real positive number as max_tokens, floored', () => {
+  assert.equal(upstreamBody({ max_tokens: '8' }, {}).max_tokens, undefined);
+  assert.equal(upstreamBody({ max_tokens: true }, {}).max_tokens, undefined);
+  assert.equal(upstreamBody({ max_tokens: [5] }, {}).max_tokens, undefined);
+  assert.equal(upstreamBody({ max_tokens: 100.5 }, {}).max_tokens, 100);
+  assert.equal(upstreamBody({ max_tokens: 0.5 }, {}).max_tokens, undefined);
+  assert.equal(upstreamBody({ max_tokens: 5 }, { MAX_OUTPUT_TOKENS: '99999999999' }).max_tokens, 5);
+  assert.equal(upstreamBody({ max_tokens: 2e9 }, { MAX_OUTPUT_TOKENS: '99999999999' }).max_tokens, 1_000_000);
+});
+
+test('upstreamBody rejects partial or non-integer MAX_OUTPUT_TOKENS', () => {
+  for (const bad of ['1000tokens', '1.5', '1e3']) {
+    assert.equal(upstreamBody({ max_tokens: 99999 }, { MAX_OUTPUT_TOKENS: bad }).max_tokens, 8192);
+  }
+});
+
+test('a huge UPSTREAM_TIMEOUT_MS is clamped and does not 504 a fast upstream', async (t) => {
+  const env = makeEnv({ UPSTREAM_TIMEOUT_MS: '99999999999' });
+  const ticket = await issueTicket(env);
+  stubUpstream(t);
+  const res = await worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env);
+  assert.equal(res.status, 200);
+});
+
+test('partial or non-integer UPSTREAM_TIMEOUT_MS falls back to the default', async (t) => {
+  for (const bad of ['120000ms', '1.5', '1e9']) {
+    const env = makeEnv({ UPSTREAM_TIMEOUT_MS: bad });
+    const ticket = await issueTicket(env);
+    stubUpstream(t);
+    const res = await worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env);
+    assert.equal(res.status, 200, bad);
+  }
+});
+
+test('a non-abort upstream error is rethrown, not mapped to 504', async (t) => {
+  const env = makeEnv();
+  const ticket = await issueTicket(env);
+  const original = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+  await assert.rejects(worker.fetch(chatRequest({ ...AUTH(), 'x-loadingai-ticket': ticket }), env), /fetch failed/);
+});

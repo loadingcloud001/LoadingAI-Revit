@@ -34,6 +34,8 @@ const DEFAULT_CLIENT_TOKEN = 'loadingai-addin-v1';
 const FORWARDED_FIELDS = ['messages', 'tools', 'tool_choice', 'temperature', 'stream'];
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 120_000;
+const MAX_UPSTREAM_TIMEOUT_MS = 600_000;
+const MAX_OUTPUT_TOKENS_LIMIT = 1_000_000;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -51,9 +53,12 @@ function dailyLimit(env) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LIMIT;
 }
 
-function positiveInt(raw, fallback) {
-  const parsed = Number.parseInt(raw ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+/** Whole decimal digits only (no '1.5', '1e9' or '120000ms'), clamped to `max` so a timer delay cannot overflow. */
+function positiveInt(raw, fallback, max = Number.MAX_SAFE_INTEGER) {
+  const text = String(raw ?? '').trim();
+  if (!/^\d+$/.test(text)) return fallback;
+  const parsed = Number(text);
+  return parsed > 0 ? Math.min(parsed, max) : fallback;
 }
 
 export function upstreamBody(payload, env) {
@@ -61,9 +66,9 @@ export function upstreamBody(payload, env) {
   for (const key of FORWARDED_FIELDS) {
     if (payload[key] !== undefined) body[key] = payload[key];
   }
-  const asked = Number(payload.max_tokens);
-  if (Number.isFinite(asked) && asked > 0) {
-    body.max_tokens = Math.min(asked, positiveInt(env.MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS));
+  const asked = payload.max_tokens;
+  if (typeof asked === 'number' && Number.isFinite(asked) && asked >= 1) {
+    body.max_tokens = Math.min(Math.floor(asked), positiveInt(env.MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_LIMIT));
   }
   body.model = env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview';
   return body;
@@ -217,7 +222,7 @@ async function handleChat(request, env) {
   const base = (env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1').replace(/\/+$/, '');
   // Bounds the wait for response headers only; a long stream that is flowing is never cut.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), positiveInt(env.UPSTREAM_TIMEOUT_MS, DEFAULT_UPSTREAM_TIMEOUT_MS));
+  const timer = setTimeout(() => controller.abort(), positiveInt(env.UPSTREAM_TIMEOUT_MS, DEFAULT_UPSTREAM_TIMEOUT_MS, MAX_UPSTREAM_TIMEOUT_MS));
   let upstream;
   try {
     upstream = await fetch(`${base}/chat/completions`, {
