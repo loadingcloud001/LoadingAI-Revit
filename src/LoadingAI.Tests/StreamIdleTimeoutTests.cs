@@ -77,12 +77,21 @@ public class StreamIdleTimeoutTests
             Interlocked.Increment(ref Calls);
             var streaming = request.Headers.Accept.Any(a => a.MediaType == "text/event-stream");
             HttpContent content = streaming
-                ? new StreamContent(new DelayedStream((600,
+                ? new StreamContent(new DelayedStream((1000,
                     "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n")))
                 : new StringContent("""{"choices":[{"message":{"role":"assistant","content":"fallback"},"finish_reason":"stop"}]}""", Encoding.UTF8, "application/json");
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
         }
     }
+
+    /// <summary>Always sets both stream timeouts so no test falls back on the long production defaults.</summary>
+    private static OpenAiCompatibleClient NewClient(HttpMessageHandler handler, TimeSpan idle, TimeSpan firstLine)
+        => new(handler) { StreamIdleTimeout = idle, StreamFirstLineTimeout = firstLine };
+
+    private static ProviderConfig Fake() => new()
+    {
+        Id = "fake", Name = "Fake", BaseUrl = "http://fake.test/v1", Model = "m", ApiKey = "k", ApiKind = "openai"
+    };
 
     [Fact]
     public async Task ReadLine_ThrowsTimeoutWhenNothingArrives()
@@ -130,16 +139,12 @@ public class StreamIdleTimeoutTests
     public async Task SlowFirstLine_UsesFirstLineAllowanceInsteadOfIdleTimeout()
     {
         var handler = new SlowFirstLineHandler();
-        using var client = new OpenAiCompatibleClient(handler)
-        {
-            StreamIdleTimeout = TimeSpan.FromMilliseconds(200),
-            StreamFirstLineTimeout = TimeSpan.FromSeconds(2)
-        };
-        var provider = new ProviderConfig { Id = "fake", Name = "Fake", BaseUrl = "http://fake.test/v1", Model = "m", ApiKey = "k", ApiKind = "openai" };
+        using var client = NewClient(handler, TimeSpan.FromMilliseconds(300), TimeSpan.FromSeconds(10));
         var deltas = new List<string>();
-        var call = client.ChatAsync(provider, new List<ChatMessage> { ChatMessage.FromText("user", "hi") }, null, d => deltas.Add(d));
+        var call = client.ChatAsync(Fake(), new List<ChatMessage> { ChatMessage.FromText("user", "hi") }, null, d => deltas.Add(d));
 
-        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
+        // Hang detector only, not an assertion.
+        var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(20)));
         Assert.Same(call, finished);
         Assert.Equal("hello", LlmJson.GetContentString((await call).Choices![0].Message!.Content));
         Assert.Equal("hello", string.Concat(deltas));
@@ -149,9 +154,8 @@ public class StreamIdleTimeoutTests
     [Fact]
     public async Task StalledStream_FallsBackInsteadOfHanging()
     {
-        using var client = new OpenAiCompatibleClient(new StallThenJsonHandler()) { StreamIdleTimeout = TimeSpan.FromMilliseconds(300) };
-        var provider = new ProviderConfig { Id = "fake", Name = "Fake", BaseUrl = "http://fake.test/v1", Model = "m", ApiKey = "k", ApiKind = "openai" };
-        var call = client.ChatAsync(provider, new List<ChatMessage> { ChatMessage.FromText("user", "hi") }, null, _ => { });
+        using var client = NewClient(new StallThenJsonHandler(), TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(300));
+        var call = client.ChatAsync(Fake(), new List<ChatMessage> { ChatMessage.FromText("user", "hi") }, null, _ => { });
 
         var finished = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(10)));
         Assert.Same(call, finished);

@@ -689,6 +689,7 @@ public sealed class OpenAiCompatibleClient : IDisposable
         using var stream = await resp.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
+        // Trade-off: once any line has arrived (even a keep-alive comment), the shorter idle limit applies.
         var firstLine = true;
         while (true)
         {
