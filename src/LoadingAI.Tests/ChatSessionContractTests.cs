@@ -112,6 +112,34 @@ public class ChatSessionContractTests
         Assert.True(guard >= 0 && guard < discover);
     }
 
+    [Fact]
+    public void Source_HostPageUnsubscribesTheControlNavigationEvent()
+    {
+        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "HostPage.xaml.cs"));
+        var start = src.IndexOf("private void OnUnloaded", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var end = src.IndexOf("private void ShowFallback", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var unloaded = src.Substring(start, end - start);
+        Assert.Contains("Web.NavigationCompleted -= OnNavigationCompleted;", unloaded);
+        // The CoreWebView2 object has no such event subscribed; unsubscribing it was a no-op.
+        Assert.DoesNotContain("CoreWebView2.NavigationCompleted", src);
+    }
+
+    [Fact]
+    public void Source_InitToolsIsIdempotent()
+    {
+        var src = Session();
+        var start = src.IndexOf("public void InitTools()", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var end = src.IndexOf("public void RebuildRegistry()", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var init = src.Substring(start, end - start);
+        var guard = init.IndexOf("if (_agent != null && _discovered.Count > 0) return;", StringComparison.Ordinal);
+        var discover = init.IndexOf("PluginLoader.Discover", StringComparison.Ordinal);
+        Assert.True(guard >= 0 && guard < discover);
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

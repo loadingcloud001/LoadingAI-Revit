@@ -60,6 +60,8 @@ internal sealed class ChatSession
 
     public void InitTools()
     {
+        // The pane can raise Loaded again after Unloaded; re-discovery would unload live plugin contexts.
+        if (_agent != null && _discovered.Count > 0) return;
         var bridge = App.Bridge;
         if (bridge == null)
         {

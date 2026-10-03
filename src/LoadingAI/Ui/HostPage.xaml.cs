@@ -72,6 +72,7 @@ public partial class HostPage : Page
             try { Web.CoreWebView2.SetVirtualHostNameToFolderMapping("appassets", distDir, CoreWebView2HostResourceAccessKind.DenyCors); }
             catch (ArgumentException) { }
 
+            Web.NavigationCompleted -= OnNavigationCompleted;
             Web.NavigationCompleted += OnNavigationCompleted;
 
             Web.Source = new Uri("https://appassets/index.html");
@@ -100,10 +101,10 @@ public partial class HostPage : Page
         try
         {
             _session.DisposeCts();
+            Web.NavigationCompleted -= OnNavigationCompleted;
             if (Web.CoreWebView2 != null)
             {
                 Web.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
-                Web.CoreWebView2.NavigationCompleted -= OnNavigationCompleted;
             }
         }
         catch { }
