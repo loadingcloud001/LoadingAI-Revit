@@ -157,6 +157,18 @@ public class RevitBridgeContractTests
         return string.Join("\n", Directory.GetFiles(dir, "*.cs").Select(File.ReadAllText));
     }
 
+    [Fact]
+    public void Source_ConfirmDialogsUseUserDialogTimeout()
+    {
+        var gate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
+        var confirm = Slice(gate, "public async Task<bool> ConfirmL3NativeAsync", "public async Task RunPresetPickAsync");
+        Assert.Contains("RevitBridge.UserDialogTimeout", confirm);
+        Assert.Contains("catch (BridgeOperationUnknownException", confirm);
+
+        var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
+        Assert.Equal(2, guards.Split(new[] { "RevitBridge.UserDialogTimeout" }, StringSplitOptions.None).Length - 1);
+    }
+
     private static string Slice(string src, string start, string end)
     {
         var i = src.IndexOf(start, StringComparison.Ordinal);

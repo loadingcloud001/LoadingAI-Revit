@@ -10,6 +10,9 @@ public sealed class RevitBridge : IDisposable
     private readonly BridgeHandler _handler;
     private readonly BridgeActionRegistry _actions = new();
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(120);
+
+    /// <summary>Waits on a human (TaskDialog). Matches the 15-minute preset form timeout.</summary>
+    public static readonly TimeSpan UserDialogTimeout = TimeSpan.FromMinutes(15);
     private volatile bool _executing;
     private volatile bool _hasActiveDocument;
     private volatile int _uiThreadId;
