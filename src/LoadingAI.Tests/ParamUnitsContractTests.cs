@@ -59,7 +59,7 @@ public class ParamUnitsContractTests
         var entry = ParamTools.Create(context).First(e => e.Definition.Function.Name == tool);
         var text = entry.Definition.Function.Description + JsonSerializer.Serialize(entry.Definition.Function.Parameters);
         Assert.True(
-            text.Contains("mm", StringComparison.Ordinal) || text.Contains("as numbers", StringComparison.Ordinal),
+            text.IndexOf("mm", StringComparison.Ordinal) >= 0 || text.IndexOf("as numbers", StringComparison.Ordinal) >= 0,
             tool + " must say which units its numbers use");
     }
 }

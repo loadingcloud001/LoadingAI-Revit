@@ -46,7 +46,7 @@ public static class ToolSelector
         ("數量", "quantity takeoff"), ("数量", "quantity takeoff"), ("工程量", "quantity takeoff"),
         ("警告", "warning"),
         ("分割", "split"), ("拆分", "split"), ("切割", "split"),
-        ("洞口", "opening"), ("開孔", "opening"), ("开孔", "opening"),
+        ("洞口", "opening openings"), ("開孔", "opening openings"), ("开孔", "opening openings"),
         ("模板", "formwork"),
         ("隱藏", "hide"), ("隐藏", "hide"),
         ("隔離", "isolate"), ("隔离", "isolate"),

@@ -134,6 +134,10 @@ public static class PluginLoader
     /// </summary>
     public const string RemoveMarkerName = ".remove";
 
+    /// <summary>Marks a plugin folder for removal under the scanned roots, then tries to delete it now.</summary>
+    public static bool TryRemove(string pluginId, string? folderPath, out string message)
+        => TryRemove(pluginId, folderPath, new[] { RuntimePluginsDir, DevPluginsDir }, out message);
+
     /// <summary>Marks a plugin folder for removal, then tries to delete it now.</summary>
     public static bool TryRemove(string pluginId, string? folderPath, IReadOnlyList<string> roots, out string message)
     {
@@ -541,7 +545,11 @@ public static class PluginLoader
     {
         var problems = new List<string>();
         var byName = new Dictionary<string, ToolEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in tools) byName.TryAdd(t.Definition.Function.Name ?? "", t);
+        foreach (var t in tools)
+        {
+            var key = t.Definition.Function.Name ?? "";
+            if (!byName.ContainsKey(key)) byName[key] = t;
+        }
 
         foreach (var declared in meta.Tools)
         {

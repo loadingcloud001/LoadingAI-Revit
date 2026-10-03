@@ -125,7 +125,7 @@ public class PluginFixesInRevitTests
             var result = Run(Adapter.CreateFamilyInstanceAsync(symbol!.Name, 0, 0, symbol.FamilyName, upper.Name, 500));
 
             Assert.That(result.Ok, Is.True, result.Message);
-            var instance = doc.GetElement(AllTools.ParseEid(result.ElementIds![0]));
+            var instance = doc.GetElement(RevitParse.ParseEid(result.ElementIds![0]));
             var z = ((LocationPoint)instance.Location).Point.Z;
             Assert.That(z, Is.EqualTo(upper.Elevation + Metric.MmToFt(500)).Within(1e-4), "z is a height above the level, not an absolute elevation (R3)");
         }
@@ -172,7 +172,7 @@ public class PluginFixesInRevitTests
             var result = Run(Adapter.CreateWallAsync(level.Name, 0, 0, 4000, 0, null, 3500));
 
             Assert.That(result.Ok, Is.True, result.Message);
-            var wall = (Wall)doc.GetElement(AllTools.ParseEid(result.ElementIds![0]));
+            var wall = (Wall)doc.GetElement(RevitParse.ParseEid(result.ElementIds![0]));
             Assert.That(wall.WallType.Kind, Is.EqualTo(WallKind.Basic));
             Assert.That(wall.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM).AsDouble(), Is.EqualTo(Metric.MmToFt(3500)).Within(1e-4));
         }
@@ -328,7 +328,7 @@ public class PluginFixesInRevitTests
             var result = Run(Adapter.CreateDimensionBetweenWallsAsync(a.Id.ToString(), b.Id.ToString()));
 
             Assert.That(result.Ok, Is.True, result.Message + " (R5)");
-            var dimension = (Dimension)doc.GetElement(AllTools.ParseEid(result.ElementIds![0]));
+            var dimension = (Dimension)doc.GetElement(RevitParse.ParseEid(result.ElementIds![0]));
             var expected = Metric.MmToFt(3000) - (a.Width + b.Width) / 2;
             Assert.That(dimension.Value!.Value, Is.EqualTo(expected).Within(1e-3));
         }
