@@ -160,6 +160,14 @@ public static class PluginLoader
         }
         catch
         {
+            // A partial recursive delete may already have removed the marker; put it back so the scan
+            // skips the half-deleted folder and PurgeMarked finishes the job later.
+            try
+            {
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, RemoveMarkerName), DateTime.UtcNow.ToString("O"));
+            }
+            catch { }
             message = $"{pluginId} is in use. It will be deleted the next time plugins are scanned or Revit restarts.";
         }
         return true;
