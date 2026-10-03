@@ -1054,9 +1054,17 @@ public static class QueryTools
                     sb.AppendLine("Id,Name,Level,AreaM2,VolumeM3,LengthMm");
                     foreach (var row in dto.Rows)
                     {
-                        sb.AppendLine($"{row.Id},\"{row.Name}\",\"{row.Level}\",{Metric.Ft2ToM2(row.AreaFt2):F2},{Metric.Ft3ToM3(row.VolumeFt3):F3},{Metric.FtToMm(row.LengthFt):F0}");
+                        sb.AppendLine(string.Join(",", new[]
+                        {
+                            row.Id,
+                            CsvText.Cell(row.Name),
+                            CsvText.Cell(row.Level),
+                            CsvText.Number(Metric.Ft2ToM2(row.AreaFt2), "0.00"),
+                            CsvText.Number(Metric.Ft3ToM3(row.VolumeFt3), "0.000"),
+                            CsvText.Number(Metric.FtToMm(row.LengthFt), "0")
+                        }));
                     }
-                    var path = ExportPaths.ResolveWrite(fp, $"takeoff_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                    var path = ExportPaths.ResolveWrite(fp, $"takeoff_{cat}_{DateTime.Now.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)}.csv");
                     File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
                     return $"{cat} takeoff: {dto.Count} instances Area {Metric.Area(dto.TotalAreaFt2)} Vol {Metric.Volume(dto.TotalVolumeFt3)} Len {Metric.Length(dto.TotalLengthFt)}\nCSV: {path}\nPreview:\n" + string.Join("\n", sb.ToString().Split('\n').Take(6));
                 }

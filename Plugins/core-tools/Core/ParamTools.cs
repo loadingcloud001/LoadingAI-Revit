@@ -333,14 +333,14 @@ public static class ParamTools
             return ToolExecutionResult.Failed(dto.Error, ToolWriteCertainty.NoWrite);
         try
         {
-            var path = ExportPaths.ResolveWrite(filePath, $"export_{cat}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+            var path = ExportPaths.ResolveWrite(filePath, $"export_{cat}_{DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture)}.csv");
             var sb = new StringBuilder();
-            sb.AppendLine("Id," + string.Join(",", dto.Columns));
+            sb.AppendLine("Id," + string.Join(",", dto.Columns.Select(CsvText.Cell)));
             foreach (var row in dto.Rows)
             {
                 var vals = new List<string> { row.Id };
                 foreach (var v in row.Values)
-                    vals.Add($"\"{(v ?? "").Replace("\"", "\"\"")}\"");
+                    vals.Add(CsvText.Cell(v));
                 sb.AppendLine(string.Join(",", vals));
             }
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);

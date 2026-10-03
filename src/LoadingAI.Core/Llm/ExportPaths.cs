@@ -12,7 +12,7 @@ public static class ExportPaths
     {
         Directory.CreateDirectory(Root);
         if (string.IsNullOrWhiteSpace(userPath))
-            return Path.Combine(Root, defaultFileName);
+            return Path.Combine(Root, SanitizeFileName(defaultFileName, "export"));
 
         var candidate = Path.IsPathRooted(userPath)
             ? Path.GetFullPath(userPath)

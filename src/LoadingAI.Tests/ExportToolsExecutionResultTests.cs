@@ -20,7 +20,7 @@ public class ExportToolsExecutionResultTests
         var (bridge, context) = Setup();
         bridge.NextExportPdfResult = new CommandResultDto(true, "Exported 2 sheet(s)/view(s) to PDF.", 2);
 
-        var result = await CreateTool(context, "export_pdf").ExecuteAsync("{}");
+        var result = await CreateTool(context, "export_pdf").ExecuteAsync("""{"confirmAll":true}""");
 
         Assert.Equal(ToolExecutionStatus.Succeeded, result.Status);
         Assert.Equal(ToolWriteCertainty.NoWrite, result.WriteCertainty);
@@ -34,7 +34,7 @@ public class ExportToolsExecutionResultTests
         var (bridge, context) = Setup();
         bridge.NextExportPdfResult = new CommandResultDto(false, "Export failed: no plotter.");
 
-        var result = await CreateTool(context, "export_pdf").ExecuteAsync("{}");
+        var result = await CreateTool(context, "export_pdf").ExecuteAsync("""{"confirmAll":true}""");
 
         Assert.Equal(ToolExecutionStatus.Failed, result.Status);
         Assert.Equal(ToolWriteCertainty.NoWrite, result.WriteCertainty);

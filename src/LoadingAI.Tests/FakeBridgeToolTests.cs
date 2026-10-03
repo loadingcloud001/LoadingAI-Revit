@@ -1636,7 +1636,7 @@ public class FakeBridgeToolTests
         var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
             .Single(t => t.Definition.Function.Name == "export_pdf");
 
-        var text = await tool.Handler("{}");
+        var text = await tool.Handler("""{"confirmAll":true}""");
 
         Assert.Equal($"Exported 1 sheet(s)/view(s) to PDF: {Path.Combine(ExportPaths.Root, "export.pdf")}", text);
         var call = Assert.Single(bridge.ExportPdfCalls);
@@ -1669,7 +1669,7 @@ public class FakeBridgeToolTests
         var tool = ExportPlugin().CreateTools(new FakePluginContext(bridge))
             .Single(t => t.Definition.Function.Name == "export_pdf");
 
-        var text = await tool.Handler("{}");
+        var text = await tool.Handler("""{"confirmAll":true}""");
 
         Assert.Equal("Please open a model first.", text);
         Assert.Single(bridge.ExportPdfCalls);
