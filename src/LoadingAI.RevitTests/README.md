@@ -13,6 +13,7 @@ GitHub-hosted `windows-latest` cannot start `Revit.exe`. CI builds this project 
 dotnet build src/LoadingAI/LoadingAI.csproj -c Release `
   -p:RevitVersion=2027 -p:SkipTrustAddin=true -m:1
 $env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1"
+$env:DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY = "0"
 $env:RICAUN_REVITTEST_TESTADAPTER_NUNIT_LANGUAGE = "ENU"
 dotnet test src/LoadingAI.RevitTests/LoadingAI.RevitTests.csproj -c Release `
   -p:ForceRevitTests=true -p:RevitVersion=2027 `
@@ -25,7 +26,7 @@ CopyAddin then runs `scripts/trust-addin.ps1` (unless `-p:SkipTrustAddin=true`).
 
 `ForceRevitTests=true` flips `IsTestProject` on. Without it, `dotnet test LoadingAI.sln` will not launch Revit.
 
-For this machine's Revit 2027/ricalun 1.11.1 combination, keep `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`; otherwise the adapter's assembly resolver can recurse through satellite resources and report `Stack overflow` before discovering tests. To attach to a model that is already open, set `RICAUN_REVITTEST_TESTADAPTER_NUNIT_OPEN=false` and `...NUNIT_CLOSE=false` and run the same command. The Opening Tools slice is `OpeningToolsInRevitTests`: discovery/hash gate, dry-run, live place+punch, and repair-cut, all write probes rolled back.
+For this machine's Revit 2027/ricalun 1.11.1 combination, keep `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` together with `DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY=0` (see the 2027.2 section); otherwise the adapter's assembly resolver can recurse through satellite resources and report `Stack overflow` before discovering tests. To attach to a model that is already open, set `RICAUN_REVITTEST_TESTADAPTER_NUNIT_OPEN=false` and `...NUNIT_CLOSE=false` and run the same command. The Opening Tools slice is `OpeningToolsInRevitTests`: discovery/hash gate, dry-run, live place+punch, and repair-cut, all write probes rolled back.
 
 Optional env overrides (prefix `RICAUN_REVITTEST_TESTADAPTER_`):
 
@@ -62,8 +63,18 @@ reg add "HKLM\SOFTWARE\Autodesk\Revit\Autodesk Revit 2027" /v InstallLocation /t
 
 **2. With Revit discoverable, Revit 2027.2 dies in UI initialisation.** It starts, completes licensing, then fails with `ExceptionCode=0xe0434352` and `Unconverted MessageBox ""` in the journal, at the point where it would set WPF rendering mode — before `Journal Init`. A successful run's journal contains `Setting WPF rendering mode to SoftwareOnly` and `Journal Init`; a failing one contains neither and is ~6 KB instead of ~480 KB. It reproduces to the second, and `dotnet test` reports `No test is available` because discovery dies with it.
 
+**Fixed by a second variable (verified 2026-10-04, Revit 2027.2, 12 tests ran in about 57 s).** The invariant-globalization switch above is inherited by the Revit process the test host launches, and Revit then dies in WPF initialisation. Set both, so the tooling stays invariant while Revit may create the OS culture:
+
+```powershell
+$env:DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = "1"
+$env:DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY = "0"
+$env:DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY = "0"
+```
+
+Without the first, discovery stack-overflows; with only the first, every test times out after 10 minutes.
+
 This is **not the add-in**. It reproduces identically with this project's add-in moved out of `%AppData%\Autodesk\Revit\Addins\2027`, and the same binary launched by hand reaches a full ribbon with the add-in installed. `ricaun.RevitTest.TestAdapter` 1.11.1 is documented for Revit 2019–2025.
 
-**Step 2 above does not reach 2027.** Revit.TestRunner's latest release (v1.5.0, July 2024) ships `InstallAddin v2022…v2025.cmd` only, is a prerelease flagged "problems detected", and its `net8.0-windows` add-in bundles its own Revit 2025 `RevitAPI.dll`. Until a runner supports Revit 2027, treat the fixtures here as **compile-verified only**. `FormworkInRevitTests` has never executed; see F7 in `docs/PROJECT_BUGS_AND_LIMITATIONS.md`.
+**Step 2 above does not reach 2027.** Revit.TestRunner's latest release (v1.5.0, July 2024) ships `InstallAddin v2022…v2025.cmd` only, is a prerelease flagged "problems detected", and its `net8.0-windows` add-in bundles its own Revit 2025 `RevitAPI.dll`. With the two variables above the ricaun adapter does run on 2027.2 (`PluginFixesInRevitTests` executed there). `FormworkInRevitTests` has not been run on it; see F7 in `docs/PROJECT_BUGS_AND_LIMITATIONS.md`.
 
 Kind B bridge-only plugins (structure-cuts, qs-formwork) use `CreateTools` with a plain `PluginContext(raw, pluginDir)` — not `PluginLoader.Discover`. Dry-run first (empty selection / scope all skip reasons). One write is wrapped in `TransactionGroup.RollBack` so it does not persist. The host smoke rollback test starts a transaction and rolls it back; it does not persist writes.
