@@ -147,6 +147,7 @@ public class SplitRunTests
         Assert.Contains("FailureResolutionType.DetachElements", text);
         Assert.Contains("accessor.ResolveFailure(failure)", text);
         Assert.Contains("Unjoined++", text);
+        Assert.Contains("FailureProcessingResult.ProceedWithCommit", text);
         Assert.Contains("re-join them if the model needs it", text);
         foreach (var file in Algorithms)
         {

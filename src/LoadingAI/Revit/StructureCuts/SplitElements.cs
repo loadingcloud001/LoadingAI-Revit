@@ -76,6 +76,7 @@ internal static class SplitElements
         {
             var warnings = new List<FailureMessageAccessor>();
             var hasError = false;
+            var resolved = 0;
             foreach (var failure in accessor.GetFailureMessages())
             {
                 if (failure.GetSeverity() == FailureSeverity.Warning)
@@ -90,6 +91,7 @@ internal static class SplitElements
                 if (TryDetach(accessor, failure))
                 {
                     Unjoined++;
+                    resolved++;
                     continue;
                 }
 
@@ -104,7 +106,12 @@ internal static class SplitElements
 
             // An error Revit cannot resolve would otherwise open its dialog inside this call and stall it
             // until someone answers. Roll the batch back and let Commit say why.
-            return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+            if (hasError)
+                return FailureProcessingResult.ProceedWithRollBack;
+
+            // After ResolveFailure the handler must say so: with Continue Revit went on to open its own
+            // "Error - cannot be ignored" dialog (seen on Snowdon, 8 errors, an Unjoin Elements button).
+            return resolved > 0 ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue;
         }
 
         private static bool TryDetach(FailuresAccessor accessor, FailureMessageAccessor failure)
