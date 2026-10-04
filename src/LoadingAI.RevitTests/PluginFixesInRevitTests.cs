@@ -105,6 +105,8 @@ public class PluginFixesInRevitTests
     private static FamilySymbol? LevelBasedSymbol(Document doc)
         => new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
             .Where(s => s.Category?.CategoryType == CategoryType.Model
+                && s.Family.IsEditable && !s.Family.IsInPlace
+                && s.Category.BuiltInCategory != BuiltInCategory.OST_CurtainWallPanels
                 && PlacementRules.Refusal(s.Name, s.Family.FamilyPlacementType.ToString()) == null)
             .OrderBy(s => s.IsActive)
             .FirstOrDefault();
@@ -131,7 +133,8 @@ public class PluginFixesInRevitTests
             Assert.That(instance, Is.Not.Null, $"instance {result.ElementIds[0]} of '{symbol.FamilyName}: {symbol.Name}' ({symbol.Category?.Name}) is in the document");
             Assert.That(instance.Location, Is.InstanceOf<LocationPoint>(), $"'{symbol.FamilyName}: {symbol.Name}' places at a point");
             var z = ((LocationPoint)instance.Location).Point.Z;
-            Assert.That(z, Is.EqualTo(upper.Elevation + Metric.MmToFt(500)).Within(1e-4), "z is a height above the level, not an absolute elevation (R3)");
+            Assert.That(z, Is.EqualTo(upper.Elevation + Metric.MmToFt(500)).Within(1e-4),
+                $"z is a height above the level, not an absolute elevation (R3). '{symbol.FamilyName}: {symbol.Name}' ({symbol.Category?.Name}, {symbol.Family.FamilyPlacementType}); level {upper.Elevation:F3} ft; tool said: {result.Message}");
         }
         finally
         {
@@ -293,27 +296,43 @@ public class PluginFixesInRevitTests
     [Test]
     public void TagAll_PutsTheTagOnTheWall_NotOnTheOrigin()
     {
-        var doc = _uiApp.ActiveUIDocument.Document;
-        if (doc.ActiveView is not ViewPlan view) { Assert.Ignore("Activate a floor plan first."); return; }
+        var uidoc = _uiApp.ActiveUIDocument;
+        var doc = uidoc.Document;
+        var original = uidoc.ActiveView;
+        var planType = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+            .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan);
+        if (planType == null) { Assert.Ignore("The model has no floor plan view type."); return; }
 
         using var group = new TransactionGroup(doc, "LoadingAI.RevitTests tag_all");
         group.Start();
         try
         {
-            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
+            // A view of its own, so the model's existing walls and tags (and tag_all's cap on how many
+            // elements it tags) cannot decide the outcome: the only wall in it is the one just built.
+            var level = NewLevel(doc, "LAI-Tag 0", 90000);
+            ViewPlan view;
+            using (var tx = new Transaction(doc, "LoadingAI.RevitTests tag view"))
+            {
+                tx.Start();
+                view = ViewPlan.Create(doc, planType.Id, level.Id);
+                tx.Commit();
+            }
+
             var wall = NewWall(doc, level, 40000, 0, 44000, 0);
+            try { uidoc.ActiveView = view; }
+            catch (Exception ex) { Assert.Ignore("Could not activate the test view: " + ex.Message); return; }
 
             var result = Run(Adapter.TagAllInActiveViewAsync("Walls"));
             if (!result.Ok) Assert.Ignore("Load a Wall Tag family into the open model. " + result.Message);
 
-            // The view may already hold tags; the one under test is the tag on the wall just built.
             var tag = new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>()
                 .FirstOrDefault(t => t.GetTaggedLocalElementIds().Contains(wall.Id));
-            Assert.That(tag, Is.Not.Null, "tag_all tagged the new wall");
-            Assert.That(tag.TagHeadPosition.X, Is.EqualTo(Metric.MmToFt(42000)).Within(Metric.MmToFt(5000)), "R6: the tag sits on the wall, not at 0,0");
+            Assert.That(tag, Is.Not.Null, "tag_all tagged the new wall: " + result.Message);
+            Assert.That(tag!.TagHeadPosition.X, Is.EqualTo(Metric.MmToFt(42000)).Within(Metric.MmToFt(5000)), "R6: the tag sits on the wall, not at 0,0");
         }
         finally
         {
+            try { uidoc.ActiveView = original; } catch { }
             group.RollBack();
         }
     }

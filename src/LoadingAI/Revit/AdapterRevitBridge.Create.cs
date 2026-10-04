@@ -20,6 +20,7 @@ public sealed partial class AdapterRevitBridge
 {
     private const double DefaultWallHeightMm = 3000;
     private const int MaxArrayCount = 50;
+    private const double PlacementZTolFt = 1e-4;
 
     /// <summary>
     /// The symbol and level a placement tool asked for, or the sentence that says why not. Nothing
@@ -151,6 +152,22 @@ public sealed partial class AdapterRevitBridge
                     // Activating edits the document, so it belongs inside the transaction.
                     if (!sym!.IsActive) sym.Activate();
                     var inst = doc.Create.NewFamilyInstance(pt, sym, lvl, structural);
+
+                    // Revit can honour the level over the point's Z. The tool promises z above the level,
+                    // so check where the instance landed and move it the rest of the way.
+                    doc.Regenerate();
+                    if (inst.Location is LocationPoint placed && Math.Abs(placed.Point.Z - pt.Z) > PlacementZTolFt)
+                    {
+                        ElementTransformUtils.MoveElement(doc, inst.Id, new XYZ(0, 0, pt.Z - placed.Point.Z));
+                        doc.Regenerate();
+                        if (inst.Location is LocationPoint moved && Math.Abs(moved.Point.Z - pt.Z) > PlacementZTolFt)
+                        {
+                            tx.RollBack();
+                            return new CommandResultDto(false,
+                                $"Failed: '{sym.Name}' ({sym.FamilyName}) stayed at {Metric.FtToMm(moved.Point.Z):F0} mm instead of {Metric.FtToMm(pt.Z):F0} mm ({z:F0} mm above {lvl.Name}); nothing was placed.");
+                        }
+                    }
+
                     tx.Commit();
                     var id = inst.Id.ToString();
                     return new CommandResultDto(
