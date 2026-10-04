@@ -132,6 +132,8 @@ internal static class LevelSplit
             tx.Start();
             foreach (var plan in curvePlans)
             {
+                // Read before the split: a re-created host is deleted, and a deleted element's Id throws.
+                var hostId = plan.Host.Id;
                 var (ids, skipped, rollback, wasNative, lost) = CurveMemberSplit.SplitAtCuts(doc, plan, options);
                 paramSkipped += skipped;
                 if (rollback)
@@ -155,7 +157,7 @@ internal static class LevelSplit
                         dependents += lost;
                     }
 
-                    replaced.Add(plan.Host.Id);
+                    replaced.Add(hostId);
                 }
                 else
                 {
@@ -165,6 +167,7 @@ internal static class LevelSplit
 
             foreach (var stack in stackPlans)
             {
+                var hostId = stack.Wall.Id;
                 var (ids, skipped, lost, rollback) = CurveMemberSplit.SplitWallStack(doc, stack, options);
                 paramSkipped += skipped;
                 if (rollback)
@@ -178,7 +181,7 @@ internal static class LevelSplit
                     split++;
                     piecesMade += ids.Count;
                     created.AddRange(ids);
-                    replaced.Add(stack.Wall.Id);
+                    replaced.Add(hostId);
                     recreated++;
                     // The storey stack deletes the wall it replaces, so anything hanging off that host goes
                     // with it. Like the curve path, the report counts that rather than re-hosting it: the
@@ -194,6 +197,7 @@ internal static class LevelSplit
 
             foreach (var stack in columnStacks)
             {
+                var hostId = stack.Host.Id;
                 var (ids, skipped, lost, rollback) = CurveMemberSplit.SplitColumnStack(doc, stack, options);
                 paramSkipped += skipped;
                 if (rollback)
@@ -207,7 +211,7 @@ internal static class LevelSplit
                     split++;
                     piecesMade += ids.Count;
                     created.AddRange(ids);
-                    replaced.Add(stack.Host.Id);
+                    replaced.Add(hostId);
                     recreated++;
                     dependents += lost;
                 }

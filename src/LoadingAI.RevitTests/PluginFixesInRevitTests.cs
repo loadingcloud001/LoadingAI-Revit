@@ -104,7 +104,8 @@ public class PluginFixesInRevitTests
     /// <summary>A loaded family type that stands on a level by itself, inactive ones first.</summary>
     private static FamilySymbol? LevelBasedSymbol(Document doc)
         => new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-            .Where(s => PlacementRules.Refusal(s.Name, s.Family.FamilyPlacementType.ToString()) == null)
+            .Where(s => s.Category?.CategoryType == CategoryType.Model
+                && PlacementRules.Refusal(s.Name, s.Family.FamilyPlacementType.ToString()) == null)
             .OrderBy(s => s.IsActive)
             .FirstOrDefault();
 
@@ -125,7 +126,10 @@ public class PluginFixesInRevitTests
             var result = Run(Adapter.CreateFamilyInstanceAsync(symbol!.Name, 0, 0, symbol.FamilyName, upper.Name, 500));
 
             Assert.That(result.Ok, Is.True, result.Message);
+            Assert.That(result.ElementIds, Is.Not.Null.And.Not.Empty, "the tool names the instance it created: " + result.Message);
             var instance = doc.GetElement(RevitParse.ParseEid(result.ElementIds![0]));
+            Assert.That(instance, Is.Not.Null, $"instance {result.ElementIds[0]} of '{symbol.FamilyName}: {symbol.Name}' ({symbol.Category?.Name}) is in the document");
+            Assert.That(instance.Location, Is.InstanceOf<LocationPoint>(), $"'{symbol.FamilyName}: {symbol.Name}' places at a point");
             var z = ((LocationPoint)instance.Location).Point.Z;
             Assert.That(z, Is.EqualTo(upper.Elevation + Metric.MmToFt(500)).Within(1e-4), "z is a height above the level, not an absolute elevation (R3)");
         }
@@ -297,12 +301,15 @@ public class PluginFixesInRevitTests
         try
         {
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).First();
-            NewWall(doc, level, 40000, 0, 44000, 0);
+            var wall = NewWall(doc, level, 40000, 0, 44000, 0);
 
             var result = Run(Adapter.TagAllInActiveViewAsync("Walls"));
             if (!result.Ok) Assert.Ignore("Load a Wall Tag family into the open model. " + result.Message);
 
-            var tag = new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>().First();
+            // The view may already hold tags; the one under test is the tag on the wall just built.
+            var tag = new FilteredElementCollector(doc, view.Id).OfClass(typeof(IndependentTag)).Cast<IndependentTag>()
+                .FirstOrDefault(t => t.GetTaggedLocalElementIds().Contains(wall.Id));
+            Assert.That(tag, Is.Not.Null, "tag_all tagged the new wall");
             Assert.That(tag.TagHeadPosition.X, Is.EqualTo(Metric.MmToFt(42000)).Within(Metric.MmToFt(5000)), "R6: the tag sits on the wall, not at 0,0");
         }
         finally

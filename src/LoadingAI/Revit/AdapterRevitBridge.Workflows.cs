@@ -444,7 +444,9 @@ public sealed partial class AdapterRevitBridge
             }
             catch (Exception ex)
             {
-                return new SplitResultDto($"Failed: {ex.Message}", 0, 0, 0, Array.Empty<string>());
+                // Name where it was thrown, so a Revit-only failure can be traced from the report alone.
+                var site = ex.TargetSite == null ? "" : $" [{ex.GetType().Name} in {ex.TargetSite.DeclaringType?.Name}.{ex.TargetSite.Name}]";
+                return new SplitResultDto($"Failed: {ex.Message}{site}", 0, 0, 0, Array.Empty<string>());
             }
         }, ct);
     }
