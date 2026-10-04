@@ -78,7 +78,7 @@ internal static class SplitElements
                 }
 
                 hasError = true;
-                var text = failure.GetDescriptionText();
+                var text = Detail(failure);
                 if (!string.IsNullOrWhiteSpace(text) && !_errors.Contains(text))
                     _errors.Add(text);
             }
@@ -89,6 +89,35 @@ internal static class SplitElements
             // An error Revit cannot resolve would otherwise open its dialog inside this call and stall it
             // until someone answers. Roll the batch back and let Commit say why.
             return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+        }
+
+        /// <summary>
+        /// What Revit said, plus which elements it blames and which resolutions it offered, so a rolled-back
+        /// batch can be traced from the report alone.
+        /// </summary>
+        private static string Detail(FailureMessageAccessor failure)
+        {
+            var text = failure.GetDescriptionText();
+            try
+            {
+                var ids = failure.GetFailingElementIds().Select(id => id.Value.ToString(CultureInfo.InvariantCulture)).Take(5).ToList();
+                var offered = Enum.GetValues(typeof(FailureResolutionType)).Cast<FailureResolutionType>()
+                    .Where(type => type != FailureResolutionType.Invalid && failure.HasResolutionOfType(type))
+                    .Select(type => type.ToString()).ToList();
+                var parts = new List<string>();
+                if (ids.Count > 0)
+                    parts.Add("elements " + string.Join(", ", ids));
+                if (offered.Count > 0)
+                    parts.Add("Revit offered " + string.Join("/", offered));
+                if (parts.Count > 0)
+                    text += " [" + string.Join("; ", parts) + "]";
+            }
+            catch
+            {
+                // The description alone is still worth returning.
+            }
+
+            return text;
         }
 
         public string Describe()
