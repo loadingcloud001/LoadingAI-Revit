@@ -69,4 +69,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0012](0012-port-opening-tools-onto-bridge.md) | Port opening-tools onto Bridge | Accepted |
 | [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Accepted |
 | [0014](0014-preview-before-preset-form.md) | Preview before the preset form (Run panel, gates untouched) | Accepted |
-| [0015](0015-confirm-l2-parameter-writes.md) | Confirm L2 parameter writes with a summary | Proposed |
+| [0015](0015-confirm-l2-parameter-writes.md) | Confirm L2 parameter writes with a summary | Accepted |
