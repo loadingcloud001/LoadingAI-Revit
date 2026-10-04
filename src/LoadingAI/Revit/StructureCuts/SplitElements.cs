@@ -47,6 +47,11 @@ internal static class SplitElements
 
         public TransactionStatus Start() => _tx.Start();
 
+        /// <summary>Said in the report when Revit could not keep a join and it was let go instead of failing the batch.</summary>
+        public string UnjoinedNote => _failures.Unjoined == 0
+            ? ""
+            : $" Unjoined {_failures.Unjoined} join(s) Revit could not keep on the re-created members; re-join them if the model needs it.";
+
         /// <returns>Null when the batch committed; otherwise the "Failed:" report the run must return.</returns>
         public string? Commit()
         {
@@ -65,6 +70,8 @@ internal static class SplitElements
     {
         private readonly List<string> _errors = new List<string>();
 
+        public int Unjoined { get; private set; }
+
         public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
         {
             var warnings = new List<FailureMessageAccessor>();
@@ -74,6 +81,15 @@ internal static class SplitElements
                 if (failure.GetSeverity() == FailureSeverity.Warning)
                 {
                     warnings.Add(failure);
+                    continue;
+                }
+
+                // A re-created member has no geometry for its old joins to hold, so Revit raises "Can't keep
+                // elements joined" and offers to detach them. Detaching loses a join, not an element, and
+                // beats rolling back every other member of the batch.
+                if (TryDetach(accessor, failure))
+                {
+                    Unjoined++;
                     continue;
                 }
 
@@ -89,6 +105,23 @@ internal static class SplitElements
             // An error Revit cannot resolve would otherwise open its dialog inside this call and stall it
             // until someone answers. Roll the batch back and let Commit say why.
             return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;
+        }
+
+        private static bool TryDetach(FailuresAccessor accessor, FailureMessageAccessor failure)
+        {
+            try
+            {
+                if (!failure.HasResolutionOfType(FailureResolutionType.DetachElements))
+                    return false;
+
+                failure.SetCurrentResolutionType(FailureResolutionType.DetachElements);
+                accessor.ResolveFailure(failure);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

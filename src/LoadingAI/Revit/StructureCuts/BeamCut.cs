@@ -176,6 +176,7 @@ internal static class BeamCut
         var paramSkipped = 0;
         var dependents = 0;
 
+        var unjoinedNote = "";
         using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split secondary beams by main beams"))
         {
             tx.Start();
@@ -198,6 +199,7 @@ internal static class BeamCut
             var rolledBack = tx.Commit();
             if (rolledBack != null)
                 return rolledBack;
+            unjoinedNote = tx.UnjoinedNote;
         }
 
         var message = $"Split {split} secondary beams into {piecesMade} pieces."
@@ -214,6 +216,7 @@ internal static class BeamCut
         outcome?.Record(created, 0, skippedNoCurve + skippedNoPair + skippedFailed, skippedFailed);
 
         SplitElements.Select(uidoc, created);
+        message += unjoinedNote;
         return message;
     }
 
