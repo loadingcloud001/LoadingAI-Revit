@@ -414,9 +414,11 @@ public class PluginFixesInRevitTests
     // ---- Task 19 -------------------------------------------------------------------------
 
     /// <summary>Scoped to the walls and levels the test made, so a model full of real walls cannot change the count.</summary>
-    private static SplitRequestDto LevelRequest(IEnumerable<Wall> walls, IEnumerable<Level> levels, int limit, int continueFrom, bool dryRun)
-        => new(walls.Select(w => w.Id.ToString()).ToList(), levels.Select(l => l.Id.ToString()).ToList(),
-            new[] { "walls" }, "all", continueFrom, limit, dryRun, false, true);
+    private static SplitRequestDto LevelRequest(IReadOnlyList<string> wallIds, IReadOnlyList<string> levelIds, int limit, int continueFrom, bool dryRun)
+        => new(wallIds, levelIds, new[] { "walls" }, "all", continueFrom, limit, dryRun, false, true);
+
+    /// <summary>Ids read once, up front: a write run deletes the walls it re-creates, and a deleted wall's Id throws.</summary>
+    private static List<string> IdsOf(IEnumerable<Element> elements) => elements.Select(e => e.Id.ToString()).ToList();
 
     private static IEnumerable<Wall> AllWalls(Document doc)
         => new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>();
@@ -431,13 +433,14 @@ public class PluginFixesInRevitTests
         {
             var baseLevel = NewLevel(doc, "LAI-Split 0", 0);
             var levels = new[] { baseLevel, NewLevel(doc, "LAI-Split 1", 3000), NewLevel(doc, "LAI-Split 2", 6000) };
-            var walls = Enumerable.Range(0, 12).Select(i => NewWall(doc, baseLevel, 0, i * 1000, 5000, i * 1000, heightMm: 9000)).ToList();
+            var wallIds = IdsOf(Enumerable.Range(0, 12).Select(i => NewWall(doc, baseLevel, 0, i * 1000, 5000, i * 1000, heightMm: 9000)));
+            var levelIds = IdsOf(levels);
 
             var offset = 0;
             var pages = 0;
             while (true)
             {
-                var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(walls, levels, limit: 5, continueFrom: offset, dryRun: false)))!;
+                var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(wallIds, levelIds, limit: 5, continueFrom: offset, dryRun: false)))!;
                 Assert.That(result.Report, Does.Not.StartWith("Failed"), result.Report);
                 pages++;
                 var next = Regex.Match(result.Report, @"nextOffset = (\d+)");
@@ -470,9 +473,10 @@ public class PluginFixesInRevitTests
             var baseLevel = NewLevel(doc, "LAI-Split 0", 0);
             var levels = new[] { baseLevel, NewLevel(doc, "LAI-Split 1", 3000) };
             var walls = Enumerable.Range(0, 3).Select(i => NewWall(doc, baseLevel, 0, i * 1000, 5000, i * 1000, heightMm: 6000)).ToList();
+            var wallIds = IdsOf(walls);
             var before = AllWalls(doc).Count();
 
-            var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(walls, levels, limit: 50, continueFrom: 0, dryRun: true)))!;
+            var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(wallIds, IdsOf(levels), limit: 50, continueFrom: 0, dryRun: true)))!;
 
             Assert.That(result.Report, Does.StartWith("Dry-run. "));
             Assert.That(result.Report, Does.Contain("No changes made."));
@@ -506,7 +510,7 @@ public class PluginFixesInRevitTests
             };
             var testLevelIds = levels.Select(l => l.Id).ToHashSet();
 
-            var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(walls, levels, limit: 50, continueFrom: 0, dryRun: false)))!;
+            var result = Run(Adapter.SplitByLevelsAsync(LevelRequest(IdsOf(walls), IdsOf(levels), limit: 50, continueFrom: 0, dryRun: false)))!;
 
             var count = AllWalls(doc).Count(w => testLevelIds.Contains(w.LevelId));
             if (result.Report.StartsWith("Failed"))
