@@ -1,7 +1,8 @@
 # ADR-0015 — Confirm L2 parameter writes with a summary
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-03
+- Accepted: 2026-10-04, by the maintainer, after the Revit 2027.2 smoke run showed the summary dialog (`set_parameter_by_id`, Comments change with before and after) and `v0.3.0` shipped it
 - Deciders: LoadingAI maintainers
 - Extends: [ADR-0004](0004-host-owned-l3-confirm.md)
 - Does not supersede: [ADR-0001](0001-bridge-first-hardening.md), [ADR-0004](0004-host-owned-l3-confirm.md), [ADR-0006](0006-port-export-tools-onto-bridge.md)
