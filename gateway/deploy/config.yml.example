@@ -6,7 +6,7 @@
 # The CredentialsFile is the JSON that `cloudflared tunnel create loadingai-gateway` writes to
 # ~/.cloudflared/. The tunnel id is its file name. Route the hostname once with:
 #
-#   cloudflared tunnel route dns loadingai-gateway gateway.loadingtechnology.app
+#   cloudflared tunnel route dns loadingai-gateway gateway.example.com
 #
 # The service is loopback, so the gateway is never published on a public interface.
 
@@ -14,7 +14,7 @@ tunnel: <tunnel-id>
 credentials-file: /etc/cloudflared/<tunnel-id>.json
 
 ingress:
-  - hostname: gateway.loadingtechnology.app
+  - hostname: gateway.example.com
     service: http://127.0.0.1:8787
     originRequest:
       connectTimeout: 10

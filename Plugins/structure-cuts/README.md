@@ -17,6 +17,6 @@ Shared knobs: `scope`, `continueFrom`, `dryRun`, `uniqueMark`, `copyParams`, `li
 - Curve members: `FamilyInstance.Split` only when `CanNativeSplit` (unjoined line/arc, not grouped, not pinned). Grouped, pinned, joined, or non-line/arc members recreate the location curve instead. Native Split can abort Revit 2024–2027; SubTransaction cannot catch that, so those members never call Split. Walls recreate `LocationCurve` (no reliable `Wall.Split` on 2024–2027). Stacked and curtain walls are skipped by name. Endpoints are snapshotted before Split so the live LocationCurve is not reused after Revit invalidates it.
 - Point-hosted columns get a vertical line from bbox / base–top levels so storey and grid planes still have something to cross.
 - Floors reuse the 1.5 region pipeline. Grid lines are 2D cutters. A level plane skips a horizontal slab (`no-level-hit`) and cuts a leaning slab along the storey intersection.
-- Each member runs in its own sub-transaction. A dry run returns before any `Transaction` is opened.
+- A run uses one transaction. Warnings are discarded, a join Revit cannot keep is detached and reported, and any other Revit error rolls the whole batch back (nothing half-written). A dry run returns before any `Transaction` is opened.
 
 Not SolidSolidCut. Not formwork.

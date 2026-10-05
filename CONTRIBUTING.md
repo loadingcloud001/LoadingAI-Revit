@@ -1,8 +1,36 @@
-# Contributing — MIT Opensource Plugin Shelf
+# Contributing to LoadingAI
 
-All code is MIT. No billing, no closed-source plugins.
+Thanks for helping. LoadingAI is MIT-licensed; all code, including plugins, stays open source.
 
-Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Proposed** ADR before code if you would break one. 0001 is closed; do not append to it.
+## Ways to help
+
+- **Report a bug or a wrong answer** — [open an issue](https://github.com/loadingcloud001/LoadingAI-Revit/issues/new/choose).
+  Include your Revit version, the add-in version, what you asked, and what happened. A small model
+  that reproduces it is worth more than a large one.
+- **Fix something or add a tool** — open a pull request against `main`. For anything bigger than a
+  small fix, open an issue first so we can agree on the approach.
+- **Write a plugin** — see [How to add a plugin](#how-to-add-a-plugin).
+- **Report a security problem** — privately, as described in [SECURITY.md](SECURITY.md).
+
+## Getting started
+
+You need Windows, the .NET 10 SDK and Node 22 or newer. Revit is needed to run the add-in, but not
+to build or run the unit tests.
+
+```powershell
+cd web; npm install; npm run build; cd ..
+dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
+```
+
+The root [README](README.md#build-from-source) covers building and installing the add-in itself.
+Continuous integration builds all four Revit versions (2024–2027) and runs the unit tests. The
+in-Revit tests need a person with Revit; see the [Test pyramid](#test-pyramid) below.
+
+## Architecture decisions
+
+Architecture freezes live in [`docs/adr/`](docs/adr/README.md). Write a **Proposed** ADR before code
+if your change would break one. 0001 is closed; do not append to it. The ones you are most likely to
+meet:
 
 - [ADR-0002](docs/adr/0002-plugin-shelf-bridge-first.md) — plugin folder, Core-only, Bridge-first, never host.
 - [ADR-0003](docs/adr/0003-fullaccess-exceptions.md) — `IRevitFullAccess` is opt-in and listed. **Superseded by [ADR-0009](docs/adr/0009-port-qs-formwork-onto-bridge.md)**: the marker is gone.

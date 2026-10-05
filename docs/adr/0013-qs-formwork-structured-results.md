@@ -19,7 +19,7 @@ and froze the surface around it:
 > Tiers do not change … No new preset, no plugin-owned confirm, no `dryRun` change.
 > — `docs/adr/0009-port-qs-formwork-onto-bridge.md:120`
 
-**The premise no longer holds.** ADR-0009's reasoning was that the report string *is* the only output channel, because `ToolEntry.Handler` returned `Task<string>`. B3 of the safety control plane (`docs/superpowers/plans/2026-09-27-safety-control-plane.md`) then added `ToolEntry.StructuredHandler`, returning `ToolExecutionResult` with `Status`, `WriteCertainty`, `ChangedCount`, `FailedCount`. There is now a second channel, and the port-vs-rewrite distinction that justified the thin DTOs is gone: carrying the counters that `FormworkGenerator` already computes is a **relocation**, exactly as ADR-0009 asked for.
+**The premise no longer holds.** ADR-0009's reasoning was that the report string *is* the only output channel, because `ToolEntry.Handler` returned `Task<string>`. The safety control plane work (ADR-0004) then added `ToolEntry.StructuredHandler`, returning `ToolExecutionResult` with `Status`, `WriteCertainty`, `ChangedCount`, `FailedCount`. There is now a second channel, and the port-vs-rewrite distinction that justified the thin DTOs is gone: carrying the counters that `FormworkGenerator` already computes is a **relocation**, exactly as ADR-0009 asked for.
 
 Three failures follow from the thin shape:
 

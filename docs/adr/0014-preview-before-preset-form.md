@@ -48,8 +48,8 @@ via `SharedKnobs()`). Any change to `PresetPayload` reaches all of them.
    amendment.
 2. **Per-tool predicted counts** — a `ToolEntry.Preview` hook so a tool reports
    what it *would* create. More useful, but the counts come from Revit-bound
-   geometry that has no tests (`FormworkGeometry`, finding F7 in
-   `docs/PROJECT_BUGS_AND_LIMITATIONS.md`). A guessed number rendered as a fact
+   geometry that has no tests (`FormworkGeometry`; see
+   [Known limitations](../KNOWN_LIMITATIONS.md)). A guessed number rendered as a fact
    is worse than no number.
 3. **Replace the form with the preview** — one-click confirm with no fields.
    Faster still, but it removes the only place the user can correct an argument

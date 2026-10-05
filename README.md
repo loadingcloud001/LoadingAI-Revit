@@ -1,77 +1,146 @@
 # LoadingAI for Revit
 
-In-process BIM chat add-in for Autodesk Revit 2024–2027 (anchor **2027**).
+Chat with your Revit model. LoadingAI adds a chat pane to Autodesk Revit 2024–2027. You ask in plain
+language; a language model reads the model, answers, and — only when you approve — edits it.
 
-LLM → DockablePane (WebView2) → ExternalEvent / Transaction. Not a generic coding agent.
+> "How many walls are on Level 2, and which ones have no fire rating?"
+> "Colour the walls by Fire Rating."
+> "Split these beams where they meet the columns. Dry run first."
+> "Export the active sheet set to PDF."
 
-MIT. Built-in **LoadingAI** is free — no API key, up to **100 requests per day per device** — and runs through our gateway, so no upstream key is ever shipped in the add-in. Keys for other providers stay in `%AppData%\LoadingAI\settings.json` (DPAPI).
+It is not a generic coding agent. Every action is a typed Revit tool (87 of them, in seven plugins)
+that runs inside a Revit transaction on Revit's own thread, so a bad answer from the model cannot do
+more than the tools allow.
 
-## Install (no Visual Studio)
+MIT licensed. Free to use with the built-in provider, or bring your own key.
 
-1. Install [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-2. Download the zip for your Revit year from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases) (`LoadingAI-Revit-2024.zip` … `LoadingAI-Revit-2027.zip`).
-3. Right-click the zip → Properties → unblock if Windows marked it.
-4. Open PowerShell **in the unzipped folder** and run:
+> **Status: early release (v0.3).** Revit 2027 is the only version it has been run in so far. See
+> [Known limitations](docs/KNOWN_LIMITATIONS.md) before you point it at a model you care about, and
+> work on a copy.
+
+## What it can do
+
+| Area | Examples |
+|---|---|
+| **Read the model** | Summaries, element details, selection, levels and grids, rooms, quantities, worksets, phases, warnings, links |
+| **Views and presentation** | Isolate, hide, colour by parameter or schedule, floor plans, 3D and section views, schedules, tags and dimensions |
+| **Edit** | Set parameters (with unit handling in mm, m², m³), rename, move, duplicate, delete, create walls and family instances, change types, load families |
+| **Structure** | Split beams by columns, floors by beams, anything by levels or grids; cut openings from clashes |
+| **Export** | PDF, DWG, IFC, purge unused |
+| **Quantity takeoff** | Formwork setup and panels |
+
+Tools are grouped into plugins under [`Plugins/`](Plugins/README.md). You can switch individual tools
+on and off in the pane, and [write your own plugin](CONTRIBUTING.md).
+
+## How it keeps your model safe
+
+Tools come in three tiers, and the tier decides what you are asked:
+
+- **L1 — read only.** Runs without a prompt.
+- **L2 — light writes** (view overrides, parameter edits). You confirm in a dialog first, and for
+  parameter edits it summarises what will change.
+- **L3 — delete, move, create.** **Off by default.** When switched on, each use needs a click in the
+  pane and then a second confirmation in a Revit dialog that defaults to **No**.
+
+Also:
+
+- Writes made during one chat turn fold into **a single undo step**. If anything fails, the turn
+  rolls back.
+- Many tools have a **dry run** that reports what would change and touches nothing.
+- If Revit raises an error a tool cannot resolve, the whole batch is rolled back rather than left
+  half-written.
+- Plugins load only if the DLL's SHA-256 is on the allowlist, and you are asked before a new one is
+  trusted.
+
+The model can still be wrong. Review what it proposes, and keep your own backups.
+
+## Install (no Visual Studio needed)
+
+1. Install the [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+2. Download the zip for your Revit year from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases)
+   (`LoadingAI-Revit-2024.zip` … `LoadingAI-Revit-2027.zip`).
+3. Right-click the zip → **Properties** → tick **Unblock** if Windows marked it.
+4. Unzip, open PowerShell **in the unzipped folder**, and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\Install.ps1
 ```
 
-Or copy by hand:
+   Or copy by hand:
+   - `LoadingAI.addin` → `%AppData%\Autodesk\Revit\Addins\<year>\`
+   - the `LoadingAI\` folder → `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\`
+   - `Plugins\` → `%AppData%\LoadingAI\Plugins\`
 
-- `LoadingAI.addin` → `%AppData%\Autodesk\Revit\Addins\<year>\`
-- `LoadingAI\` folder → `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\`
-- `Plugins\` → `%AppData%\LoadingAI\Plugins\`
+5. Start Revit, open a model, then **Add-Ins → LoadingAI → Open Chat**.
 
-5. If Revit reports **Duplicated AddInId**, delete leftover `%AppData%\Autodesk\Revit\Addins\<year>\RevitAiPoc.addin` and the `RevitAiPoc\` folder.
-6. Start Revit → open a model → **Add-Ins → LoadingAI → Open Chat**.
-7. Chat uses built-in **LoadingAI** (no API key, 100 requests/day per device). Other providers: Settings → paste a key. L3 tools default **off**; turn them on in the same pane. Writes: web approve, then one TaskDialog.
+If Revit reports **Duplicated AddInId**, delete a leftover `RevitAiPoc.addin` and `RevitAiPoc\`
+folder from `%AppData%\Autodesk\Revit\Addins\<year>\`.
 
-A "request" is one message you send; the tool calls the model makes while answering it are not counted. The remaining count shows in the chat header and in Settings, and resets at 00:00 UTC. To go unlimited, add your own key for any other provider in Settings.
+## Using it
 
-## The LoadingAI gateway
+- Type a request. `/ask` answers without editing, `/plan` proposes steps, `/build` carries them out.
+  The default is `/build`.
+- Tool lengths are millimetres, areas m², volumes m³.
+- To uninstall, delete the `.addin` file and the `LoadingAI` folder from the Addins directory, and
+  optionally `%AppData%\LoadingAI`.
 
-The built-in provider never talks to the upstream vendor directly from your machine. It calls a small gateway (`gateway/`) that holds the upstream credential, checks the device's daily allowance, and streams the answer back. Requests carry a random device id (`%AppData%\LoadingAI\device.json`) and a short-lived ticket issued for that one message; no key is stored on the client and none is compiled into the add-in.
+## Models, keys and privacy
 
-The gateway is a small Node service on our VM, reached over a Cloudflare Tunnel at `https://gateway.loadingtechnology.app/v1`. The upstream key lives only in a root-owned `600` environment file on that VM — never in git, never in a Cloudflare variable, never in the DLL. The daily counters are SQLite on the same VM, so one send costs one row rather than one Cloudflare KV write. Deploy steps are in [`gateway/README.md`](gateway/README.md); the add-in finds the default endpoint through `DefaultLlm.PublicGatewayBaseUrl`, and `LOADINGAI_GATEWAY_URL` overrides it at runtime for local testing.
+**Built-in LoadingAI provider.** No key needed. Up to 100 requests a day per device (a "request" is
+one message you send; the tool calls the model makes while answering are not counted). The count
+shows in the chat header and Settings and resets at 00:00 UTC. It runs through a small gateway
+([`gateway/`](gateway/README.md)) that holds the upstream credential, so no provider key is ever
+shipped inside the add-in.
 
-Release builds contain no upstream key: packing one is an explicit, dev-only opt-in (`dotnet build ... -p:PackDefaultLlmKey=true` plus `LOADINGAI_DIRECT_MINIMAX=1`), and CI fails if a generated `DefaultLlmKey.g.cs` shows up in a release.
+**Your own provider.** In Settings, add a key for any OpenAI-compatible provider (DeepSeek, OpenAI,
+OpenRouter and others, or a local server). Keys are stored in `%AppData%\LoadingAI\settings.json`,
+encrypted with Windows DPAPI for your user account. There is no daily limit on your own key.
 
-Releases are published when a `v*` tag is pushed (for example `v0.1.0`). You can also run **Actions → Release add-in → Run workflow** and download the artifacts.
+**What leaves your computer.** Whichever provider you choose receives your chat messages and the
+results of the tools it calls — for example element names, parameter values, counts and quantities
+from the open model. Do not use a provider you would not send that information to. With the
+built-in provider the gateway also receives a random device id (`%AppData%\LoadingAI\device.json`)
+to count the daily allowance. The add-in has no analytics or telemetry. It keeps a size-bounded
+diagnostic log on your machine (`%AppData%\LoadingAI\debug.jsonl`) that records tool calls and
+errors.
 
 ## Build from source
 
+You need Windows, the .NET 10 SDK, Node 22 or newer, and Revit installed for the version you build.
+
 ```powershell
-cd web; npm install; npm run build
+cd web; npm install; npm run build; cd ..
 dotnet test src/LoadingAI.Tests/LoadingAI.Tests.csproj -c Release -p:SkipCopyAddin=true -p:SkipHostPluginBuild=true
 dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=2027
 ```
 
-The last command (no `SkipCopyAddin`) copies the add-in into `%AppData%\Autodesk\Revit\Addins\2027\` and re-asserts per-user Always Load + Authenticode on that copy so Revit does not ask you to Accept after a rebuild. That is local-dev only (`scripts/trust-addin.ps1`); CI never runs it.
+The last command also copies the add-in into `%AppData%\Autodesk\Revit\Addins\2027\` and runs
+`scripts/trust-addin.ps1`, which marks it as always-load for your user so Revit does not ask you to
+accept it after every rebuild. That is a local-development convenience; CI never runs it.
 
-Pack a zip locally:
+Pack a release zip with `pwsh scripts/pack-addin.ps1 -RevitVersion 2027` (also 2024, 2025, 2026).
+Pushing a `v*` tag publishes the four zips through GitHub Actions.
 
-```powershell
-pwsh scripts/pack-addin.ps1 -RevitVersion 2027   # also 2024, 2025, 2026
-```
-
-## Use
-
-- Slash: `/ask` `/plan` `/build`. Default mode is Build.
-- Tool lengths are millimetres, areas m², volumes m³.
-- Do not commit `models/`, `vendor/`, `local/`, API keys, `*.rvt`.
-
-## Repo
+## Repository layout
 
 | Path | What |
 |---|---|
-| `src/LoadingAI` | Host: ribbon, WebView2, Adapter, ExternalEvent |
-| `src/LoadingAI.Core` | netstandard2.0, no RevitAPI |
-| `src/LoadingAI.RevitUtil` | Revit-bound parse and unit helpers for the host adapter (plugins never reference it) |
-| `Plugins/` | Shipped plugins (Core + RevitUtil, never the host) |
-| `web/` | Vite + React pane |
-| `gateway/` | The free-tier gateway: request handler, SQLite counters, Node transport and systemd/cloudflared templates |
-| `CONTRIBUTING.md` | How to add a plugin |
+| `src/LoadingAI` | The add-in: ribbon, WebView2 pane, Revit adapter |
+| `src/LoadingAI.Core` | Revit-free core (netstandard2.0): LLM clients, tool registry, plugin contract |
+| `src/LoadingAI.RevitUtil` | Revit-bound unit and parameter helpers |
+| `Plugins/` | The shipped tool plugins (they depend on Core only) |
+| `web/` | The chat pane (Vite + React) |
+| `gateway/` | The free-tier gateway: request handler, quota counters, deploy templates |
+| `docs/` | [Known limitations](docs/KNOWN_LIMITATIONS.md) and [architecture decisions](docs/adr/README.md) |
 
-CI (`.github/workflows/ci.yml`) builds 2024–2027 and tests 2027 **xUnit** (`src/LoadingAI.Tests`). In-Revit NUnit (`src/LoadingAI.RevitTests`) is local-only — see `CONTRIBUTING.md` (test pyramid) and that project's README.
+## Contributing
+
+Bug reports, plugins and fixes are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). To report
+a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Disclaimer
+
+LoadingAI is an independent open-source project. It is not affiliated with, endorsed by, or
+supported by Autodesk. Autodesk and Revit are trademarks of Autodesk, Inc. The software is provided
+as is under the [MIT License](LICENSE); AI output can be wrong, so review changes to your models.

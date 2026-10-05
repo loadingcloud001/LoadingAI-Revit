@@ -1,5 +1,10 @@
 # LoadingAI free-tier gateway
 
+> **You do not need this to use LoadingAI.** It is the service behind the add-in's built-in free
+> provider. Read on if you want to audit how that provider works, or run your own gateway for a
+> team (point the add-in at it with `LOADINGAI_GATEWAY_URL`). Examples below use
+> `gateway.example.com`; substitute your own hostname.
+
 The LoadingAI add-in's built-in provider ("LoadingAI", included free) talks to this gateway instead
 of calling the model vendor directly. The gateway:
 
@@ -26,14 +31,15 @@ counter store differ – `src/quota.js` and the routes are shared, so behaviour 
 | `/v1/models` | GET | answers locally, never calls upstream, no quota |
 | `/v1/chat/completions` | POST | requires `x-loadingai-ticket`, proxies to upstream |
 
-`/v1/*` requires `X-LoadingAI-Client`. Without it the hostname is not a public API —
-casual curl callers get `401 bad_client`. `/health` stays open for probes.
+`/v1/*` requires `X-LoadingAI-Client`. Without it, casual curl callers get `401 bad_client`.
+`/health` stays open for probes.
 
 Headers the add-in sends:
 
-* `X-LoadingAI-Client` – compiled add-in identity (`loadingai-addin-v1`). Not a login
-  secret: it only keeps random public callers out. Override on the VM with
-  `LOADINGAI_CLIENT_TOKEN` if you rotate it.
+* `X-LoadingAI-Client` – the add-in's identity (`loadingai-addin-v1`). **This is not a secret**: it
+  is in this repository and in the add-in, so it only filters casual traffic. Real abuse limits are
+  the per-device and global quotas below. Override it with `LOADINGAI_CLIENT_TOKEN` on a gateway
+  you run, and in your own build of the add-in.
 * `X-LoadingAI-Device` – an anonymous GUID from `%AppData%\LoadingAI\device.json`.
 * `X-LoadingAI-Ticket` – from the last successful `POST /v1/quota`. Valid 2 hours by default.
 
@@ -44,7 +50,7 @@ Streaming responses (`stream: true`) are piped straight through, so the in-chat 
 
 ```
 add-in  ──https──▶  Cloudflare  ──tunnel──▶  cloudflared (VM)  ──http──▶  127.0.0.1:8787  ──https──▶  MiniMax
-              gateway.loadingtechnology.app        node src/server.mjs              api.minimaxi.com
+              gateway.example.com        node src/server.mjs              api.minimaxi.com
 ```
 
 * `cloudflared` dials out to Cloudflare, so the VM needs **no inbound ports** and no public IP – the
@@ -54,11 +60,11 @@ add-in  ──https──▶  Cloudflare  ──tunnel──▶  cloudflared (VM
   `/etc/loadingai-gateway.env` (mode `600`, root-owned).
 * Cloudflare terminates TLS with an edge certificate for the zone, and the tunnel hop is encrypted.
 
-Deployed tunnel: `loadingai-gateway` (`ba7725b4-d288-4bc5-8d38-fadea68199cd`), remote-managed
-ingress, `CNAME gateway.loadingtechnology.app -> <tunnel-id>.cfargotunnel.com` (proxied). The DNS
-record is the only part that matters to clients; recreating the tunnel means updating that CNAME.
+The tunnel is remote-managed, with `CNAME gateway.example.com -> <tunnel-id>.cfargotunnel.com`
+(proxied). The DNS record is the only part that matters to clients; recreating the tunnel means
+updating that CNAME.
 
-## Deploying (maintainer, one time)
+## Deploying (one time)
 
 On the VM (Debian/Ubuntu, **Node 22.5 or newer** – that is when `node:sqlite` appeared):
 
@@ -107,11 +113,11 @@ Doing it by hand instead is the same five steps: `useradd --system loadingai`, c
 `systemctl daemon-reload && systemctl enable --now loadingai-gateway`.
 
 Then the tunnel. One script does the whole Cloudflare side — creates the tunnel, writes the remote
-ingress (`deploy/tunnel-config.json`), points `gateway.loadingtechnology.app` at `127.0.0.1:8787`,
+ingress (`deploy/tunnel-config.json`), points `gateway.example.com` at `127.0.0.1:8787`,
 stores the connector token in a `600` file, installs the hardened unit and starts it:
 
 ```bash
-sudo node /opt/loadingai-gateway/deploy/setup-tunnel.mjs
+sudo node /opt/loadingai-gateway/deploy/setup-tunnel.mjs --zone example.com --hostname gateway.example.com
 #   Cloudflare API token (hidden): ****
 ```
 
@@ -119,18 +125,18 @@ Create the token at https://dash.cloudflare.com/profile/api-tokens → **Create 
 
 | Resource | Scope | Permission |
 | --- | --- | --- |
-| Account | the `loadingtechnology.app` account | **Cloudflare Tunnel:Edit** (also listed as Cloudflare One Connector: cloudflared Write) |
-| Zone | `loadingtechnology.app` | **Zone:Read**, **DNS:Edit** |
+| Account | the account that owns your zone | **Cloudflare Tunnel:Edit** (also listed as Cloudflare One Connector: cloudflared Write) |
+| Zone | your zone (for example `example.com`) | **Zone:Read**, **DNS:Edit** |
 
 Account-level **Cloudflare Tunnel:Edit** is required — Zone:Read + DNS:Edit alone verify as `active` then fail `POST /cfd_tunnel` with `403 10000`.
 
 The token is read from `CF_API_TOKEN`, from `--token-file`, or from a hidden prompt, and is never
 echoed, logged or written to disk; only the connector token that the API returns is stored, in
 `/etc/cloudflared/loadingai-tunnel.env`. The script is idempotent — it reuses an existing tunnel and
-DNS record — and takes `--zone`, `--hostname`, `--service` and `--tunnel` overrides.
+DNS record — and requires `--zone` and `--hostname`, with optional `--service` and `--tunnel`.
 
 Doing it by hand instead: **Networking → Tunnels → Create a tunnel** named `loadingai-gateway`, add a
-route for subdomain `gateway` on `loadingtechnology.app` to `http://127.0.0.1:8787`, then give the
+route for subdomain `gateway` on `example.com` to `http://127.0.0.1:8787`, then give the
 connector its token from a `600` file so it never lands in shell history or the process list:
 
 ```bash
@@ -146,13 +152,13 @@ systemctl is-active cloudflared
 
 For a locally-managed tunnel instead (`cloudflared tunnel create`, credentials JSON on the VM), put
 the same ingress in `/etc/cloudflared/config.yml` — start from `deploy/config.yml.example` — route
-DNS with `cloudflared tunnel route dns loadingai-gateway gateway.loadingtechnology.app`, and set
+DNS with `cloudflared tunnel route dns loadingai-gateway gateway.example.com`, and set
 `TUNNEL_ID` in place of `TUNNEL_TOKEN`. `deploy/tunnel-config.json` is the same ingress as an API
 body, for `PUT /accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations`.
 
-The add-in reaches the gateway at the constant in `DefaultLlm.PublicGatewayBaseUrl`
-(`https://gateway.loadingtechnology.app/v1`). To point a build somewhere else without editing code,
-set `LOADINGAI_GATEWAY_URL` (e.g. `http://127.0.0.1:8787/v1` for local work).
+The add-in reaches the gateway at the constant in `DefaultLlm.PublicGatewayBaseUrl` (the project's
+own hosted gateway). To point a build at yours without editing code, set `LOADINGAI_GATEWAY_URL`
+(for example `https://gateway.example.com/v1`, or `http://127.0.0.1:8787/v1` for local work).
 
 ## Configuration
 
@@ -190,7 +196,7 @@ the value in `%AppData%\LoadingAI\device.json`.
 ## Verifying a deployment
 
 ```powershell
-$base = 'https://gateway.loadingtechnology.app'
+$base = 'https://gateway.example.com'
 $device = (Get-Content "$env:AppData\LoadingAI\device.json" | ConvertFrom-Json).id
 $client = 'loadingai-addin-v1'   # X-LoadingAI-Client: the add-in's compiled identity
 
@@ -212,19 +218,12 @@ The `POST /v1/quota` above costs one unit, exactly like a chat Send. Repeat it 1
 header answers `401 bad_client`; a missing, wrong-device or expired ticket answers `401`; a device id
 that is not 8–64 URL-safe characters answers `400`.
 
-## Adding or updating a workstation
+## Pointing a build at your gateway
 
-The add-in must send `X-LoadingAI-Client`, so a build older than the gate answers `401 bad_client`.
-Copy the current build into each Revit version you use:
-
-```powershell
-foreach ($v in 2024, 2025, 2026, 2027) {
-  dotnet build src/LoadingAI/LoadingAI.csproj -c Release -p:RevitVersion=$v
-}
-```
-
-Each build lands in `%AppData%\Autodesk\Revit\Addins\<version>\LoadingAI\` plus the shared
-`%AppData%\LoadingAI\Plugins\`.
+The add-in sends `X-LoadingAI-Client`, so a build older than the gate answers `401 bad_client`. If you run
+your own gateway and a custom client token, rebuild the add-in with the same value in
+`BuiltinQuota.ClientToken` (see the root README for build steps), or set `LOADINGAI_GATEWAY_URL` for
+the stock build.
 
 ## Operations
 

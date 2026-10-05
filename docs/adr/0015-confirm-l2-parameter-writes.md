@@ -11,7 +11,7 @@
 
 ADR-0004 records that `ToolGuards.ApplyConfirm` skips L1, L3, `RequiresWriteConfirm` and preset tools, and that "L2 without presets still gets a host TaskDialog". ADR-0006 and the register (B14) freeze the flag.
 
-Five L2 parameter tools set the flag and declare no preset, so they write the model without a prompt: `set_parameter_by_id`, `set_comments_on_selection`, `copy_params`, `replace_text` and `numbering_auto`. The first two lost their own dialog in `e1d7ff9` (the Bridge port), which kept the flag. The other three arrived from the Compat port with the flag and never had a dialog (ADR-0001 pins that parity). All five are on by default. `docs/PLUGIN_REVIEW_2026-10-03.md` PL-01 has the evidence.
+Five L2 parameter tools set the flag and declare no preset, so they write the model without a prompt: `set_parameter_by_id`, `set_comments_on_selection`, `copy_params`, `replace_text` and `numbering_auto`. The first two lost their own dialog in `e1d7ff9` (the Bridge port), which kept the flag. The other three arrived from the Compat port with the flag and never had a dialog (ADR-0001 pins that parity). All five are on by default.
 
 Tool output carries text other people wrote (names, comments, warnings). An unconfirmed bulk write is therefore reachable from model content.
 

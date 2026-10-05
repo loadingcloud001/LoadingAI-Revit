@@ -2,7 +2,7 @@
   "config": {
     "ingress": [
       {
-        "hostname": "gateway.loadingtechnology.app",
+        "hostname": "gateway.example.com",
         "service": "http://127.0.0.1:8787",
         "originRequest": {
           "connectTimeout": 10

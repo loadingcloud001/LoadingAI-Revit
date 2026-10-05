@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// Points gateway.loadingtechnology.app at the local gateway through a Cloudflare
+// Points a hostname you own at the local gateway through a Cloudflare
 // tunnel, so the VM never needs an inbound port or a public IP.
 //
-//   sudo node gateway/deploy/setup-tunnel.mjs
 //   sudo node gateway/deploy/setup-tunnel.mjs --hostname gateway.example.com --zone example.com
 //
 // The API token comes from CF_API_TOKEN, from --token-file, or from a hidden
@@ -22,8 +21,8 @@ const UNIT_PATH = '/etc/systemd/system/cloudflared.service';
 const UNIT_SOURCE = '/opt/loadingai-gateway/deploy/cloudflared.service';
 
 const args = parseArgs(process.argv.slice(2));
-const zoneName = args.zone ?? 'loadingtechnology.app';
-const hostname = args.hostname ?? 'gateway.loadingtechnology.app';
+const zoneName = args.zone;
+const hostname = args.hostname;
 const service = args.service ?? 'http://127.0.0.1:8787';
 const tunnelName = args.tunnel ?? 'loadingai-gateway';
 
@@ -35,8 +34,8 @@ function parseArgs(argv) {
     const name = key.slice(2);
     if (name === 'help') {
       console.log(
-        'usage: sudo node setup-tunnel.mjs [--zone loadingtechnology.app] ' +
-          '[--hostname gateway.loadingtechnology.app] [--service http://127.0.0.1:8787] ' +
+        'usage: sudo node setup-tunnel.mjs --zone example.com ' +
+          '--hostname gateway.example.com [--service http://127.0.0.1:8787] ' +
           '[--tunnel loadingai-gateway] [--token-file /path/to/token]',
       );
       process.exit(0);
@@ -66,7 +65,7 @@ async function cf(token, path, init = {}) {
       hint =
         '\n  token is missing Account-level tunnel write. Recreate it with:\n' +
         '    Account resources  →  this account  →  Cloudflare Tunnel:Edit\n' +
-        '    Zone resources     →  loadingtechnology.app  →  Zone:Read, DNS:Edit\n' +
+        '    Zone resources     →  your zone  →  Zone:Read, DNS:Edit\n' +
         '  (dashboard names it Cloudflare Tunnel Edit / Cloudflare One Connector: cloudflared Write)';
     }
     fail(`${init.method ?? 'GET'} ${path} -> ${res.status} ${detail || 'no response body'}${hint}`);
@@ -126,6 +125,7 @@ function systemctlStrict(...argv) {
 }
 
 async function main() {
+  if (!zoneName || !hostname) fail('give both --zone and --hostname, e.g. --zone example.com --hostname gateway.example.com');
   if (process.getuid?.() !== 0) fail('run me as root: I write /etc/cloudflared and a systemd unit');
   if (!existsSync('/usr/bin/cloudflared')) fail('cloudflared is not installed at /usr/bin/cloudflared');
 
