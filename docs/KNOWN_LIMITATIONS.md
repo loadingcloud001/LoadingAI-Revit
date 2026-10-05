@@ -43,8 +43,9 @@ reproduction on a small model is the most useful thing you can send.
 ## The built-in free tier
 
 - Up to 100 requests per day per device. The device id is generated on your machine, so the
-  allowance is a courtesy limit rather than licensing — it is not tamper-proof, and the service may
-  tighten it.
+  allowance is a courtesy limit rather than licensing — it is not tamper-proof. The service also has
+  a daily ceiling for all users together and one per network address, so on a busy day it can answer
+  "at capacity" until 00:00 UTC. Use your own key if you need it every day.
 - It runs on a shared gateway that you do not control. For work you depend on, add your own key for
   any other provider in **Settings**, or [run your own gateway](../gateway/README.md).
 
