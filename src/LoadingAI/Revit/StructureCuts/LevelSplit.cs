@@ -127,6 +127,7 @@ internal static class LevelSplit
         var dependents = 0;
         var openings = 0;
 
+        var unjoinedNote = "";
         using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split by levels"))
         {
             tx.Start();
@@ -241,6 +242,7 @@ internal static class LevelSplit
             var rolledBack = tx.Commit();
             if (rolledBack != null)
                 return rolledBack;
+            unjoinedNote = tx.UnjoinedNote;
         }
 
         var message = $"Split {split} elements into {piecesMade} pieces."
@@ -265,6 +267,7 @@ internal static class LevelSplit
         outcome?.Record(created, openings, skips.Total, skips.Failed);
 
         SplitElements.Select(uidoc, created);
+        message += unjoinedNote;
         return message;
     }
 

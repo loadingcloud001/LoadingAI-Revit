@@ -117,6 +117,7 @@ internal static class FloorSplit
         var dependents = 0;
         var paramSkipped = 0;
 
+        var unjoinedNote = "";
         using (var tx = SplitElements.WriteTx(doc, "LoadingAI for Revit: split floors by beams"))
         {
             tx.Start();
@@ -155,6 +156,7 @@ internal static class FloorSplit
             var rolledBack = tx.Commit();
             if (rolledBack != null)
                 return rolledBack;
+            unjoinedNote = tx.UnjoinedNote;
         }
 
         var message = $"Split {splitFloors} floors into {piecesMade} pieces. Openings: {openingsMade}."
@@ -176,6 +178,7 @@ internal static class FloorSplit
         outcome?.Record(created, openingsMade, skips.Total, skips.Partial + skips.DeleteFailed);
 
         SplitElements.Select(uidoc, created);
+        message += unjoinedNote;
         return message;
     }
 

@@ -139,6 +139,24 @@ public class SplitRunTests
         Assert.Equal(1, SourceSlice.Count(text, "new Transaction("));
     }
 
+    [Fact]
+    public void AJoinRevitCannotKeep_IsDetached_AndSaidInTheReport_NotRolledBack()
+    {
+        // Seen on real Snowdon walls: "Can't keep elements joined", Revit offering Default/DetachElements.
+        var text = Host("SplitElements.cs");
+        Assert.Contains("FailureResolutionType.DetachElements", text);
+        Assert.Contains("accessor.ResolveFailure(failure)", text);
+        Assert.Contains("Unjoined++", text);
+        Assert.Contains("FailureProcessingResult.ProceedWithCommit", text);
+        Assert.Contains("re-join them if the model needs it", text);
+        foreach (var file in Algorithms)
+        {
+            var algorithm = Host(file);
+            Assert.Contains("unjoinedNote = tx.UnjoinedNote;", algorithm);
+            Assert.Contains("message += unjoinedNote;", algorithm);
+        }
+    }
+
     // ---- the dry run ---------------------------------------------------------------------
 
     [Fact]
