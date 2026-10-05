@@ -1,0 +1,49 @@
+name: Bug report
+description: Something did not work, or the add-in did something unexpected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste API keys or anything private from your model.**
+        For a security problem, use the repository's Security tab instead of an issue.
+  - type: input
+    id: addin
+    attributes:
+      label: LoadingAI version
+      description: From the Releases page name you installed, for example v0.3.1
+    validations:
+      required: true
+  - type: input
+    id: revit
+    attributes:
+      label: Revit version
+      description: Help → About, for example 2027.2
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Model provider
+      options:
+        - Built-in LoadingAI
+        - My own key (DeepSeek, OpenAI, OpenRouter, other)
+        - Local model
+    validations:
+      required: true
+  - type: textarea
+    id: asked
+    attributes:
+      label: What did you ask, and what happened?
+      description: The message you sent, the tool(s) involved, and the reply or error text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: A small model or sample (such as Autodesk's Snowdon model) helps a lot.

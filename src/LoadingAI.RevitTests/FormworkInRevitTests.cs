@@ -27,7 +27,7 @@ namespace LoadingAI.RevitTests;
 /// it has never run: the <c>ricaun</c> adapter cannot get Revit 2027.2 past UI initialisation, and
 /// the Revit.TestRunner fallback stops at Revit 2025. Nothing here should be read as evidence that
 /// the formwork geometry is correct. See "Verified on Revit 2027.2" in this folder's README.md and
-/// finding F7 in <c>docs/PROJECT_BUGS_AND_LIMITATIONS.md</c> for the full diagnosis.</para>
+/// <c>docs/KNOWN_LIMITATIONS.md</c> for the full picture.</para>
 /// </summary>
 [TestFixture]
 public class FormworkInRevitTests
