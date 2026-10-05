@@ -13,6 +13,18 @@
 
 export const DEFAULT_LIMIT = 100;
 
+/**
+ * Ceilings that do not depend on the device id, which the client invents for
+ * itself. A script can mint any number of device ids, so the per-device limit
+ * alone cannot bound spend; these two can.
+ *
+ * Both count chat sends per UTC day. They are approximate under concurrent
+ * requests (a read and a write, not one atomic step), which is fine for a
+ * ceiling that exists to stop runaway spend rather than to meter exactly.
+ */
+export const DEFAULT_GLOBAL_LIMIT = 3000;
+export const DEFAULT_IP_LIMIT = 500;
+
 /** Counters outlive the UTC day boundary they belong to. */
 const COUNTER_TTL_SECONDS = 60 * 60 * 48;
 
@@ -126,4 +138,49 @@ export async function consume(kv, device, limit, now = new Date()) {
   const next = used + 1;
   await kv.put(counterKey(device, utcDay(now)), String(next), { expirationTtl: COUNTER_TTL_SECONDS });
   return { allowed: true, limit, used: next, remaining: Math.max(0, limit - next), resetUtc: nextUtcReset(now) };
+}
+
+function globalKey(day) {
+  return `g:${day}`;
+}
+
+/** The address is stored only as a short hash, and only for the counter's lifetime. */
+async function ipKey(ip, day) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`ip:${ip}`)));
+  let hex = '';
+  for (let i = 0; i < 8; i++) hex += digest[i].toString(16).padStart(2, '0');
+  return `i:${hex}:${day}`;
+}
+
+async function readCount(kv, key) {
+  const used = Number.parseInt((await kv.get(key)) ?? '0', 10);
+  return Number.isFinite(used) && used > 0 ? used : 0;
+}
+
+/**
+ * Checks the whole-service and per-address ceilings without spending anything.
+ * `ip` may be empty (a local run with no proxy in front): then only the global
+ * ceiling applies. Returns { allowed: true } or { allowed: false, reason, resetUtc }
+ * where reason is 'capacity' or 'ip'.
+ */
+export async function checkCeilings(kv, ip, limits, now = new Date()) {
+  const day = utcDay(now);
+  if ((await readCount(kv, globalKey(day))) >= limits.global) {
+    return { allowed: false, reason: 'capacity', resetUtc: nextUtcReset(now) };
+  }
+  if (ip && (await readCount(kv, await ipKey(ip, day))) >= limits.ip) {
+    return { allowed: false, reason: 'ip', resetUtc: nextUtcReset(now) };
+  }
+  return { allowed: true };
+}
+
+/** Records one send against the whole-service and per-address counters. */
+export async function recordSend(kv, ip, now = new Date()) {
+  const day = utcDay(now);
+  const options = { expirationTtl: COUNTER_TTL_SECONDS };
+  await kv.put(globalKey(day), String((await readCount(kv, globalKey(day))) + 1), options);
+  if (ip) {
+    const key = await ipKey(ip, day);
+    await kv.put(key, String((await readCount(kv, key)) + 1), options);
+  }
 }

@@ -101,7 +101,8 @@ encrypted with Windows DPAPI for your user account. There is no daily limit on y
 results of the tools it calls — for example element names, parameter values, counts and quantities
 from the open model. Do not use a provider you would not send that information to. With the
 built-in provider the gateway also receives a random device id (`%AppData%\LoadingAI\device.json`)
-to count the daily allowance. The add-in has no analytics or telemetry. It keeps a size-bounded
+to count the daily allowance, and sees your network address like any web service; it keeps only a
+short hash of that address for two days, to apply a per-network limit. The add-in has no analytics or telemetry. It keeps a size-bounded
 diagnostic log on your machine (`%AppData%\LoadingAI\debug.jsonl`) that records tool calls and
 errors.
 

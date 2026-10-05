@@ -16,11 +16,15 @@
  */
 
 import {
+  DEFAULT_GLOBAL_LIMIT,
+  DEFAULT_IP_LIMIT,
   DEFAULT_LIMIT,
   DEFAULT_TICKET_TTL_SECONDS,
+  checkCeilings,
   consume,
   isValidDevice,
   issueTicket,
+  recordSend,
   remaining,
   ticketDevice,
 } from './quota.js';
@@ -29,6 +33,8 @@ const DEVICE_HEADER = 'x-loadingai-device';
 const TICKET_HEADER = 'x-loadingai-ticket';
 const CLIENT_HEADER = 'x-loadingai-client';
 const DEFAULT_CLIENT_TOKEN = 'loadingai-addin-v1';
+// Set by Cloudflare at its edge. The Node transport only listens on loopback, so only the tunnel can set it.
+const CLIENT_IP_HEADER = 'cf-connecting-ip';
 
 /** The only request fields the add-in sends; anything else never reaches the paid upstream. */
 const FORWARDED_FIELDS = ['messages', 'tools', 'tool_choice', 'temperature', 'stream'];
@@ -73,6 +79,13 @@ export function upstreamBody(payload, env) {
   }
   body.model = env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview';
   return body;
+}
+
+function ceilings(env) {
+  return {
+    global: positiveInt(env.GLOBAL_DAILY_LIMIT, DEFAULT_GLOBAL_LIMIT),
+    ip: positiveInt(env.IP_DAILY_LIMIT, DEFAULT_IP_LIMIT),
+  };
 }
 
 function ticketTtl(env) {
@@ -159,6 +172,16 @@ async function handleQuota(request, env) {
   const secret = ticketSecret(env);
   if (!secret) return misconfigured();
 
+  // The ceilings are checked before a device unit is spent, so a refusal here never costs the user a send.
+  // They answer 503, not 429: the add-in reads every 429 as "your own daily allowance is used up".
+  const ip = (request.headers.get(CLIENT_IP_HEADER) || '').trim().slice(0, 64);
+  const ceiling = await checkCeilings(env.QUOTA, ip, ceilings(env));
+  if (!ceiling.allowed) {
+    return ceiling.reason === 'ip'
+      ? fail(503, `Too many LoadingAI requests from your network today. Try again after ${ceiling.resetUtc}, or add your own API key in Settings.`, 'ip_limit', { resetUtc: ceiling.resetUtc })
+      : fail(503, `LoadingAI's free tier is at capacity for today. Try again after ${ceiling.resetUtc}, or add your own API key in Settings.`, 'capacity_reached', { resetUtc: ceiling.resetUtc });
+  }
+
   const status = await consume(env.QUOTA, device, limit);
   if (!status.allowed) {
     return fail(429, limitMessage(limit, status.resetUtc), 'daily_limit', {
@@ -169,6 +192,7 @@ async function handleQuota(request, env) {
     });
   }
 
+  await recordSend(env.QUOTA, ip);
   const ttl = ticketTtl(env);
   const ticket = await issueTicket(secret, device, ttl);
   return json({ ...status, ticket, ticketTtlSeconds: ttl });

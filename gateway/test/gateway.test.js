@@ -395,7 +395,7 @@ test('unknown routes are rejected', async () => {
   assert.equal(res.status, 404);
 });
 
-test('a send costs exactly one KV write', async () => {
+test('a send costs a device row and a global row, plus an address row behind the proxy, all expiring', async () => {
   const env = makeEnv();
   const puts = [];
   env.QUOTA.put = async (key, value, options) => {
@@ -403,10 +403,17 @@ test('a send costs exactly one KV write', async () => {
   };
   await worker.fetch(quotaRequest('POST'), env);
 
-  assert.equal(puts.length, 1);
-  assert.match(puts[0].key, /^q:device-abc12345:\d{4}-\d{2}-\d{2}$/);
-  assert.equal(puts[0].value, '1');
-  assert.equal(puts[0].options.expirationTtl, 60 * 60 * 48);
+  assert.deepEqual(puts.map((p) => p.key.split(':')[0]).sort(), ['g', 'q']);
+  const device = puts.find((p) => p.key.startsWith('q:'));
+  assert.match(device.key, /^q:device-abc12345:\d{4}-\d{2}-\d{2}$/);
+  assert.equal(device.value, '1');
+  for (const p of puts) assert.equal(p.options.expirationTtl, 60 * 60 * 48);
+
+  puts.length = 0;
+  const behindProxy = quotaRequest('POST', 'device-xyz98765');
+  behindProxy.headers.set('cf-connecting-ip', '203.0.113.20');
+  await worker.fetch(behindProxy, env);
+  assert.deepEqual(puts.map((p) => p.key.split(':')[0]).sort(), ['g', 'i', 'q']);
 });
 
 const AUTH = () => ({ 'x-loadingai-device': DEVICE });
