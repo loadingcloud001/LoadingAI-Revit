@@ -141,6 +141,16 @@ public static class ParamTools
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "filterParam", Label = "Filter parameter", Kind = PresetFieldKind.String },
+            new PresetField { Id = "filterOp", Label = "Filter", Kind = PresetFieldKind.Select, Options = new[] { "=", "!=", "contains", "empty", "notempty" }, Default = "=" },
+            new PresetField { Id = "filterValue", Label = "Filter value", Kind = PresetFieldKind.String },
+            new PresetField { Id = "targetParam", Label = "Parameter to set", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "targetValue", Label = "Value", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = 200 }
+        },
         Handler = async json => (await BatchSetParameterAsync(context, json)).Text,
         StructuredHandler = json => BatchSetParameterAsync(context, json)
     };
@@ -188,7 +198,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "rename_elements",
-                Description = "Rename views/sheets or other named elements by Id. Provide elementIds and newNames array (same length) or newNamePattern with {i}.",
+                Description = "Rename views, sheets, or other named elements. Pick the elements and give a pattern such as Plan-{i}, or pass newNames of the same length.",
                 Parameters = new
                 {
                     type = "object",
@@ -201,6 +211,11 @@ public static class ParamTools
                     required = new[] { "elementIds" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "elementIds", Label = "Elements", Kind = PresetFieldKind.PickElements, Required = true, Prompt = "Pick the elements to rename." },
+            new PresetField { Id = "newNamePattern", Label = "Name pattern ({i})", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await RenameElementsAsync(context, json)).Text,
         StructuredHandler = json => RenameElementsAsync(context, json)
@@ -527,7 +542,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "numbering_auto",
-                Description = "Auto number Mark by selection order or category (pyRevit: Auto Number). Params: category or use selection if omitted, prefix, start, pad.",
+                Description = "Number the Mark parameter. Uses the current selection, or a category when one is given. Left-to-right orders by position. A level name keeps only elements on that level. Dry-run lists old mark and new mark and writes nothing. Numbering every element of a category from the form requires All in this category.",
                 Parameters = new
                 {
                     type = "object",
@@ -536,11 +551,26 @@ public static class ParamTools
                         category = new { type = "string" },
                         prefix = new { type = "string" },
                         start = new { type = "integer" },
-                        pad = new { type = "integer" }
+                        pad = new { type = "integer" },
+                        order = new { type = "string", @enum = new[] { "document", "left-to-right" } },
+                        levelName = new { type = "string" },
+                        allInCategory = new { type = "boolean" },
+                        dryRun = new { type = "boolean" }
                     },
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category (empty = selection)", Kind = PresetFieldKind.String },
+            new PresetField { Id = "levelName", Label = "Level name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "order", Label = "Order", Kind = PresetFieldKind.Select, Options = new[] { "document", "left-to-right" }, Default = "document" },
+            new PresetField { Id = "prefix", Label = "Prefix", Kind = PresetFieldKind.String },
+            new PresetField { Id = "start", Label = "Start at", Kind = PresetFieldKind.Number, Default = 1 },
+            new PresetField { Id = "pad", Label = "Digits", Kind = PresetFieldKind.Number, Default = 3 },
+            new PresetField { Id = "allInCategory", Label = "All in this category", Kind = PresetFieldKind.Boolean, Default = false, Warning = "This numbers every element of the category, not just the selection." },
+            new PresetField { Id = "dryRun", Label = "Dry-run (show old and new marks)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await NumberingAutoAsync(context, json)).Text,
         StructuredHandler = json => NumberingAutoAsync(context, json)
@@ -549,6 +579,8 @@ public static class ParamTools
     private static async Task<ToolExecutionResult> NumberingAutoAsync(IPluginContext context, string json)
     {
         string? cat = null; string pref = ""; int start = 1, pad = 3;
+        string? order = null, levelName = null;
+        bool? allInCategory = null;
         try
         {
             using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
@@ -556,9 +588,22 @@ public static class ParamTools
             if (d.RootElement.TryGetProperty("prefix", out var p) && p.ValueKind == JsonValueKind.String) pref = p.GetString() ?? "";
             if (d.RootElement.TryGetProperty("start", out var s) && s.ValueKind == JsonValueKind.Number) start = s.GetInt32();
             if (d.RootElement.TryGetProperty("pad", out var pa) && pa.ValueKind == JsonValueKind.Number) pad = pa.GetInt32();
+            if (d.RootElement.TryGetProperty("order", out var o) && o.ValueKind == JsonValueKind.String) order = o.GetString();
+            if (d.RootElement.TryGetProperty("levelName", out var lv) && lv.ValueKind == JsonValueKind.String) levelName = lv.GetString();
+            if (d.RootElement.TryGetProperty("allInCategory", out var all) && all.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                allInCategory = all.GetBoolean();
         }
         catch { }
-        var result = await context.Bridge.NumberElementsAsync(cat, pref, start, pad);
+        if (!string.IsNullOrWhiteSpace(cat) && allInCategory == false)
+            return ToolExecutionResult.Failed(
+                $"This would number every {cat}. Turn on All in this category, or clear the category and use the selection.",
+                ToolWriteCertainty.NotCommitted);
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.NumberElementsAsync(cat, pref, start, pad, order, levelName, dryRun);
+        if (dryRun)
+            return result.Ok
+                ? ToolExecutionResult.Succeeded(result.Message, ToolWriteCertainty.NoWrite)
+                : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NotCommitted);
         return WriteResult(result);
     }
 

@@ -11,7 +11,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
 {
     public string Id => "qs-formwork";
     public string Name => "Formwork QS Tools";
-    public string Version => "1.0.1";
+    public string Version => "1.2.0";
 
     /// <summary>The exact sentence the host formwork algorithms use when there is no document.</summary>
     private const string NoDocument = "Please open a model first.";
@@ -25,8 +25,13 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
     /// (ADR-014).
     /// </para>
     /// </summary>
-    private static ToolExecutionResult DryRun(string scope)
-        => ToolExecutionResult.Succeeded($"Dry run ({scope}). No model changes.", ToolWriteCertainty.NoWrite);
+    private static ToolExecutionResult DryRun(string scope, string detail = "")
+    {
+        var extra = string.IsNullOrWhiteSpace(detail) ? "" : detail.Trim() + " ";
+        return ToolExecutionResult.Succeeded(
+            $"Dry run ({scope}). {extra}No model changes. Panel count is not known until a real run.",
+            ToolWriteCertainty.NoWrite);
+    }
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -107,6 +112,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
             new PresetField { Id = "thicknessMm", Label = "Sheet thickness (mm)", Kind = PresetFieldKind.Number, Default = (int)FormworkDefaults.SheetThicknessMmDefault },
             new PresetField { Id = "collision", Label = "Skip panels that collide", Kind = PresetFieldKind.Boolean, Default = true },
             new PresetField { Id = "deleteExisting", Label = "Delete existing panels first", Kind = PresetFieldKind.Boolean, Default = false, Warning = "Existing panels will be deleted first." },
+            new PresetField { Id = "dryRun", Label = "Dry-run (no model changes)", Kind = PresetFieldKind.Boolean, Default = false },
         },
         Handler = async json => (await CreatePanelsAsync(context, json)).Text,
         StructuredHandler = json => CreatePanelsAsync(context, json)
@@ -118,7 +124,10 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
         if (ToolPresets.IsDryRun(json))
         {
             var requested = args.Strings("elementIds");
-            return DryRun(requested.Count == 0 ? "current selection" : requested.Count + " requested element(s)");
+            var faces = args.Strings("faceTypes");
+            var faceText = faces.Count == 0 ? "all face types" : string.Join(", ", faces);
+            var hosts = requested.Count == 0 ? "current selection" : requested.Count + " host(s)";
+            return DryRun(hosts, "Faces: " + faceText + ".");
         }
         var (ids, selectionRefusal) = await ResolveIdsAsync(context, args.Strings("elementIds"));
         if (selectionRefusal != null)
@@ -166,6 +175,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
         Presets = new[]
         {
             new PresetField { Id = "action", Label = "Action", Kind = PresetFieldKind.Select, Required = true, Default = "stats", Options = FormworkDefaults.CleanupActions },
+            new PresetField { Id = "dryRun", Label = "Dry-run (no model changes)", Kind = PresetFieldKind.Boolean, Default = false },
         },
         Handler = async json => (await CleanupAsync(context, json)).Text,
         StructuredHandler = json => CleanupAsync(context, json)
@@ -209,6 +219,7 @@ public sealed class QsFormworkPlugin : IRevitToolPlugin
         Presets = new[]
         {
             new PresetField { Id = "elementIds", Label = "Panels", Kind = PresetFieldKind.PickElements, Prompt = "Pick formwork panels to update" },
+            new PresetField { Id = "dryRun", Label = "Dry-run (no model changes)", Kind = PresetFieldKind.Boolean, Default = false },
         },
         Handler = async json => (await CopyParentParamsAsync(context, json)).Text,
         StructuredHandler = json => CopyParentParamsAsync(context, json)

@@ -11,7 +11,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
 {
     public string Id => "opening-tools";
     public string Name => "Opening Tools";
-    public string Version => "1.0.0";
+    public string Version => "1.1.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -28,7 +28,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_openings_from_clash",
-                Description = "Create and cut openings where linked or local MEP solid-intersects a selected wall, floor, beam, column, or roof. Nearby same-host hits combine into one larger opening when leftover web cannot act as a pier. Stay separate if the remaining edge is too thin or the envelope exceeds two-thirds of the host length. Warn if combined width exceeds 700 mm. Uses LoadingAI_Opening_Horizontal_Rectangle or _Circle (walls, beams, columns) and LoadingAI_Opening_Vertical_Rectangle or _Circle (floors, roofs). Four .rfa next to the plugin; auto-loaded on the host. Call immediately; do not ask to bind links. Pass hostIds or select a host — a section box is not a host. Linked MEP is found against that host; query tools cannot see it. Result lists instance ids and XYZ; isolate those plus the host, not only the wall. dryRun reports scope and counts with No model changes. Params: mepIds, hostIds, shape (rectangle|circle|auto), clearanceMm (default 25), familyName, levelName, limit (default 50, cap 200), dryRun.",
+                Description = "Create and cut openings where MEP crosses a wall, floor, beam, column, or roof. Pick the hosts in the form, or leave that empty to use the current selection. Nearby hits on the same host combine when the leftover strip cannot act as a pier; they stay separate if the remaining edge is too thin or the opening would exceed two-thirds of the host length. A combined width over 700 mm is reported, not blocked. A section box is not a host. Shipped opening families load automatically. dryRun counts only and reports No model changes.",
                 Parameters = new
                 {
                     type = "object",
@@ -47,6 +47,15 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "hostIds", Label = "Hosts", Kind = PresetFieldKind.PickElements, Prompt = "Pick the walls, floors, beams, columns, or roofs to cut. Leave empty to use the current selection." },
+            new PresetField { Id = "shape", Label = "Shape", Kind = PresetFieldKind.Select, Options = new[] { "auto", "rectangle", "circle" }, Default = "auto" },
+            new PresetField { Id = "clearanceMm", Label = "Clearance (mm)", Kind = PresetFieldKind.Number, Default = 25 },
+            new PresetField { Id = "limit", Label = "Max openings", Kind = PresetFieldKind.Number, Default = 50 },
+            new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
+        },
+        Describe = json => Task.FromResult<string?>(DescribeCreate(json)),
         Handler = async json => (await ExecuteCreateOpeningsFromClashAsync(context, json)).Text,
         StructuredHandler = json => ExecuteCreateOpeningsFromClashAsync(context, json)
     };
@@ -107,7 +116,7 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "cut_hosts_by_openings",
-                Description = "Repair local host cuts after an opening family reload. Happy path is create_openings_from_clash (place and punch). Uses current selection, openings tagged to the selected wall, floor, or beam, or all plugin openings. Linked hosts are skipped, not cut. Params: openingIds, hostIds.",
+                Description = "Repair local host cuts after an opening family reload. The usual path is create_openings_from_clash, which places and cuts in one step. Pick openings or hosts, or leave both empty to use the current selection. Linked hosts are skipped, not cut.",
                 Parameters = new
                 {
                     type = "object",
@@ -120,9 +129,35 @@ public sealed class OpeningToolsPlugin : IRevitToolPlugin
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "openingIds", Label = "Openings", Kind = PresetFieldKind.PickElements, Prompt = "Pick the openings to cut with. Leave empty to use the current selection." },
+            new PresetField { Id = "hostIds", Label = "Hosts", Kind = PresetFieldKind.PickElements, Prompt = "Pick the walls, floors, or beams to cut. Linked hosts are skipped." }
+        },
+        Describe = json => Task.FromResult<string?>(DescribeCut(json)),
         Handler = async json => (await ExecuteCutHostsByOpeningsAsync(context, json)).Text,
         StructuredHandler = json => ExecuteCutHostsByOpeningsAsync(context, json)
     };
+
+    private static string DescribeCreate(string json)
+    {
+        var args = Args.Parse(json);
+        var hosts = args.Strings("hostIds");
+        var where = hosts.Count == 0 ? "the current selection" : hosts.Count + " picked host(s)";
+        var mode = ToolPresets.IsDryRun(json) ? "Dry run only. No model changes." : "This places and cuts openings.";
+        return $"{mode} Hosts: {where}. Shape: {args.Str("shape") ?? "auto"}. Clearance: {args.Dbl("clearanceMm", 25):0} mm.";
+    }
+
+    private static string DescribeCut(string json)
+    {
+        var args = Args.Parse(json);
+        var openings = args.Strings("openingIds").Count;
+        var hosts = args.Strings("hostIds").Count;
+        var scope = openings == 0 && hosts == 0
+            ? "the current selection"
+            : $"{openings} opening(s), {hosts} host(s)";
+        return $"Repair cuts using {scope}. Linked hosts are skipped.";
+    }
 
     private static async Task<ToolExecutionResult> ExecuteCutHostsByOpeningsAsync(IPluginContext context, string json)
     {

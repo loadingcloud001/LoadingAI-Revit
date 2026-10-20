@@ -11,8 +11,8 @@ reproduction on a small model is the most useful thing you can send.
   and confirmation prompts). The 2024, 2025 and 2026 builds compile and pass the unit tests in CI,
   but nobody has run them in Revit yet. They should work; treat them as unverified.
 - **`qs-formwork` has not been run in Revit.** Its tests compile but have never executed. The panel
-  geometry is the least-tested part of the add-in. Use `dryRun` and check the result before you
-  trust it.
+  geometry is the least-tested part of the add-in. A dry-run names the hosts and face types and
+  says the panel count is not known until a real run. Check that result before you trust it.
 - Windows only. Needs the WebView2 Evergreen runtime.
 
 ## Structure-cut tools (`split_*`)
@@ -26,7 +26,7 @@ reproduction on a small model is the most useful thing you can send.
   `dryRun` forecasts how many dependents would go; read it first.
 - **Joins may be dropped.** If Revit cannot keep a join on a rebuilt piece, the tool detaches it and
   says so (*"Unjoined N join(s)"*). Re-join them if your model needs it.
-- `split_by_levels` has no level filter: it considers every matching host in the scope you give it.
+- `split_by_levels` can limit hosts to one storey with `hostLevelName`. Leaving that empty still considers every matching host in the scope. The levels you pick are the planes to cut at, which is a separate choice.
 - A split run is slow on big models: a 10-wall page took about a minute on Snowdon. Revit's window
   is busy while it works. The whole turn undoes in one step.
 

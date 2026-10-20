@@ -29,7 +29,21 @@ internal static class LevelSplit
         if (uidoc == null || doc == null)
             return "Please open a model first.";
 
-        var batch = SplitScope.Collect(doc, uidoc, SplitElements.HostsIn(categories), options, elementIds, "split_by_levels");
+        var wanted = SplitElements.HostsIn(categories);
+        var command = "split_by_levels";
+        if (!string.IsNullOrWhiteSpace(options.HostLevelName))
+        {
+            var named = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(level => string.Equals(level.Name, options.HostLevelName.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (named == null)
+                return $"No level named '{options.HostLevelName}'.";
+            var levelId = named.Id;
+            var inner = wanted;
+            wanted = host => inner(host) && OnLevel(host, levelId);
+            command = "split_by_levels|" + named.Name;
+        }
+
+        var batch = SplitScope.Collect(doc, uidoc, wanted, options, elementIds, command);
         if (batch.Items.Count == 0 && batch.Total == 0)
             return SplitElements.NoHostMessage(options, batch, SplitElements.HostNoun(categories));
 
@@ -269,6 +283,15 @@ internal static class LevelSplit
         SplitElements.Select(uidoc, created);
         message += unjoinedNote;
         return message;
+    }
+
+    static bool OnLevel(Element host, ElementId levelId)
+    {
+        if (host.LevelId == levelId) return true;
+        var levelParam = host.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM)
+            ?? host.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM)
+            ?? host.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM);
+        return levelParam != null && levelParam.AsElementId() == levelId;
     }
 
     private static void PlanCurve(

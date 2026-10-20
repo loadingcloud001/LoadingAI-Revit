@@ -11,7 +11,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
 {
     public string Id => "view-tools";
     public string Name => "View & Schedule Tools";
-    public string Version => "1.0.1";
+    public string Version => "1.2.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -21,6 +21,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
         yield return Create3dView(context);
         yield return CreateSectionView(context);
         yield return PathOfTravelTool(context);
+        yield return CreateSheetSet(context);
     }
 
     private static ToolEntry CreateSchedule(IPluginContext context) => new()
@@ -31,7 +32,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_schedule",
-                Description = "Create a category schedule (ScheduleCreation). Params: category, name optional, fields array optional (else first instance fields).",
+                Description = "Create a schedule for one category. Category is required. Name is optional; fields are optional and otherwise the first instance fields are used.",
                 Parameters = new
                 {
                     type = "object",
@@ -44,6 +45,11 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = new[] { "category" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "name", Label = "Schedule name", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await CreateScheduleAsync(context, json)).Text,
         StructuredHandler = json => CreateScheduleAsync(context, json)
@@ -114,7 +120,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_floor_plan",
-                Description = "Create a floor plan view on a level. Params: levelId or levelName, name optional.",
+                Description = "Create a floor plan on a level. Give a level name, or a level id. The view name is optional.",
                 Parameters = new
                 {
                     type = "object",
@@ -127,6 +133,11 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "levelName", Label = "Level name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "name", Label = "View name", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await CreateFloorPlanAsync(context, json)).Text,
         StructuredHandler = json => CreateFloorPlanAsync(context, json)
@@ -151,7 +162,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_3d_view",
-                Description = "Create an isometric 3D view. Params: name optional.",
+                Description = "Create an isometric 3D view. The name is optional.",
                 Parameters = new
                 {
                     type = "object",
@@ -159,6 +170,10 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "name", Label = "View name", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await Create3dViewAsync(context, json)).Text,
         StructuredHandler = json => Create3dViewAsync(context, json)
@@ -182,7 +197,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                 // section contract owns the box extents and takes only two plan points, so
                 // advertising them invited arguments the tool could never honour.
                 Name = "create_section_view",
-                Description = "Create a section (CreateViewSection) along a line you give in millimetres. Params: x1,y1,x2,y2 in mm, name optional. The section box is fixed at 3000 x 2500 mm around the line.",
+                Description = "Create a section along a line in millimetres. The section box is fixed at 3000 x 2500 mm around that line. Name is optional.",
                 Parameters = new
                 {
                     type = "object",
@@ -198,6 +213,14 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = new[] { "x1", "y1", "x2", "y2" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "name", Label = "View name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "x1", Label = "Start X (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "y1", Label = "Start Y (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "x2", Label = "End X (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "y2", Label = "End Y (mm)", Kind = PresetFieldKind.Number, Required = true }
         },
         Handler = async json => (await CreateSectionViewAsync(context, json)).Text,
         StructuredHandler = json => CreateSectionViewAsync(context, json)
@@ -236,7 +259,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "path_of_travel",
-                Description = "Create path of travel on a floor plan (PathOfTravel.CreateMultiple). Params: startX,startY,endX,endY (mm) or starts/ends as [x,y] arrays. viewId optional. Max 5 pairs.",
+                Description = "Create a path of travel on a floor plan. Give one start and end in millimetres, or starts and ends arrays. At most 5 pairs. viewId is optional.",
                 Parameters = new
                 {
                     type = "object",
@@ -253,6 +276,13 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "startX", Label = "Start X (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "startY", Label = "Start Y (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "endX", Label = "End X (mm)", Kind = PresetFieldKind.Number, Required = true },
+            new PresetField { Id = "endY", Label = "End Y (mm)", Kind = PresetFieldKind.Number, Required = true }
         },
         Handler = async json => (await PathOfTravelAsync(context, json)).Text,
         StructuredHandler = json => PathOfTravelAsync(context, json)
@@ -301,6 +331,92 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             text,
             result.Created > 0 ? ToolWriteCertainty.Committed : ToolWriteCertainty.NoWrite,
             result.Created);
+    }
+
+    private static ToolEntry CreateSheetSet(IPluginContext context) => new()
+    {
+        Tier = ToolTier.L3,
+        RequiresWriteConfirm = true,
+        Definition = new ToolDefinition
+        {
+            Function = new ToolFunction
+            {
+                Name = "create_sheet_set",
+                Description = "Create one sheet per row and place that row's view on it at one point, in millimetres from the sheet origin. sheetNumbers, sheetNames, and viewIds must be the same length. Dry-run prints the list and writes nothing.",
+                Parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        sheetNumbers = new { type = "array", items = new { type = "string" } },
+                        sheetNames = new { type = "array", items = new { type = "string" } },
+                        viewIds = new { type = "array", items = new { type = "string" } },
+                        titleBlockName = new { type = "string" },
+                        x = new { type = "number" },
+                        y = new { type = "number" },
+                        dryRun = new { type = "boolean" }
+                    },
+                    required = new[] { "sheetNumbers", "sheetNames", "viewIds" }
+                }
+            }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "titleBlockName", Label = "Title block", Kind = PresetFieldKind.String },
+            new PresetField { Id = "x", Label = "View X (mm)", Kind = PresetFieldKind.Number, Default = 0 },
+            new PresetField { Id = "y", Label = "View Y (mm)", Kind = PresetFieldKind.Number, Default = 0 },
+            new PresetField { Id = "dryRun", Label = "Dry-run (list only)", Kind = PresetFieldKind.Boolean, Default = false }
+        },
+        Handler = async json => (await CreateSheetSetAsync(context, json)).Text,
+        StructuredHandler = json => CreateSheetSetAsync(context, json)
+    };
+
+    private static async Task<ToolExecutionResult> CreateSheetSetAsync(IPluginContext context, string json)
+    {
+        var args = Args.Parse(json);
+        var numbers = args.Strings("sheetNumbers");
+        var names = args.Strings("sheetNames");
+        var views = args.Strings("viewIds");
+        if (numbers.Count == 0)
+            return ToolExecutionResult.Failed("Pass sheetNumbers, sheetNames, and viewIds.", ToolWriteCertainty.NotCommitted);
+        if (numbers.Count != names.Count || numbers.Count != views.Count)
+            return ToolExecutionResult.Failed("sheetNumbers, sheetNames, and viewIds must be the same length.", ToolWriteCertainty.NotCommitted);
+        var x = args.Dbl("x", 0);
+        var y = args.Dbl("y", 0);
+        var title = args.Str("titleBlockName");
+        var lines = new List<string>();
+        for (var i = 0; i < numbers.Count; i++)
+            lines.Add($"{numbers[i]} {names[i]} <- view {views[i]}");
+        if (ToolPresets.IsDryRun(json))
+            return ToolExecutionResult.Succeeded(
+                "Dry run: " + numbers.Count + " sheet(s). No model changes.\n" + string.Join("\n", lines),
+                ToolWriteCertainty.NoWrite);
+        var made = 0;
+        var notes = new List<string>();
+        for (var i = 0; i < numbers.Count; i++)
+        {
+            var sheet = await context.Bridge.CreateSheetAsync(numbers[i], names[i], title);
+            if (!sheet.Ok)
+            {
+                var text = $"Stopped after {made} sheet(s). {sheet.Message}\n" + string.Join("\n", notes);
+                return made > 0
+                    ? ToolExecutionResult.Partial(text, ToolWriteCertainty.Committed, made, 1)
+                    : ToolExecutionResult.Failed(text, ToolWriteCertainty.NotCommitted);
+            }
+            made++;
+            var sheetId = sheet.ElementIds is { Count: > 0 } ? sheet.ElementIds[0] : "";
+            if (string.IsNullOrWhiteSpace(sheetId))
+            {
+                notes.Add($"{numbers[i]} created, but the sheet id was not returned, so the view was not placed.");
+                continue;
+            }
+            var placed = await context.Bridge.PlaceViewOnSheetAsync(views[i], sheetId, x, y);
+            notes.Add(placed.Ok ? $"{numbers[i]} placed." : $"{numbers[i]} created, view not placed: {placed.Message}");
+        }
+        return ToolExecutionResult.Succeeded(
+            $"Created {made} sheet(s).\n" + string.Join("\n", notes),
+            ToolWriteCertainty.Committed,
+            made);
     }
 
     /// <summary>

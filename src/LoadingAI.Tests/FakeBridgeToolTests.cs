@@ -1533,7 +1533,7 @@ public class FakeBridgeToolTests
 
         var text = await tool.Handler("{}");
 
-        Assert.Equal("elementId is required.", text);
+        Assert.StartsWith("elementId is required.", text);
         Assert.Empty(bridge.ChangeElementTypeCalls);
     }
 

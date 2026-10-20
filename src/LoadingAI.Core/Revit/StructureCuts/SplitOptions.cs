@@ -36,4 +36,10 @@ public sealed class SplitOptions
     /// Hosts being split stay in the host document either way.
     /// </summary>
     public bool IncludeLinks { get; init; }
+
+    /// <summary>
+    /// When set, only hosts that sit on this level are split. Empty means every host in the scope.
+    /// The levels picked as cutters are a separate choice: those are the planes to cut at.
+    /// </summary>
+    public string? HostLevelName { get; init; }
 }

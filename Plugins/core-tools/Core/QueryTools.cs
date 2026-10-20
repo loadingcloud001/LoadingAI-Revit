@@ -38,6 +38,7 @@ public static class QueryTools
             CreateGetRoomArea(context),
             CreateGetClashByBb(context),
             CreateGetModelHealthScore(context),
+            CreateAuditIssueSet(context),
             CreateSyncInfo(context),
             CreateAuditWarningsFix(context),
             CreateQuantityTakeoff(context),
@@ -922,6 +923,72 @@ public static class QueryTools
                     var dto = await context.Bridge.GetModelHealthScoreAsync();
                     if (dto == null) return "Please open a model first.";
                     return $"Health score: {dto.Score:F0}/100\nWarnings: {dto.WarningCount} (score {dto.WarningScore})\nViews: {dto.ViewCount}\nWorkshared: {dto.IsWorkshared}\nTitle: {dto.Title}";
+                }
+                catch (Exception ex) { return $"Failed: {ex.Message}"; }
+            }
+        };
+    }
+
+    internal static ToolEntry CreateAuditIssueSet(IPluginContext context)
+    {
+        return new ToolEntry
+        {
+            Tier = ToolTier.L1,
+            Presets = new[]
+            {
+                new PresetField { Id = "category", Label = "Category for a missing parameter", Kind = PresetFieldKind.String },
+                new PresetField { Id = "parameter", Label = "Parameter that must have a value", Kind = PresetFieldKind.String }
+            },
+            Definition = new ToolDefinition
+            {
+                Function = new ToolFunction
+                {
+                    Name = "audit_issue_set",
+                    Description = "Read-only issue check. Reports views not on a sheet, views with no template, duplicate sheet numbers, duplicate marks, unplaced or zero-area rooms, imported CAD, and in-place families. Optionally pass category and parameter to list elements missing that value. Writes nothing.",
+                    Parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            category = new { type = "string" },
+                            parameter = new { type = "string" },
+                            limit = new { type = "integer" }
+                        },
+                        required = Array.Empty<string>()
+                    }
+                }
+            },
+            Handler = async json =>
+            {
+                try
+                {
+                    string? category = null, parameter = null;
+                    var limit = 40;
+                    try
+                    {
+                        using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                        if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) category = c.GetString();
+                        if (d.RootElement.TryGetProperty("parameter", out var p) && p.ValueKind == JsonValueKind.String) parameter = p.GetString();
+                        if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+                    }
+                    catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
+                    var dto = await context.Bridge.GetIssueAuditAsync(category, parameter, limit);
+                    if (dto == null) return "Please open a model first.";
+                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
+                    var sb = new StringBuilder();
+                    sb.AppendLine("Issue check. No model changes.");
+                    sb.AppendLine($"Views not on a sheet: {dto.ViewsNotOnSheet}");
+                    sb.AppendLine($"Views with no template: {dto.ViewsMissingTemplate}");
+                    sb.AppendLine($"Duplicate sheet numbers: {dto.DuplicateSheetNumbers}");
+                    sb.AppendLine($"Duplicate marks: {dto.DuplicateMarks}");
+                    sb.AppendLine($"Unplaced or zero-area rooms: {dto.RoomProblems}");
+                    sb.AppendLine($"Imported CAD: {dto.ImportedCad}");
+                    sb.AppendLine($"In-place families: {dto.InPlaceFamilies}");
+                    if (!string.IsNullOrWhiteSpace(parameter))
+                        sb.AppendLine($"Missing {parameter}: {dto.MissingParameters}");
+                    foreach (var item in dto.Items)
+                        sb.AppendLine($"{item.Kind} {item.Id} {item.Name} {item.Detail}".Trim());
+                    return sb.ToString().TrimEnd();
                 }
                 catch (Exception ex) { return $"Failed: {ex.Message}"; }
             }

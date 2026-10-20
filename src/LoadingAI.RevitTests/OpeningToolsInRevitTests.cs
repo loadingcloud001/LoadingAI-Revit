@@ -92,7 +92,7 @@ public class OpeningToolsInRevitTests
         var opening = plugins.SingleOrDefault(p => p.Meta.Id == "opening-tools");
 
         Assert.That(opening, Is.Not.Null, "opening-tools must pass the shipped hash gate and load.");
-        Assert.That(opening!.Meta.Version, Is.EqualTo("1.0.0"));
+        Assert.That(opening!.Meta.Version, Is.EqualTo("1.1.0"));
         Assert.That(PluginLoader.Issues.Where(i => i.PluginId == "opening-tools"), Is.Empty);
 
         var tools = opening.Meta.Tools.OrderBy(t => t.Name, StringComparer.Ordinal).ToList();

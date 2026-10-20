@@ -10,7 +10,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
 {
     public string Id => "modeling-tools";
     public string Name => "Family & Element Modeling Tools";
-    public string Version => "1.0.1";
+    public string Version => "1.2.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -28,7 +28,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "load_family",
-                Description = "Load a .rfa family file into the model (Document.LoadFamily). Params: path (under %AppData%\\LoadingAI\\families).",
+                Description = "Load one .rfa family into the model. The file must already sit under the LoadingAI families folder. This loads a family; it does not place it.",
                 Parameters = new
                 {
                     type = "object",
@@ -37,6 +37,11 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "path", Label = "Family file (.rfa)", Kind = PresetFieldKind.String, Required = true }
+        },
+        Describe = json => Task.FromResult<string?>($"This loads a family from {Args.Parse(json).Str("path") ?? "(no path)"}."),
         Handler = async json => (await LoadFamilyAsync(context, json)).Text,
         StructuredHandler = json => LoadFamilyAsync(context, json)
     };
@@ -65,19 +70,25 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "change_element_type",
-                Description = "Change an element's type to a matching type name (Element.ChangeTypeId). Params: elementId, typeName (or typeId).",
+                Description = "Change the selected element's type. Pick the element, or pass elementId. typeName is the type to switch to.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         elementId = new { type = "string" },
+                        elementIds = new { type = "array", items = new { type = "string" } },
                         typeName = new { type = "string" },
                         typeId = new { type = "string" }
                     },
-                    required = new[] { "elementId" }
+                    required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "elementIds", Label = "Element", Kind = PresetFieldKind.PickElements, Prompt = "Pick the element whose type should change." },
+            new PresetField { Id = "typeName", Label = "New type name", Kind = PresetFieldKind.String, Required = true }
         },
         Handler = async json => (await ChangeElementTypeAsync(context, json)).Text,
         StructuredHandler = json => ChangeElementTypeAsync(context, json)
@@ -87,10 +98,12 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
     {
         var args = Args.Parse(json);
         var eid = args.Str("elementId");
+        if (string.IsNullOrWhiteSpace(eid))
+            eid = args.Strings("elementIds").FirstOrDefault();
         var typeName = args.Str("typeName");
         var typeId = args.Str("typeId");
         if (string.IsNullOrWhiteSpace(eid))
-            return ToolExecutionResult.Failed("elementId is required.", ToolWriteCertainty.NotCommitted);
+            return ToolExecutionResult.Failed("elementId is required. Pick an element, or pass elementId.", ToolWriteCertainty.NotCommitted);
         return FromWrite(await context.Bridge.ChangeElementTypeAsync(eid, typeName, typeId));
     }
 
@@ -103,7 +116,7 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "create_topography",
-                Description = "Create a toposolid (ground) from points (Toposolid.Create). Params: points array of [x,y,z] in mm (min 3). levelName/levelId optional.",
+                Description = "Create a toposolid from at least 3 points, each [x, y, z] in millimetres. levelName is optional.",
                 Parameters = new
                 {
                     type = "object",
@@ -117,6 +130,11 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "levelName", Label = "Level name", Kind = PresetFieldKind.String }
+        },
+        Describe = json => Task.FromResult<string?>($"This creates a toposolid from {Args.Parse(json).PointsMm("points").Count} point(s). At least 3 are required."),
         Handler = async json => (await CreateTopographyAsync(context, json)).Text,
         StructuredHandler = json => CreateTopographyAsync(context, json)
     };
@@ -156,6 +174,21 @@ public sealed class ModelingToolsPlugin : IRevitToolPlugin
                 return new Args(d.RootElement.Clone());
             }
             catch { return new Args(null); }
+        }
+
+        public List<string> Strings(string name)
+        {
+            var list = new List<string>();
+            if (_root is not { } r || !r.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array)
+                return list;
+            foreach (var item in v.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                    list.Add(item.GetString()!);
+                else if (item.ValueKind == JsonValueKind.Number)
+                    list.Add(item.ToString());
+            }
+            return list;
         }
 
         public string? Str(string name)

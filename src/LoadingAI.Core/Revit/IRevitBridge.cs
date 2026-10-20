@@ -48,6 +48,14 @@ public interface IRevitQuery
     Task<ClashResultDto?> GetClashByBoundingBoxAsync(
         string category1, string category2, int limit = 20, CancellationToken ct = default);
     Task<ModelHealthDto?> GetModelHealthScoreAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Read-only documentation check: unplaced views, missing templates, duplicate numbers and
+    /// marks, bad rooms, imported CAD, in-place families, and an optional missing parameter.
+    /// Null when no document is open.
+    /// </summary>
+    Task<IssueAuditDto?> GetIssueAuditAsync(
+        string? category = null, string? parameter = null, int limit = 40, CancellationToken ct = default);
     Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default);
 
     /// <summary>
@@ -236,6 +244,9 @@ public interface IRevitParamCommand
         string prefix,
         int start,
         int pad,
+        string? order = null,
+        string? levelName = null,
+        bool dryRun = false,
         CancellationToken ct = default);
 }
 

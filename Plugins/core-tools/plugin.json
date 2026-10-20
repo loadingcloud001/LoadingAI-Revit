@@ -1,7 +1,7 @@
 {
   "id": "core-tools",
   "name": "Core Tools",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.CoreTools.dll",
@@ -365,6 +365,15 @@
       "name": "get_model_health_score",
       "tier": "L1",
       "description": "Overall health score: warnings, views, worksets, rooms.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "audit_issue_set",
+      "tier": "L1",
+      "description": "Read-only issue check: views, sheet numbers, marks, rooms, imported CAD, in-place families, and an optional missing parameter.",
       "enabledByDefault": true,
       "tags": [
         "query"

@@ -360,6 +360,26 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
         }, ct);
     }
 
+    public Task<IssueAuditDto?> GetIssueAuditAsync(
+        string? category = null, string? parameter = null, int limit = 40, CancellationToken ct = default)
+    {
+        if (limit < 1) limit = 40;
+        if (limit > 100) limit = 100;
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return null;
+            try
+            {
+                return IssueAudit.Collect(doc, category, parameter, limit);
+            }
+            catch (Exception ex)
+            {
+                return new IssueAuditDto(0, 0, 0, 0, 0, 0, 0, 0, Array.Empty<IssueAuditItemDto>(), ex.Message);
+            }
+        }, ct);
+    }
+
     public Task<QuantityTakeoffDto?> GetQuantityTakeoffAsync(string category, CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>

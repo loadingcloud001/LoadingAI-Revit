@@ -40,7 +40,7 @@ public class StructureCutsContractTests
     {
         var json = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "structure-cuts", "plugin.json"));
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("2.0.1", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2.1.0", doc.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -399,7 +399,7 @@ public class StructureCutsContractTests
             var root = RepoRoot();
             var json = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "plugin.json"));
             using var doc = JsonDocument.Parse(json);
-            Assert.Equal("2.0.1", doc.RootElement.GetProperty("version").GetString());
+            Assert.Equal("2.1.0", doc.RootElement.GetProperty("version").GetString());
             var tools = doc.RootElement.GetProperty("tools").EnumerateArray().ToList();
             Assert.Equal(5, tools.Count);
             foreach (var tool in tools)
@@ -412,7 +412,7 @@ public class StructureCutsContractTests
             var src = File.ReadAllText(Path.Combine(root, "Plugins", "structure-cuts", "StructureCutsPlugin.cs"));
             Assert.Equal(1, CountOccurrences(src, "args.Bool(\"includeLinks\", false)"));
             Assert.Contains("IncludeLinks = args.Bool(\"includeLinks\", false)", src, StringComparison.Ordinal);
-            Assert.Contains("options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks);", src, StringComparison.Ordinal);
+            Assert.Contains("options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks, options.HostLevelName);", src, StringComparison.Ordinal);
             var preset = "new PresetField { Id = \"includeLinks\", Label = \"Include linked cutters\", Kind = PresetFieldKind.Boolean, Default = false }";
             Assert.Contains(preset, src, StringComparison.Ordinal);
             Assert.Equal(5, CountOccurrences(src, "includeLinks = IncludeLinksProperty()"));

@@ -435,6 +435,7 @@ public sealed partial class AdapterRevitBridge
                 Scope = request.Scope,
                 ContinueFrom = request.ContinueFrom,
                 IncludeLinks = request.IncludeLinks,
+                HostLevelName = request.HostLevelName,
             };
             var outcome = new SplitOutcome();
             try

@@ -10,7 +10,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
 {
     public string Id => "export-tools";
     public string Name => "Export Tools";
-    public string Version => "1.0.1";
+    public string Version => "1.2.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -28,7 +28,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "export_pdf",
-                Description = "Export sheets/views to PDF (DiRoots). Params: sheetIds array (from get_sheets_views); leaving it out exports EVERY sheet and can block Revit for minutes, so that also needs confirmAll=true. folder, name, combine (default true).",
+                Description = "Export sheets to PDF. Pass sheetIds, or leave them empty and turn on Export every sheet. Leaving both off does nothing, because exporting every sheet can block Revit for minutes. folder, name, and combine (one file, default on) are on the form.",
                 Parameters = new
                 {
                     type = "object",
@@ -44,9 +44,30 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "folder", Label = "Folder", Kind = PresetFieldKind.String },
+            new PresetField { Id = "name", Label = "File name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "combine", Label = "One combined PDF", Kind = PresetFieldKind.Boolean, Default = true },
+            new PresetField { Id = "confirmAll", Label = "Export every sheet", Kind = PresetFieldKind.Boolean, Default = false, Warning = "This exports every sheet and can block Revit for several minutes." }
+        },
+        Describe = json => Task.FromResult<string?>(DescribePdf(json)),
         Handler = async json => (await ExportPdfAsync(context, json)).Text,
         StructuredHandler = json => ExportPdfAsync(context, json)
     };
+
+    private static string DescribePdf(string json)
+    {
+        var args = Args.Parse(json);
+        var count = args.Strings("sheetIds").Count;
+        var folder = string.IsNullOrWhiteSpace(args.Str("folder")) ? "the default export folder" : args.Str("folder");
+        if (count == 0 && args.Bool("confirmAll", false))
+            return $"This exports every sheet to {folder}. It can block Revit for several minutes.";
+        if (count == 0)
+            return "No sheets were chosen. Turn on Export every sheet, or pass sheet ids.";
+        var file = args.Bool("combine", true) ? "one PDF" : "one PDF per sheet";
+        return $"This exports {count} sheet(s) as {file} to {folder}.";
+    }
 
     private static async Task<ToolExecutionResult> ExportPdfAsync(IPluginContext context, string json)
     {
@@ -72,7 +93,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "export_dwg",
-                Description = "Export views/sheets to DWG (pyRevit). Params: viewIds array optional (else active view), folder, name.",
+                Description = "Export the chosen views, or the active view when none are passed, to DWG. Folder and file name are on the form.",
                 Parameters = new
                 {
                     type = "object",
@@ -85,6 +106,11 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "folder", Label = "Folder", Kind = PresetFieldKind.String },
+            new PresetField { Id = "name", Label = "File name", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await ExportDwgAsync(context, json)).Text,
         StructuredHandler = json => ExportDwgAsync(context, json)
@@ -111,7 +137,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "export_ifc",
-                Description = "Export IFC to folder (BIM Interoperability). Params: folder, name optional, version optional (e.g. IFC2x3CV2, IFC4RV).",
+                Description = "Export the model to IFC. Folder, file name, and schema version (for example IFC2x3 or IFC4) are on the form.",
                 Parameters = new
                 {
                     type = "object",
@@ -124,6 +150,12 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "folder", Label = "Folder", Kind = PresetFieldKind.String },
+            new PresetField { Id = "name", Label = "File name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "version", Label = "IFC version", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await ExportIfcAsync(context, json)).Text,
         StructuredHandler = json => ExportIfcAsync(context, json)
@@ -150,7 +182,7 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "purge_unused",
-                Description = "Purge unused families/types (pyRevit: Purge). Uses Document.GetUnusedElements. Params: preview bool (default true).",
+                Description = "Purge unused families and types. The form starts on preview, which lists what would be deleted and changes nothing. Turn preview off to delete.",
                 Parameters = new
                 {
                     type = "object",
@@ -158,6 +190,10 @@ public sealed class ExportToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "preview", Label = "Preview only (do not delete)", Kind = PresetFieldKind.Boolean, Default = true }
         },
         Handler = async json => (await PurgeUnusedAsync(context, json)).Text,
         StructuredHandler = json => PurgeUnusedAsync(context, json)

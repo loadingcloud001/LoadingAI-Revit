@@ -401,6 +401,7 @@ public class QsFormworkExecutionResultTests
         Assert.Contains(tool.Presets, p => p.Id == "thicknessMm" && p.Kind == PresetFieldKind.Number);
         Assert.Contains(tool.Presets, p => p.Id == "collision" && p.Kind == PresetFieldKind.Boolean);
         Assert.Contains(tool.Presets, p => p.Id == "deleteExisting" && p.Kind == PresetFieldKind.Boolean);
+        Assert.Contains(tool.Presets, p => p.Id == "dryRun" && p.Kind == PresetFieldKind.Boolean);
         Assert.True(ToolPresets.HasPresets(tool));
     }
 
@@ -411,6 +412,7 @@ public class QsFormworkExecutionResultTests
         var tool = CreateTool(context, "cleanup_formwork");
 
         Assert.Contains(tool.Presets, p => p.Id == "action" && p.Kind == PresetFieldKind.Select);
+        Assert.Contains(tool.Presets, p => p.Id == "dryRun" && p.Kind == PresetFieldKind.Boolean);
         Assert.True(ToolPresets.HasPresets(tool));
     }
 
@@ -421,6 +423,7 @@ public class QsFormworkExecutionResultTests
         var tool = CreateTool(context, "copy_formwork_parent_params");
 
         Assert.Contains(tool.Presets, p => p.Id == "elementIds" && p.Kind == PresetFieldKind.PickElements);
+        Assert.Contains(tool.Presets, p => p.Id == "dryRun" && p.Kind == PresetFieldKind.Boolean);
         Assert.True(ToolPresets.HasPresets(tool));
     }
 

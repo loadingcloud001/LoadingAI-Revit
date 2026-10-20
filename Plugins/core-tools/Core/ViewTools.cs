@@ -333,7 +333,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "create_sheet",
-                Description = "Create a new sheet. titleBlockName is a title block type name or 'Family: Type'; when omitted the first loaded title block is used.",
+                Description = "Create one sheet. Sheet number and sheet name are required. Title block is a type name or 'Family: Type'; when omitted, the first loaded title block is used.",
                 Parameters = new
                 {
                     type = "object",
@@ -346,6 +346,12 @@ public static class ViewTools
                     required = new[] { "sheetNumber", "sheetName" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "sheetNumber", Label = "Sheet number", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "sheetName", Label = "Sheet name", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "titleBlockName", Label = "Title block", Kind = PresetFieldKind.String }
         },
         Handler = async json => (await CreateSheetAsync(context, json)).Text,
         StructuredHandler = json => CreateSheetAsync(context, json)
@@ -376,7 +382,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "place_view_on_sheet",
-                Description = "Place a view or schedule onto a sheet at (x,y) mm from the sheet origin. A view can be on one sheet only; the result says why a view cannot be placed.",
+                Description = "Place a view or schedule onto a sheet. Pick the view and the sheet, or pass their ids. x and y are millimetres from the sheet origin. A view can be on one sheet only; the result says why a view cannot be placed.",
                 Parameters = new
                 {
                     type = "object",
@@ -384,12 +390,21 @@ public static class ViewTools
                     {
                         viewId = new { type = "string" },
                         sheetId = new { type = "string" },
+                        viewIds = new { type = "array", items = new { type = "string" }, description = "Pick. The first id is placed." },
+                        sheetIds = new { type = "array", items = new { type = "string" }, description = "Pick. The first id receives the view." },
                         x = new { type = "number", description = "X mm from sheet origin" },
                         y = new { type = "number", description = "Y mm from sheet origin" }
                     },
-                    required = new[] { "viewId", "sheetId" }
+                    required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "viewIds", Label = "View", Kind = PresetFieldKind.PickElements, Prompt = "Pick the view to place." },
+            new PresetField { Id = "sheetIds", Label = "Sheet", Kind = PresetFieldKind.PickElements, Prompt = "Pick the sheet." },
+            new PresetField { Id = "x", Label = "X (mm from sheet origin)", Kind = PresetFieldKind.Number, Default = 0 },
+            new PresetField { Id = "y", Label = "Y (mm from sheet origin)", Kind = PresetFieldKind.Number, Default = 0 }
         },
         Handler = async json => (await PlaceViewOnSheetAsync(context, json)).Text,
         StructuredHandler = json => PlaceViewOnSheetAsync(context, json)
@@ -401,15 +416,17 @@ public static class ViewTools
         try
         {
             using var d = JsonDocument.Parse(json);
-            vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
-            sid = d.RootElement.GetProperty("sheetId").GetString() ?? "";
-            if (d.RootElement.TryGetProperty("x", out var xv)) x = xv.GetDouble();
-            if (d.RootElement.TryGetProperty("y", out var yv)) y = yv.GetDouble();
+            vid = FirstId(d.RootElement, "viewIds") ?? (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "");
+            sid = FirstId(d.RootElement, "sheetIds") ?? (d.RootElement.TryGetProperty("sheetId", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() ?? "" : "");
+            if (d.RootElement.TryGetProperty("x", out var xv) && xv.ValueKind == JsonValueKind.Number) x = xv.GetDouble();
+            if (d.RootElement.TryGetProperty("y", out var yv) && yv.ValueKind == JsonValueKind.Number) y = yv.GetDouble();
         }
         catch (Exception ex)
         {
             return Refused($"Invalid args: {ex.Message}");
         }
+        if (string.IsNullOrWhiteSpace(vid) || string.IsNullOrWhiteSpace(sid))
+            return Refused("Pick a view and a sheet, or pass viewId and sheetId.");
         return WriteResult(await context.Bridge.PlaceViewOnSheetAsync(vid, sid, x, y));
     }
 
@@ -587,7 +604,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "tag_all",
-                Description = "Tag up to 50 elements of a category in the active view, each tag placed on its element. Needs a loaded tag family for the category; the result says how many were tagged and why the rest were not.",
+                Description = "Tag up to 50 elements of one category in the active view. Each tag is placed on its element. The category needs a loaded tag family. The result says how many were tagged and why the rest were not.",
                 Parameters = new
                 {
                     type = "object",
@@ -595,6 +612,10 @@ public static class ViewTools
                     required = new[] { "category" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true, Prompt = "Walls, Doors, Windows, Rooms" }
         },
         Handler = async json => (await TagAllAsync(context, json)).Text,
         StructuredHandler = json => TagAllAsync(context, json)
@@ -632,6 +653,19 @@ public static class ViewTools
     /// </summary>
     private static ToolExecutionResult Refused(string text)
         => ToolExecutionResult.Failed(text, ToolWriteCertainty.NotCommitted);
+
+    static string? FirstId(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return null;
+        foreach (var item in v.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                return item.GetString();
+            if (item.ValueKind == JsonValueKind.Number)
+                return item.ToString();
+        }
+        return null;
+    }
 
     private static bool TryParseDate(string s, out DateTime dt)
     {

@@ -187,6 +187,24 @@ public sealed record ModelHealthDto(
     bool IsWorkshared,
     string Title);
 
+/// <summary>
+/// Read-only issue check. Counts are the full model; <see cref="Items"/> is capped.
+/// Nothing here is a write.
+/// </summary>
+public sealed record IssueAuditItemDto(string Kind, string Id, string Name, string Detail);
+
+public sealed record IssueAuditDto(
+    int ViewsNotOnSheet,
+    int ViewsMissingTemplate,
+    int DuplicateSheetNumbers,
+    int DuplicateMarks,
+    int RoomProblems,
+    int ImportedCad,
+    int InPlaceFamilies,
+    int MissingParameters,
+    IReadOnlyList<IssueAuditItemDto> Items,
+    string? Error = null);
+
 public sealed record CommandResultDto(
     bool Ok,
     string Message,
@@ -312,7 +330,8 @@ public sealed record SplitRequestDto(
     bool DryRun,
     bool UniqueMark,
     bool CopyParams,
-    bool IncludeLinks = false);
+    bool IncludeLinks = false,
+    string? HostLevelName = null);
 
 /// <summary>
 /// Outcome of one structure-cuts run. <c>Report</c> is the algorithms' own prose,

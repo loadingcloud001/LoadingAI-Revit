@@ -1,3 +1,4 @@
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
@@ -444,6 +445,9 @@ public sealed partial class AdapterRevitBridge
         string prefix,
         int start,
         int pad,
+        string? order = null,
+        string? levelName = null,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -453,32 +457,66 @@ public sealed partial class AdapterRevitBridge
             var doc = uidoc.Document;
             try
             {
-                ICollection<ElementId> ids;
+                List<Element> elements;
                 if (!string.IsNullOrWhiteSpace(category))
                 {
                     var bic = AllTools.ParseCategory(category);
                     if (bic == null) return new CommandResultDto(false, $"Unknown category {category}");
-                    ids = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElementIds();
+                    elements = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToElements().ToList();
                 }
-                else ids = uidoc.Selection.GetElementIds();
-                if (ids.Count == 0) return new CommandResultDto(false, "Please select elements first or provide category.");
+                else
+                {
+                    elements = uidoc.Selection.GetElementIds().Select(id => doc.GetElement(id)).Where(el => el != null).Cast<Element>().ToList();
+                }
+                if (!string.IsNullOrWhiteSpace(levelName))
+                {
+                    var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                        .FirstOrDefault(l => string.Equals(l.Name, levelName.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (level == null) return new CommandResultDto(false, $"No level named '{levelName}'.");
+                    elements = elements.Where(el => el.LevelId == level.Id).ToList();
+                }
+                if (elements.Count == 0) return new CommandResultDto(false, "Please select elements first or provide category.");
+                if (string.Equals(order, "left-to-right", StringComparison.OrdinalIgnoreCase))
+                {
+                    elements.Sort((a, b) =>
+                    {
+                        var ax = a.get_BoundingBox(null)?.Min.X ?? double.MaxValue;
+                        var bx = b.get_BoundingBox(null)?.Min.X ?? double.MaxValue;
+                        var cmp = ax.CompareTo(bx);
+                        return cmp != 0 ? cmp : string.Compare(a.Id.ToString(), b.Id.ToString(), StringComparison.Ordinal);
+                    });
+                }
                 var pref = prefix ?? "";
+                var width = Math.Max(pad, 1);
+                if (dryRun)
+                {
+                    var lines = new List<string>();
+                    var nPreview = start;
+                    foreach (var el in elements.Take(20))
+                    {
+                        var old = el.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString() ?? "";
+                        var mark = pref + nPreview.ToString().PadLeft(width, '0');
+                        lines.Add($"{el.Id}: {old} -> {mark}");
+                        nPreview++;
+                    }
+                    var more = elements.Count > 20 ? $"\n… and {elements.Count - 20} more." : "";
+                    return new CommandResultDto(true,
+                        $"Dry run: {elements.Count} Mark value(s). No model changes.\n" + string.Join("\n", lines) + more);
+                }
                 int n = start;
                 int upd = 0;
                 using var tx = new Transaction(doc, "LoadingAI for Revit: auto numbering");
                 tx.Start();
                 try
                 {
-                    foreach (var id in ids)
+                    foreach (var el in elements)
                     {
-                        var el = doc.GetElement(id);
-                        if (el == null) continue;
-                        var mark = pref + n.ToString().PadLeft(pad, '0');
+                        var mark = pref + n.ToString().PadLeft(width, '0');
                         if (AllTools.TrySetParameter(el, "Mark", mark, out _)) upd++;
                         n++;
                     }
                     tx.Commit();
-                    return new CommandResultDto(true, $"Numbered {upd}/{ids.Count} Mark from {pref}{start.ToString().PadLeft(pad, '0')}", upd);
+                    return new CommandResultDto(true, $"Numbered {upd}/{elements.Count} Mark from {pref}{start.ToString().PadLeft(width, '0')}", upd);
                 }
                 catch
                 {

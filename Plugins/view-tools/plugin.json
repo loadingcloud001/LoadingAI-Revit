@@ -1,7 +1,7 @@
 {
   "id": "view-tools",
   "name": "View & Schedule Tools",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.ViewTools.dll",
@@ -59,6 +59,16 @@
       "name": "path_of_travel",
       "tier": "L3",
       "description": "Create path of travel on a floor plan. Params: startX,startY,endX,endY or starts/ends arrays. viewId optional.",
+      "enabledByDefault": false,
+      "tags": [
+        "view",
+        "write"
+      ]
+    },
+    {
+      "name": "create_sheet_set",
+      "tier": "L3",
+      "description": "Create one sheet per row and place that row's view on it. Dry-run lists the sheets and writes nothing.",
       "enabledByDefault": false,
       "tags": [
         "view",

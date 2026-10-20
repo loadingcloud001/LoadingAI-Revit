@@ -152,6 +152,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
     public Task<ModelHealthDto?> GetModelHealthScoreAsync(CancellationToken ct = default)
         => Task.FromResult(HasActiveDocument ? ModelHealth ?? new ModelHealthDto(0, 0, 100, 0, false, "") : null);
 
+    public IssueAuditDto? NextIssueAudit { get; set; }
+
+    public List<(string? Category, string? Parameter, int Limit)> IssueAuditCalls { get; } = new();
+
+    public Task<IssueAuditDto?> GetIssueAuditAsync(
+        string? category = null, string? parameter = null, int limit = 40, CancellationToken ct = default)
+    {
+        if (!HasActiveDocument) return Task.FromResult<IssueAuditDto?>(null);
+        IssueAuditCalls.Add((category, parameter, limit));
+        return Task.FromResult<IssueAuditDto?>(NextIssueAudit ?? new IssueAuditDto(0, 0, 0, 0, 0, 0, 0, 0, Array.Empty<IssueAuditItemDto>()));
+    }
+
     public QuantityTakeoffDto? NextQuantityTakeoff { get; set; }
 
     public List<string> QuantityTakeoffCalls { get; } = new();
@@ -527,7 +539,7 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string Category, string ParamName, string Pattern, string Replacement, int Limit)> ReplaceTextCalls { get; } = new();
 
-    public List<(string? Category, string Prefix, int Start, int Pad)> NumberElementsCalls { get; } = new();
+    public List<(string? Category, string Prefix, int Start, int Pad, string? Order, string? LevelName, bool DryRun)> NumberElementsCalls { get; } = new();
 
     public Task<ParamExportDto?> ExportParamsAsync(
         string category,
@@ -608,12 +620,15 @@ internal sealed class FakeRevitBridge : IRevitBridge
         string prefix,
         int start,
         int pad,
+        string? order = null,
+        string? levelName = null,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
 
-        NumberElementsCalls.Add((category, prefix, start, pad));
+        NumberElementsCalls.Add((category, prefix, start, pad, order, levelName, dryRun));
         if (NextNumberElements != null)
             return Task.FromResult(NextNumberElements);
 

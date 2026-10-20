@@ -11,7 +11,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
 {
     public string Id => "structure-cuts";
     public string Name => "Structure Split Tools";
-    public string Version => "2.0.1";
+    public string Version => "2.1.0";
 
     public IEnumerable<ToolEntry> CreateTools(IPluginContext context)
     {
@@ -112,6 +112,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
                     {
                         elementIds = ElementIdsProperty(),
                         levelIds = new { type = "array", items = new { type = "string" }, description = "Optional. If omitted, uses selection levels, else all levels in the model." },
+                        hostLevelName = new { type = "string", description = "Optional. Only split hosts that sit on this level. Empty means every host in the scope." },
                         categories = CategoriesProperty(),
                         scope = ScopeProperty(),
                         continueFrom = ContinueFromProperty(),
@@ -127,7 +128,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         },
         Presets = Concat(
             new PresetField { Id = "elementIds", Label = "Elements", Kind = PresetFieldKind.PickElements, Prompt = "Pick walls, columns, beams or floors, then Finish." },
-            new PresetField { Id = "levelIds", Label = "Levels", Kind = PresetFieldKind.PickElements, Category = "OST_Levels", Prompt = "Pick levels to split at, then Finish." },
+            new PresetField { Id = "levelIds", Label = "Levels to cut at", Kind = PresetFieldKind.PickElements, Category = "OST_Levels", Prompt = "Pick levels to split at, then Finish." },
+            new PresetField { Id = "hostLevelName", Label = "Only hosts on this level", Kind = PresetFieldKind.String },
             CategoriesPreset(),
             SharedKnobs()),
         Handler = async json => (await ExecuteSplitByLevels(context, json)).Text,
@@ -311,7 +313,8 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
         CopyParams = args.Bool("copyParams", true),
         IncludeLinks = args.Bool("includeLinks", false),
         Scope = args.Scope(),
-        ContinueFrom = args.ContinueFrom()
+        ContinueFrom = args.ContinueFrom(),
+        HostLevelName = args.Strings("hostLevelName").FirstOrDefault()
     };
 
     /// <summary>
@@ -322,7 +325,7 @@ public sealed class StructureCutsPlugin : IRevitToolPlugin
     private static SplitRequestDto Request(
         SplitOptions options, IReadOnlyList<string>? hosts, IReadOnlyList<string>? cutters, IReadOnlyList<string>? categories)
         => new(hosts, cutters, categories, options.Scope, options.ContinueFrom, options.Limit,
-            options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks);
+            options.DryRun, options.UniqueMark, options.CopyParams, options.IncludeLinks, options.HostLevelName);
 
     private static IReadOnlyList<string>? Filter(List<string> ids) => ids.Count == 0 ? null : ids;
 

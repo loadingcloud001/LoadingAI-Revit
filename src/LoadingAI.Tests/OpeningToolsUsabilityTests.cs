@@ -61,6 +61,18 @@ public class OpeningToolsUsabilityTests
     }
 
     [Fact]
+    public void CreateOpeningsAsksBeforeItCuts()
+    {
+        var tool = CreateTool(new FakePluginContext(new FakeRevitBridge()), "create_openings_from_clash");
+
+        Assert.Contains(tool.Presets, p => p.Id == "hostIds" && p.Kind == PresetFieldKind.PickElements);
+        Assert.Contains(tool.Presets, p => p.Id == "shape" && p.Kind == PresetFieldKind.Select && p.Options!.Contains("auto"));
+        Assert.Contains(tool.Presets, p => p.Id == "clearanceMm" && p.Kind == PresetFieldKind.Number);
+        Assert.Contains(tool.Presets, p => p.Id == "dryRun" && Equals(p.Default, false));
+        Assert.True(ToolPresets.HasPresets(tool));
+    }
+
+    [Fact]
     public void DescriptionsLeadWithActionAndHonestScope()
     {
         var plugin = File.ReadAllText(Path.Combine(RepoRoot(), "Plugins", "opening-tools", "OpeningToolsPlugin.cs"));

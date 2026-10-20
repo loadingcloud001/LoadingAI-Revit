@@ -1,7 +1,7 @@
 {
   "id": "modeling-tools",
   "name": "Family & Element Modeling Tools",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.ModelingTools.dll",
