@@ -77,7 +77,7 @@ export function upstreamBody(payload, env) {
   if (typeof asked === 'number' && Number.isFinite(asked) && asked >= 1) {
     body.max_tokens = Math.min(Math.floor(asked), positiveInt(env.MAX_OUTPUT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_LIMIT));
   }
-  body.model = env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview';
+  body.model = env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash';
   return body;
 }
 
@@ -203,7 +203,7 @@ async function handleModels(request, env) {
   // Answered locally so a model probe never spends upstream credit.
   return json({
     object: 'list',
-    data: [{ id: env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash-Preview', object: 'model', owned_by: 'LoadingAI' }],
+    data: [{ id: env.MINIMAX_MODEL || 'MiniMax-M3.1-Flash', object: 'model', owned_by: 'LoadingAI' }],
   });
 }
 

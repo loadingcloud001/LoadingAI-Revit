@@ -13,7 +13,7 @@ public static class DefaultLlm
     public const string Id = "loadingai";
     public const string DisplayName = "LoadingAI";
     public const string DisplayModel = "LoadingAI";
-    public const string ApiModel = "MiniMax-M3.1-Flash-Preview";
+    public const string ApiModel = "MiniMax-M3.1-Flash";
     public const string ApiKind = "openai";
     public const string Group = "cloud";
     public const string Icon = "✦";
