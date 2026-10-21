@@ -2201,13 +2201,14 @@ public class FakeBridgeToolTests
             .Select(t => (t.Definition.Function.Name, t.Tier))
             .ToDictionary(x => x.Name, x => x.Tier);
 
-        Assert.Equal(6, tools.Count);
+        Assert.Equal(7, tools.Count);
         Assert.Equal(ToolTier.L3, tools["create_schedule"]);
         Assert.Equal(ToolTier.L1, tools["get_schedule_data"]);
         Assert.Equal(ToolTier.L3, tools["create_floor_plan"]);
         Assert.Equal(ToolTier.L3, tools["create_3d_view"]);
         Assert.Equal(ToolTier.L3, tools["create_section_view"]);
         Assert.Equal(ToolTier.L3, tools["path_of_travel"]);
+        Assert.Equal(ToolTier.L3, tools["create_sheet_set"]);
     }
 
     [Fact]

@@ -379,19 +379,27 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "import_excel_to_params",
-                Description = "Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName. Numeric values are read in mm / m² / m³ / degrees.",
+                Description = "Import CSV (Excel) to set parameters by Id — pyRevit: Import. Params: filePath, paramName, dryRun. Numeric values are read in mm / m² / m³ / degrees. Dry-run lists old and new values, missing ids, and parameters that cannot be set, and writes nothing. The form starts in dry-run.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         filePath = new { type = "string" },
-                        paramName = new { type = "string" }
+                        paramName = new { type = "string" },
+                        dryRun = new { type = "boolean", description = "List changes only. Writes nothing." }
                     },
                     required = new[] { "filePath", "paramName" }
                 }
             }
         },
+        Presets = new[]
+        {
+            new PresetField { Id = "filePath", Label = "CSV file", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "paramName", Label = "Parameter name", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "dryRun", Label = "Dry-run (show old and new values)", Kind = PresetFieldKind.Boolean, Default = true }
+        },
+        Describe = json => DescribeImport(context, json),
         Handler = async json => (await ImportExcelToParamsAsync(context, json)).Text,
         StructuredHandler = json => ImportExcelToParamsAsync(context, json)
     };
@@ -431,8 +439,9 @@ public static class ParamTools
         }
         if (rows.Count == 0)
             return ToolExecutionResult.Failed("No rows parsed", ToolWriteCertainty.NotCommitted);
-        var result = await context.Bridge.ImportParamsAsync(pn, rows, fp);
-        return WriteResult(result);
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.ImportParamsAsync(pn, rows, fp, dryRun);
+        return FromDryOrWrite(result, dryRun);
     }
 
     internal static ToolEntry CreateCopyParams(IPluginContext context) => new()
@@ -444,7 +453,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "copy_params",
-                Description = "Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit. Length, area, volume and angle values are copied as numbers, not text.",
+                Description = "Copy parameter value from source param to target param for a category (pyRevit: Copy Param). Params: category, sourceParam, targetParam, limit, dryRun. Length, area, volume and angle values are copied as numbers, not text. Dry-run lists old and new values and writes nothing.",
                 Parameters = new
                 {
                     type = "object",
@@ -453,11 +462,20 @@ public static class ParamTools
                         category = new { type = "string" },
                         sourceParam = new { type = "string" },
                         targetParam = new { type = "string" },
-                        limit = new { type = "integer" }
+                        limit = new { type = "integer" },
+                        dryRun = new { type = "boolean", description = "List changes only. Writes nothing." }
                     },
                     required = new[] { "category", "sourceParam", "targetParam" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "sourceParam", Label = "Copy from", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "targetParam", Label = "Copy to", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = 200 },
+            new PresetField { Id = "dryRun", Label = "Dry-run (show old and new values)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await CopyParamsAsync(context, json)).Text,
         StructuredHandler = json => CopyParamsAsync(context, json)
@@ -479,8 +497,9 @@ public static class ParamTools
             return ToolExecutionResult.Failed($"Invalid args: {ex.Message}", ToolWriteCertainty.NotCommitted);
         }
         lim = Polyfills.Clamp(lim, 1, 1000);
-        var result = await context.Bridge.CopyParamsAsync(cat, src, tgt, lim);
-        return WriteResult(result);
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.CopyParamsAsync(cat, src, tgt, lim, dryRun);
+        return FromDryOrWrite(result, dryRun);
     }
 
     internal static ToolEntry CreateReplaceText(IPluginContext context) => new()
@@ -492,7 +511,7 @@ public static class ParamTools
             Function = new ToolFunction
             {
                 Name = "replace_text",
-                Description = "Regex replace in parameter (pyRevit: Replace). Params: category, paramName, pattern, replacement, limit.",
+                Description = "Regex replace in parameter (pyRevit: Replace). Params: category, paramName, pattern, replacement, limit, dryRun. Dry-run lists old and new values and writes nothing.",
                 Parameters = new
                 {
                     type = "object",
@@ -502,11 +521,21 @@ public static class ParamTools
                         paramName = new { type = "string" },
                         pattern = new { type = "string" },
                         replacement = new { type = "string" },
-                        limit = new { type = "integer" }
+                        limit = new { type = "integer" },
+                        dryRun = new { type = "boolean", description = "List changes only. Writes nothing." }
                     },
                     required = new[] { "category", "paramName", "pattern", "replacement" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "paramName", Label = "Parameter", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "pattern", Label = "Find (regex)", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "replacement", Label = "Replace with", Kind = PresetFieldKind.String, Required = true },
+            new PresetField { Id = "limit", Label = "Max elements", Kind = PresetFieldKind.Number, Default = 200 },
+            new PresetField { Id = "dryRun", Label = "Dry-run (show old and new values)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await ReplaceTextAsync(context, json)).Text,
         StructuredHandler = json => ReplaceTextAsync(context, json)
@@ -529,8 +558,9 @@ public static class ParamTools
             return ToolExecutionResult.Failed($"Invalid args: {ex.Message}", ToolWriteCertainty.NotCommitted);
         }
         lim = Polyfills.Clamp(lim, 1, 1000);
-        var result = await context.Bridge.ReplaceTextInParamAsync(cat, pn, pat, rep, lim);
-        return WriteResult(result);
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.ReplaceTextInParamAsync(cat, pn, pat, rep, lim, dryRun);
+        return FromDryOrWrite(result, dryRun);
     }
 
     internal static ToolEntry CreateNumberingAuto(IPluginContext context) => new()
@@ -600,11 +630,45 @@ public static class ParamTools
                 ToolWriteCertainty.NotCommitted);
         var dryRun = ToolPresets.IsDryRun(json);
         var result = await context.Bridge.NumberElementsAsync(cat, pref, start, pad, order, levelName, dryRun);
-        if (dryRun)
-            return result.Ok
+        return FromDryOrWrite(result, dryRun);
+    }
+
+    private static ToolExecutionResult FromDryOrWrite(CommandResultDto result, bool dryRun)
+        => dryRun
+            ? result.Ok
                 ? ToolExecutionResult.Succeeded(result.Message, ToolWriteCertainty.NoWrite)
-                : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NotCommitted);
-        return WriteResult(result);
+                : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NotCommitted)
+            : WriteResult(result);
+
+    private static async Task<string?> DescribeImport(IPluginContext context, string json)
+    {
+        using var doc = ParseArgs(json);
+        if (doc == null) return null;
+        var path = ArgStr(doc.RootElement, "filePath");
+        var param = ArgStr(doc.RootElement, "paramName");
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(param)) return null;
+        string full;
+        try { full = ExportPaths.ResolveRead(path!); }
+        catch (Exception ex) { return ex.Message; }
+        if (!File.Exists(full)) return $"File not found: {full}";
+        var lines = File.ReadAllLines(full);
+        if (lines.Length < 2) return "File empty or no data rows";
+        var header = lines[0].Split(',');
+        int valIdx = 1;
+        for (int i = 0; i < header.Length; i++)
+            if (header[i].Trim('"').Equals(param, StringComparison.OrdinalIgnoreCase)) valIdx = i;
+        var rows = new List<ParamImportRowDto>();
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var parts = SplitCsv(lines[i]);
+            if (parts.Length < 2) continue;
+            var id = parts[0].Trim('"');
+            var val = valIdx < parts.Length ? parts[valIdx].Trim('"') : "";
+            rows.Add(new ParamImportRowDto(id, val));
+        }
+        if (rows.Count == 0) return "No rows parsed";
+        var preview = await context.Bridge.ImportParamsAsync(param!, rows, full, dryRun: true);
+        return preview.Message;
     }
 
     private static JsonDocument? ParseArgs(string json)

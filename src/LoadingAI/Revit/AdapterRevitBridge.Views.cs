@@ -641,12 +641,22 @@ public sealed partial class AdapterRevitBridge
     {
         return _bridge.RunAsync(uiApp =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
             try
             {
-                var view = doc.GetElement(AllTools.ParseEid(viewId)) as View;
-                if (view == null) return new CommandResultDto(false, $"View {viewId} not found.");
+                View? view;
+                if (string.IsNullOrWhiteSpace(viewId))
+                {
+                    view = uidoc!.ActiveView;
+                    if (view == null) return new CommandResultDto(false, "No active view.");
+                }
+                else
+                {
+                    view = doc.GetElement(AllTools.ParseEid(viewId)) as View;
+                    if (view == null) return new CommandResultDto(false, $"View {viewId} not found.");
+                }
                 using var tx = new Transaction(doc, "LoadingAI for Revit: duplicate view");
                 tx.Start();
                 try
@@ -670,27 +680,42 @@ public sealed partial class AdapterRevitBridge
 
     public Task<CommandResultDto> SetViewTemplateAsync(
         string viewId, string? templateId = null,
+        IReadOnlyList<string>? viewIds = null,
+        string? templateName = null,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
             try
             {
-                var view = doc.GetElement(AllTools.ParseEid(viewId)) as View;
-                if (view == null) return new CommandResultDto(false, $"View {viewId} not found.");
+                if (!TryResolveViews(doc, uidoc!, viewId, viewIds, out var views, out var viewError))
+                    return new CommandResultDto(false, viewError);
+                if (!TryResolveTemplate(doc, templateId, templateName, out var tid, out var targetLabel, out var templateError))
+                    return new CommandResultDto(false, templateError);
+                var blocked = views.Where(v => TemplateBlock(v) != null).ToList();
+                if (blocked.Count > 0)
+                    return new CommandResultDto(false, "Cannot set a template on " + string.Join(", ", blocked.Select(v => $"{v.Id} ({TemplateBlock(v)})")) + ".");
+                if (dryRun)
+                {
+                    var lines = views.Select(v => $"{v.Id} {v.Name}: {TemplateLabel(doc, v)} → {targetLabel}");
+                    return new CommandResultDto(true, "No model changes.\n" + string.Join("\n", lines));
+                }
                 using var tx = new Transaction(doc, "LoadingAI for Revit: set view template");
                 tx.Start();
                 try
                 {
-                    var tid = string.IsNullOrWhiteSpace(templateId) ? ElementId.InvalidElementId : AllTools.ParseEid(templateId);
-                    view.ViewTemplateId = tid;
+                    foreach (var view in views)
+                        view.ViewTemplateId = tid;
                     tx.Commit();
-                    var msg = string.IsNullOrWhiteSpace(templateId)
-                        ? $"Cleared template for {viewId}"
-                        : $"Set template {templateId} for {viewId}";
-                    return new CommandResultDto(true, msg, 1);
+                    var names = string.Join(", ", views.Select(v => v.Name));
+                    var msg = tid == ElementId.InvalidElementId
+                        ? $"Cleared template for {views.Count} view(s): {names}"
+                        : $"Set template {targetLabel} for {views.Count} view(s): {names}";
+                    return new CommandResultDto(true, msg, views.Count);
                 }
                 catch (Exception inner)
                 {
@@ -707,24 +732,30 @@ public sealed partial class AdapterRevitBridge
 
     public Task<CommandResultDto> SetCropBoxAsync(
         string viewId, bool enabled,
+        IReadOnlyList<string>? viewIds = null,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
         {
-            var doc = uiApp.ActiveUIDocument?.Document;
+            var uidoc = uiApp.ActiveUIDocument;
+            var doc = uidoc?.Document;
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
             try
             {
-                var view = doc.GetElement(AllTools.ParseEid(viewId)) as View;
-                if (view == null) return new CommandResultDto(false, $"View {viewId} not found.");
+                if (!TryResolveViews(doc, uidoc!, viewId, viewIds, out var views, out var viewError))
+                    return new CommandResultDto(false, viewError);
                 using var tx = new Transaction(doc, "LoadingAI for Revit: set crop");
                 tx.Start();
                 try
                 {
-                    view.CropBoxActive = enabled;
-                    view.CropBoxVisible = enabled;
+                    foreach (var view in views)
+                    {
+                        view.CropBoxActive = enabled;
+                        view.CropBoxVisible = enabled;
+                    }
                     tx.Commit();
-                    return new CommandResultDto(true, $"Set crop {(enabled ? "on" : "off")} for {viewId}", 1);
+                    var names = string.Join(", ", views.Select(v => v.Name));
+                    return new CommandResultDto(true, $"Set crop {(enabled ? "on" : "off")} for {views.Count} view(s): {names}", views.Count);
                 }
                 catch (Exception inner)
                 {
@@ -808,6 +839,7 @@ public sealed partial class AdapterRevitBridge
 
     public Task<CommandResultDto> TagAllInActiveViewAsync(
         string category,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -823,6 +855,23 @@ public sealed partial class AdapterRevitBridge
                 if (bic == null) return new CommandResultDto(false, $"Unknown category {category}");
                 var all = new FilteredElementCollector(doc, view.Id)
                     .OfCategory(bic.Value).WhereElementIsNotElementType().ToElements();
+                if (dryRun)
+                {
+                    int located = all.Count(el => TagPoint(el, view) != null);
+                    var mapped = TagCategoryFor(bic.Value, out var tagBic);
+                    var loaded = mapped && new FilteredElementCollector(doc).OfCategory(tagBic).OfClass(typeof(FamilySymbol)).GetElementCount() > 0;
+                    var tagSentence = !mapped
+                        ? $"This dry-run cannot tell whether a tag for {category} is loaded."
+                        : loaded
+                            ? $"A tag for {category} is loaded."
+                            : $"No tag for {category} is loaded.";
+                    var would = loaded ? Math.Min(MaxTagAll, located) : 0;
+                    var left = loaded && located > MaxTagAll
+                        ? $" {located - MaxTagAll} left because of the cap of {MaxTagAll}."
+                        : "";
+                    return new CommandResultDto(true,
+                        $"No model changes.\n{all.Count} {category} visible in {view.Name}. {located} have a location in this view. {tagSentence} Would tag {would}.{left}");
+                }
                 var elems = all.Take(MaxTagAll).ToList();
                 if (elems.Count == 0)
                     return new CommandResultDto(false, $"No {category} are visible in '{view.Name}'.");
@@ -897,5 +946,122 @@ public sealed partial class AdapterRevitBridge
         }
 
         return null;
+    }
+
+    private static bool TryResolveViews(
+        Document doc, UIDocument uidoc, string? viewId, IReadOnlyList<string>? viewIds,
+        out List<View> views, out string error)
+    {
+        views = new List<View>();
+        error = "";
+        var ids = new List<string>();
+        if (viewIds != null)
+        {
+            foreach (var id in viewIds)
+                if (!string.IsNullOrWhiteSpace(id)) ids.Add(id.Trim());
+        }
+        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(viewId))
+            ids.Add(viewId.Trim());
+        if (ids.Count == 0)
+        {
+            var active = uidoc.ActiveView;
+            if (active == null) { error = "No active view."; return false; }
+            views.Add(active);
+            return true;
+        }
+        var missing = new List<string>();
+        foreach (var id in ids)
+        {
+            View? view;
+            try { view = doc.GetElement(AllTools.ParseEid(id)) as View; }
+            catch { view = null; }
+            if (view == null) missing.Add(id);
+            else views.Add(view);
+        }
+        if (missing.Count > 0)
+        {
+            error = "View not found: " + string.Join(", ", missing) + ".";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryResolveTemplate(
+        Document doc, string? templateId, string? templateName,
+        out ElementId id, out string label, out string error)
+    {
+        id = ElementId.InvalidElementId;
+        label = "(none)";
+        error = "";
+        if (templateName != null)
+        {
+            if (string.IsNullOrWhiteSpace(templateName)) return true;
+            var matches = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                .Where(v => v.IsTemplate && string.Equals(v.Name, templateName.Trim(), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matches.Count == 0) { error = $"No view template named '{templateName}'."; return false; }
+            if (matches.Count > 1) { error = $"More than one view template named '{templateName}'."; return false; }
+            id = matches[0].Id;
+            label = matches[0].Name;
+            return true;
+        }
+        if (string.IsNullOrWhiteSpace(templateId)) return true;
+        View? template;
+        try { template = doc.GetElement(AllTools.ParseEid(templateId)) as View; }
+        catch { template = null; }
+        if (template == null || !template.IsTemplate)
+        {
+            error = $"Template {templateId} not found.";
+            return false;
+        }
+        id = template.Id;
+        label = template.Name;
+        return true;
+    }
+
+    private static string TemplateLabel(Document doc, View view)
+    {
+        var id = view.ViewTemplateId;
+        if (id == null || id == ElementId.InvalidElementId) return "(none)";
+        return (doc.GetElement(id) as View)?.Name ?? id.ToString();
+    }
+
+    private static string? TemplateBlock(View view)
+    {
+        if (view.IsTemplate) return "a view template";
+        if (view.ViewType is ViewType.DrawingSheet or ViewType.Schedule or ViewType.Legend
+            or ViewType.ProjectBrowser or ViewType.SystemBrowser)
+            return $"a {view.ViewType}";
+        return null;
+    }
+
+    private static bool TagCategoryFor(BuiltInCategory bic, out BuiltInCategory tag)
+    {
+        switch (bic)
+        {
+            case BuiltInCategory.OST_Walls: tag = BuiltInCategory.OST_WallTags; return true;
+            case BuiltInCategory.OST_Doors: tag = BuiltInCategory.OST_DoorTags; return true;
+            case BuiltInCategory.OST_Windows: tag = BuiltInCategory.OST_WindowTags; return true;
+            case BuiltInCategory.OST_Rooms: tag = BuiltInCategory.OST_RoomTags; return true;
+            case BuiltInCategory.OST_Floors: tag = BuiltInCategory.OST_FloorTags; return true;
+            case BuiltInCategory.OST_Ceilings: tag = BuiltInCategory.OST_CeilingTags; return true;
+            case BuiltInCategory.OST_Roofs: tag = BuiltInCategory.OST_RoofTags; return true;
+            case BuiltInCategory.OST_Furniture: tag = BuiltInCategory.OST_FurnitureTags; return true;
+            case BuiltInCategory.OST_GenericModel: tag = BuiltInCategory.OST_GenericModelTags; return true;
+            case BuiltInCategory.OST_Casework: tag = BuiltInCategory.OST_CaseworkTags; return true;
+            case BuiltInCategory.OST_PlumbingFixtures: tag = BuiltInCategory.OST_PlumbingFixtureTags; return true;
+            case BuiltInCategory.OST_LightingFixtures: tag = BuiltInCategory.OST_LightingFixtureTags; return true;
+            case BuiltInCategory.OST_MechanicalEquipment: tag = BuiltInCategory.OST_MechanicalEquipmentTags; return true;
+            case BuiltInCategory.OST_DuctCurves: tag = BuiltInCategory.OST_DuctTags; return true;
+            case BuiltInCategory.OST_PipeCurves: tag = BuiltInCategory.OST_PipeTags; return true;
+            case BuiltInCategory.OST_Areas: tag = BuiltInCategory.OST_AreaTags; return true;
+            case BuiltInCategory.OST_StructuralFraming: tag = BuiltInCategory.OST_StructuralFramingTags; return true;
+            case BuiltInCategory.OST_StructuralColumns: tag = BuiltInCategory.OST_StructuralColumnTags; return true;
+            case BuiltInCategory.OST_StructuralFoundation: tag = BuiltInCategory.OST_StructuralFoundationTags; return true;
+            case BuiltInCategory.OST_Stairs: tag = BuiltInCategory.OST_StairsTags; return true;
+            case BuiltInCategory.OST_Parking: tag = BuiltInCategory.OST_ParkingTags; return true;
+            case BuiltInCategory.OST_Columns: tag = BuiltInCategory.OST_ColumnTags; return true;
+            default: tag = default; return false;
+        }
     }
 }

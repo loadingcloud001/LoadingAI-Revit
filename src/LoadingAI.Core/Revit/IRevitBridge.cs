@@ -134,12 +134,25 @@ public interface IRevitViewCommand
         string viewId, bool withDetailing = false,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Apply one template to one or more views in a single transaction.
+    /// <paramref name="viewIds"/> wins when it has an id; otherwise <paramref name="viewId"/>; otherwise the active view.
+    /// <paramref name="templateName"/> wins when it is not null: empty clears, otherwise the name is resolved.
+    /// A null name keeps the <paramref name="templateId"/> path. <paramref name="dryRun"/> writes nothing.
+    /// </summary>
     Task<CommandResultDto> SetViewTemplateAsync(
         string viewId, string? templateId = null,
+        IReadOnlyList<string>? viewIds = null,
+        string? templateName = null,
+        bool dryRun = false,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// <paramref name="viewIds"/> wins when it has an id; otherwise <paramref name="viewId"/>; otherwise the active view.
+    /// </summary>
     Task<CommandResultDto> SetCropBoxAsync(
         string viewId, bool enabled,
+        IReadOnlyList<string>? viewIds = null,
         CancellationToken ct = default);
 
     Task<CommandResultDto> CreateDimensionBetweenWallsAsync(
@@ -148,6 +161,7 @@ public interface IRevitViewCommand
 
     Task<CommandResultDto> TagAllInActiveViewAsync(
         string category,
+        bool dryRun = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -222,6 +236,7 @@ public interface IRevitParamCommand
         string paramName,
         IReadOnlyList<ParamImportRowDto> rows,
         string sourcePath,
+        bool dryRun = false,
         CancellationToken ct = default);
 
     Task<CommandResultDto> CopyParamsAsync(
@@ -229,6 +244,7 @@ public interface IRevitParamCommand
         string sourceParam,
         string targetParam,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default);
 
     Task<CommandResultDto> ReplaceTextInParamAsync(
@@ -237,6 +253,7 @@ public interface IRevitParamCommand
         string pattern,
         string replacement,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default);
 
     Task<CommandResultDto> NumberElementsAsync(

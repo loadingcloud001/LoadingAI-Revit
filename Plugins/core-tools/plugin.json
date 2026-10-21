@@ -392,7 +392,7 @@
     {
       "name": "import_excel_to_params",
       "tier": "L3",
-      "description": "Import CSV (Excel) to set parameters by Id.",
+      "description": "Import CSV (Excel) to set parameters by Id. Dry-run lists old and new values and writes nothing.",
       "enabledByDefault": false,
       "tags": [
         "write",
@@ -402,7 +402,7 @@
     {
       "name": "copy_params",
       "tier": "L2",
-      "description": "Copy parameter value from source param to target param for a category.",
+      "description": "Copy a parameter onto another for a category. Dry-run lists old and new values and writes nothing.",
       "enabledByDefault": true,
       "tags": [
         "write",
@@ -412,7 +412,7 @@
     {
       "name": "replace_text",
       "tier": "L2",
-      "description": "Regex replace in parameter.",
+      "description": "Regex replace in a parameter. Dry-run lists old and new values and writes nothing.",
       "enabledByDefault": true,
       "tags": [
         "write",
@@ -452,7 +452,7 @@
     {
       "name": "duplicate_view_ex",
       "tier": "L2",
-      "description": "Duplicate view with options. Params: viewId, withDetailing bool.",
+      "description": "Duplicate a view. Pick one, or leave it empty to duplicate the active view.",
       "enabledByDefault": true,
       "tags": [
         "view",
@@ -462,7 +462,7 @@
     {
       "name": "set_view_template",
       "tier": "L2",
-      "description": "Set view template. Params: viewId, templateId (or empty to clear).",
+      "description": "Apply or clear a view template by name. Empty views use the active view. Dry-run lists the change.",
       "enabledByDefault": true,
       "tags": [
         "view",
@@ -472,7 +472,7 @@
     {
       "name": "set_crop_box",
       "tier": "L2",
-      "description": "Set view crop box active/enable. Params: viewId, enabled bool.",
+      "description": "Turn the crop box on or off. Empty views use the active view.",
       "enabledByDefault": true,
       "tags": [
         "view",
@@ -482,7 +482,7 @@
     {
       "name": "create_dimension",
       "tier": "L3",
-      "description": "Create linear dimension between two parallel walls.",
+      "description": "Dimension the clear distance between two parallel walls. Empty view uses the active view.",
       "enabledByDefault": false,
       "tags": [
         "view",
@@ -492,7 +492,7 @@
     {
       "name": "tag_all",
       "tier": "L3",
-      "description": "Tag all elements of category in active view.",
+      "description": "Tag up to 50 elements of one category in the active view. Dry-run counts them and writes nothing.",
       "enabledByDefault": false,
       "tags": [
         "view",

@@ -351,13 +351,15 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string ViewId, bool WithDetailing)> DuplicateViewCalls { get; } = new();
 
-    public List<(string ViewId, string? TemplateId)> SetViewTemplateCalls { get; } = new();
+    public List<(string ViewId, string? TemplateId, IReadOnlyList<string>? ViewIds, string? TemplateName, bool DryRun)> SetViewTemplateCalls { get; } = new();
 
-    public List<(string ViewId, bool Enabled)> SetCropBoxCalls { get; } = new();
+    public List<(string ViewId, bool Enabled, IReadOnlyList<string>? ViewIds)> SetCropBoxCalls { get; } = new();
 
     public List<(string WallId1, string WallId2, string? ViewId)> CreateDimensionCalls { get; } = new();
 
     public List<string> TagAllCalls { get; } = new();
+
+    public List<bool> TagAllDryRun { get; } = new();
 
     public Task<CommandResultDto> CreateSheetAsync(
         string sheetNumber, string sheetName, string? titleBlockName = null,
@@ -399,24 +401,31 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public Task<CommandResultDto> SetViewTemplateAsync(
         string viewId, string? templateId = null,
+        IReadOnlyList<string>? viewIds = null,
+        string? templateName = null,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
-        SetViewTemplateCalls.Add((viewId, templateId));
+        SetViewTemplateCalls.Add((viewId, templateId, viewIds, templateName, dryRun));
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (NextSetViewTemplateResult != null)
             return Task.FromResult(NextSetViewTemplateResult);
-        var msg = string.IsNullOrWhiteSpace(templateId)
+        if (dryRun)
+            return Task.FromResult(new CommandResultDto(true, "No model changes."));
+        var label = templateName ?? templateId;
+        var msg = string.IsNullOrWhiteSpace(label)
             ? $"Cleared template for {viewId}"
-            : $"Set template {templateId} for {viewId}";
+            : $"Set template {label} for {viewId}";
         return Task.FromResult(new CommandResultDto(true, msg, 1));
     }
 
     public Task<CommandResultDto> SetCropBoxAsync(
         string viewId, bool enabled,
+        IReadOnlyList<string>? viewIds = null,
         CancellationToken ct = default)
     {
-        SetCropBoxCalls.Add((viewId, enabled));
+        SetCropBoxCalls.Add((viewId, enabled, viewIds));
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (NextSetCropBoxResult != null)
@@ -438,13 +447,17 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public Task<CommandResultDto> TagAllInActiveViewAsync(
         string category,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         TagAllCalls.Add(category);
+        TagAllDryRun.Add(dryRun);
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
         if (NextTagAllResult != null)
             return Task.FromResult(NextTagAllResult);
+        if (dryRun)
+            return Task.FromResult(new CommandResultDto(true, $"No model changes.\n0 {category} visible in Level 1. A tag for {category} is loaded. Would tag 0."));
         return Task.FromResult(new CommandResultDto(true, $"Tagged 0/0 {category} in Level 1", 0));
     }
 
@@ -533,11 +546,11 @@ internal sealed class FakeRevitBridge : IRevitBridge
 
     public List<(string Category, IReadOnlyList<string> Columns, int Limit)> ExportParamsCalls { get; } = new();
 
-    public List<(string ParamName, IReadOnlyList<ParamImportRowDto> Rows, string SourcePath)> ImportParamsCalls { get; } = new();
+    public List<(string ParamName, IReadOnlyList<ParamImportRowDto> Rows, string SourcePath, bool DryRun)> ImportParamsCalls { get; } = new();
 
-    public List<(string Category, string SourceParam, string TargetParam, int Limit)> CopyParamsCalls { get; } = new();
+    public List<(string Category, string SourceParam, string TargetParam, int Limit, bool DryRun)> CopyParamsCalls { get; } = new();
 
-    public List<(string Category, string ParamName, string Pattern, string Replacement, int Limit)> ReplaceTextCalls { get; } = new();
+    public List<(string Category, string ParamName, string Pattern, string Replacement, int Limit, bool DryRun)> ReplaceTextCalls { get; } = new();
 
     public List<(string? Category, string Prefix, int Start, int Pad, string? Order, string? LevelName, bool DryRun)> NumberElementsCalls { get; } = new();
 
@@ -567,14 +580,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
         string paramName,
         IReadOnlyList<ParamImportRowDto> rows,
         string sourcePath,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
 
-        ImportParamsCalls.Add((paramName, rows, sourcePath));
+        ImportParamsCalls.Add((paramName, rows, sourcePath, dryRun));
         if (NextImportParams != null)
             return Task.FromResult(NextImportParams);
+
+        if (dryRun)
+            return Task.FromResult(new CommandResultDto(true, $"No model changes.\nWould change 0 of {rows?.Count ?? 0} {paramName}. Unchanged: 0. Missing: 0. Cannot set: 0."));
 
         var n = rows?.Count ?? 0;
         return Task.FromResult(new CommandResultDto(true, $"Imported {n}/{n} (0 skipped) {paramName} from {sourcePath}", n));
@@ -585,14 +602,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
         string sourceParam,
         string targetParam,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
 
-        CopyParamsCalls.Add((category, sourceParam, targetParam, limit));
+        CopyParamsCalls.Add((category, sourceParam, targetParam, limit, dryRun));
         if (NextCopyParams != null)
             return Task.FromResult(NextCopyParams);
+
+        if (dryRun)
+            return Task.FromResult(new CommandResultDto(true, $"No model changes.\nCopy {sourceParam} → {targetParam} on {category}: 0 of 0 values would change. Unchanged: 0. Cannot set: 0."));
 
         return Task.FromResult(new CommandResultDto(true, $"Copied 0/0 {sourceParam}->{targetParam} for {category}", 0));
     }
@@ -603,14 +624,18 @@ internal sealed class FakeRevitBridge : IRevitBridge
         string pattern,
         string replacement,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         if (!HasActiveDocument)
             return Task.FromResult(new CommandResultDto(false, "Please open a model first."));
 
-        ReplaceTextCalls.Add((category, paramName, pattern, replacement, limit));
+        ReplaceTextCalls.Add((category, paramName, pattern, replacement, limit, dryRun));
         if (NextReplaceText != null)
             return Task.FromResult(NextReplaceText);
+
+        if (dryRun)
+            return Task.FromResult(new CommandResultDto(true, $"No model changes.\nReplace /{pattern}/ with \"{replacement}\" in {paramName} on {category}: 0 of 0 values would change. Unchanged: 0."));
 
         return Task.FromResult(new CommandResultDto(true, $"Replaced 0/0 {paramName} /{pattern}/ -> {replacement}", 0));
     }

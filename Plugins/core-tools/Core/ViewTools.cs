@@ -438,18 +438,24 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "duplicate_view_ex",
-                Description = "Duplicate a view, optionally with detailing. pyRevit: Duplicate Views",
+                Description = "Duplicate a view, optionally with detailing. Pick a view, or leave it empty to duplicate the active view. pyRevit: Duplicate Views",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         viewId = new { type = "string" },
+                        viewIds = new { type = "array", items = new { type = "string" }, description = "Pick. The first id is duplicated. Empty uses the active view." },
                         withDetailing = new { type = "boolean", description = "Include detailing. Default false." }
                     },
-                    required = new[] { "viewId" }
+                    required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "viewIds", Label = "View (empty = active view)", Kind = PresetFieldKind.PickElements, Prompt = "Pick the view to duplicate. Leave empty to use the active view." },
+            new PresetField { Id = "withDetailing", Label = "Include detailing", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await DuplicateViewExAsync(context, json)).Text,
         StructuredHandler = json => DuplicateViewExAsync(context, json)
@@ -460,9 +466,11 @@ public static class ViewTools
         string vid = ""; bool det = false;
         try
         {
-            using var d = JsonDocument.Parse(json);
-            vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
-            if (d.RootElement.TryGetProperty("withDetailing", out var w)) det = w.GetBoolean();
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            vid = FirstId(d.RootElement, "viewIds")
+                ?? (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "");
+            if (d.RootElement.TryGetProperty("withDetailing", out var w) && w.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                det = w.GetBoolean();
         }
         catch (Exception ex)
         {
@@ -479,18 +487,27 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "set_view_template",
-                Description = "Apply or clear a view template. Empty templateId clears.",
+                Description = "Apply or clear a view template on one or more views. Pick the views, or leave them empty to use the active view. templateName is the template's name; an empty name clears. templateId still works when no name is given. Dry-run lists each view's current template and the name it would get, and writes nothing.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         viewId = new { type = "string" },
-                        templateId = new { type = "string", description = "Template element id. Empty to clear." }
+                        viewIds = new { type = "array", items = new { type = "string" }, description = "Pick. Empty uses the active view." },
+                        templateId = new { type = "string", description = "Template element id. Ignored when templateName is present." },
+                        templateName = new { type = "string", description = "Template name. Empty clears." },
+                        dryRun = new { type = "boolean", description = "List the change only. Writes nothing." }
                     },
-                    required = new[] { "viewId" }
+                    required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "viewIds", Label = "Views (empty = active view)", Kind = PresetFieldKind.PickElements, Prompt = "Pick the views. Leave empty to use the active view." },
+            new PresetField { Id = "templateName", Label = "Template name (empty = clear)", Kind = PresetFieldKind.String },
+            new PresetField { Id = "dryRun", Label = "Dry-run (list only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await SetViewTemplateAsync(context, json)).Text,
         StructuredHandler = json => SetViewTemplateAsync(context, json)
@@ -498,18 +515,24 @@ public static class ViewTools
 
     private static async Task<ToolExecutionResult> SetViewTemplateAsync(IPluginContext context, string json)
     {
-        string vid = ""; string? tid = null;
+        string vid = ""; string? tid = null; string? templateName = null;
+        IReadOnlyList<string>? viewIds = null;
         try
         {
-            using var d = JsonDocument.Parse(json);
-            vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var ids = AllIds(d.RootElement, "viewIds");
+            if (ids.Count > 0) viewIds = ids;
+            if (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String) vid = v.GetString() ?? "";
             if (d.RootElement.TryGetProperty("templateId", out var t) && t.ValueKind == JsonValueKind.String) tid = t.GetString();
+            if (d.RootElement.TryGetProperty("templateName", out var n) && n.ValueKind == JsonValueKind.String) templateName = n.GetString() ?? "";
         }
         catch (Exception ex)
         {
             return Refused($"Invalid args: {ex.Message}");
         }
-        return WriteResult(await context.Bridge.SetViewTemplateAsync(vid, tid));
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.SetViewTemplateAsync(vid, tid, viewIds, templateName, dryRun);
+        return FromDryOrWrite(result, dryRun);
     }
 
     internal static ToolEntry CreateSetCropBox(IPluginContext context) => new()
@@ -520,18 +543,24 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "set_crop_box",
-                Description = "Turn crop box on or off for a view.",
+                Description = "Turn the crop box on or off. Pick the views, or leave them empty to use the active view.",
                 Parameters = new
                 {
                     type = "object",
                     properties = new
                     {
                         viewId = new { type = "string" },
+                        viewIds = new { type = "array", items = new { type = "string" }, description = "Pick. Empty uses the active view." },
                         enabled = new { type = "boolean" }
                     },
-                    required = new[] { "viewId", "enabled" }
+                    required = new[] { "enabled" }
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "viewIds", Label = "Views (empty = active view)", Kind = PresetFieldKind.PickElements, Prompt = "Pick the views. Leave empty to use the active view." },
+            new PresetField { Id = "enabled", Label = "Crop on", Kind = PresetFieldKind.Boolean, Default = true }
         },
         Handler = async json => (await SetCropBoxAsync(context, json)).Text,
         StructuredHandler = json => SetCropBoxAsync(context, json)
@@ -540,17 +569,20 @@ public static class ViewTools
     private static async Task<ToolExecutionResult> SetCropBoxAsync(IPluginContext context, string json)
     {
         string vid = ""; bool en = false;
+        IReadOnlyList<string>? viewIds = null;
         try
         {
-            using var d = JsonDocument.Parse(json);
-            vid = d.RootElement.GetProperty("viewId").GetString() ?? "";
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var ids = AllIds(d.RootElement, "viewIds");
+            if (ids.Count > 0) viewIds = ids;
+            if (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String) vid = v.GetString() ?? "";
             en = d.RootElement.GetProperty("enabled").GetBoolean();
         }
         catch (Exception ex)
         {
             return Refused($"Invalid args: {ex.Message}");
         }
-        return WriteResult(await context.Bridge.SetCropBoxAsync(vid, en));
+        return WriteResult(await context.Bridge.SetCropBoxAsync(vid, en, viewIds));
     }
 
     internal static ToolEntry CreateCreateDimension(IPluginContext context) => new()
@@ -561,7 +593,7 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "create_dimension",
-                Description = "Dimension the clear distance between two parallel straight walls, face to face, in a plan, section or elevation view (the active view when viewId is omitted).",
+                Description = "Dimension the clear distance between two parallel straight walls, face to face, in a plan, section or elevation view. Pick the two walls. An empty view uses the active view. Refuses walls that are not parallel, and views that are not a plan, section, or elevation.",
                 Parameters = new
                 {
                     type = "object",
@@ -569,11 +601,20 @@ public static class ViewTools
                     {
                         wallId1 = new { type = "string" },
                         wallId2 = new { type = "string" },
-                        viewId = new { type = "string", description = "Optional. Defaults to active view." }
+                        wallIds1 = new { type = "array", items = new { type = "string" }, description = "Pick. The first id is the first wall." },
+                        wallIds2 = new { type = "array", items = new { type = "string" }, description = "Pick. The first id is the second wall." },
+                        viewId = new { type = "string", description = "Optional. Defaults to the active view." },
+                        viewIds = new { type = "array", items = new { type = "string" }, description = "Pick. The first id is the view. Empty uses the active view." }
                     },
-                    required = new[] { "wallId1", "wallId2" }
+                    required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "wallIds1", Label = "First wall", Kind = PresetFieldKind.PickElements, Prompt = "Pick the first wall.", Required = true },
+            new PresetField { Id = "wallIds2", Label = "Second wall", Kind = PresetFieldKind.PickElements, Prompt = "Pick the second wall.", Required = true },
+            new PresetField { Id = "viewIds", Label = "View (empty = active view)", Kind = PresetFieldKind.PickElements, Prompt = "Pick a plan, section, or elevation. Leave empty to use the active view." }
         },
         Handler = async json => (await CreateDimensionAsync(context, json)).Text,
         StructuredHandler = json => CreateDimensionAsync(context, json)
@@ -584,15 +625,20 @@ public static class ViewTools
         string w1 = "", w2 = ""; string? vid = null;
         try
         {
-            using var d = JsonDocument.Parse(json);
-            w1 = d.RootElement.GetProperty("wallId1").GetString() ?? "";
-            w2 = d.RootElement.GetProperty("wallId2").GetString() ?? "";
-            if (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String) vid = v.GetString();
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            w1 = FirstId(d.RootElement, "wallIds1")
+                ?? (d.RootElement.TryGetProperty("wallId1", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() ?? "" : "");
+            w2 = FirstId(d.RootElement, "wallIds2")
+                ?? (d.RootElement.TryGetProperty("wallId2", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() ?? "" : "");
+            vid = FirstId(d.RootElement, "viewIds")
+                ?? (d.RootElement.TryGetProperty("viewId", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null);
         }
         catch (Exception ex)
         {
             return Refused($"Invalid args: {ex.Message}");
         }
+        if (string.IsNullOrWhiteSpace(w1) || string.IsNullOrWhiteSpace(w2))
+            return Refused("Pick two walls, or pass wallId1 and wallId2.");
         return WriteResult(await context.Bridge.CreateDimensionBetweenWallsAsync(w1, w2, vid));
     }
 
@@ -604,18 +650,23 @@ public static class ViewTools
             Function = new ToolFunction
             {
                 Name = "tag_all",
-                Description = "Tag up to 50 elements of one category in the active view. Each tag is placed on its element. The category needs a loaded tag family. The result says how many were tagged and why the rest were not.",
+                Description = "Tag up to 50 elements of one category in the active view. Each tag is placed on its element. The category needs a loaded tag family. The result says how many were tagged and why the rest were not. Dry-run counts what is visible and says whether a tag for that category is loaded, and writes nothing.",
                 Parameters = new
                 {
                     type = "object",
-                    properties = new { category = new { type = "string", description = "e.g. Walls, Doors, Windows" } },
+                    properties = new
+                    {
+                        category = new { type = "string", description = "e.g. Walls, Doors, Windows" },
+                        dryRun = new { type = "boolean", description = "Count only. Writes nothing." }
+                    },
                     required = new[] { "category" }
                 }
             }
         },
         Presets = new[]
         {
-            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true, Prompt = "Walls, Doors, Windows, Rooms" }
+            new PresetField { Id = "category", Label = "Category", Kind = PresetFieldKind.String, Required = true, Prompt = "Walls, Doors, Windows, Rooms" },
+            new PresetField { Id = "dryRun", Label = "Dry-run (count only)", Kind = PresetFieldKind.Boolean, Default = false }
         },
         Handler = async json => (await TagAllAsync(context, json)).Text,
         StructuredHandler = json => TagAllAsync(context, json)
@@ -633,8 +684,17 @@ public static class ViewTools
         {
             return Refused($"Invalid args: {ex.Message}");
         }
-        return WriteResult(await context.Bridge.TagAllInActiveViewAsync(cat));
+        var dryRun = ToolPresets.IsDryRun(json);
+        var result = await context.Bridge.TagAllInActiveViewAsync(cat, dryRun);
+        return FromDryOrWrite(result, dryRun);
     }
+
+    private static ToolExecutionResult FromDryOrWrite(CommandResultDto result, bool dryRun)
+        => dryRun
+            ? result.Ok
+                ? ToolExecutionResult.Succeeded(result.Message, ToolWriteCertainty.NoWrite)
+                : ToolExecutionResult.Failed(result.Message, ToolWriteCertainty.NotCommitted)
+            : WriteResult(result);
 
     /// <summary>
     /// Every view tool is a write, and every one of them returns CommandResultDto, so Ok decides
@@ -653,6 +713,20 @@ public static class ViewTools
     /// </summary>
     private static ToolExecutionResult Refused(string text)
         => ToolExecutionResult.Failed(text, ToolWriteCertainty.NotCommitted);
+
+    static List<string> AllIds(JsonElement root, string name)
+    {
+        var ids = new List<string>();
+        if (!root.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return ids;
+        foreach (var item in v.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                ids.Add(item.GetString()!);
+            else if (item.ValueKind == JsonValueKind.Number)
+                ids.Add(item.ToString());
+        }
+        return ids;
+    }
 
     static string? FirstId(JsonElement root, string name)
     {

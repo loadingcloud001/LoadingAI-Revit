@@ -19,7 +19,7 @@
     {
       "name": "get_schedule_data",
       "tier": "L1",
-      "description": "Read schedule cells (and optional CSV). Params: scheduleId or name, rowLimit.",
+      "description": "Read schedule cells by name. Read-only.",
       "enabledByDefault": true,
       "tags": [
         "query",

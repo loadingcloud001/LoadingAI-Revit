@@ -84,14 +84,106 @@ public static class RevitParse
     public static string FormatDouble(Parameter p)
         => LoadingAI.Revit.ParamUnits.Format(UnitKindOf(p), p.AsDouble());
 
-    public static bool TrySetParameter(Element el, string paramName, string value, out string error)
+    public static Parameter? FindParameter(Element el, string paramName)
     {
-        error = "";
         Parameter? p = el.LookupParameter(paramName);
         if (p == null && Enum.TryParse<BuiltInParameter>(paramName, true, out var bip))
             p = el.get_Parameter(bip);
         if (p == null && paramName.Equals("Comments", StringComparison.OrdinalIgnoreCase))
             p = el.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+        return p;
+    }
+
+    /// <summary>The same text <c>ExportParams</c> writes for this parameter. Empty when there is no parameter.</summary>
+    public static string DisplayParameter(Parameter? p)
+    {
+        if (p == null) return "";
+        return p.StorageType switch
+        {
+            StorageType.String => p.AsString() ?? "",
+            StorageType.Double => LoadingAI.Revit.ParamUnits.FormatNumber(UnitKindOf(p), p.AsDouble()),
+            _ => p.AsValueString() ?? p.AsString() ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Says whether <paramref name="value"/> could be stored, and what the parameter shows now.
+    /// Does not call <c>Parameter.Set</c>.
+    /// </summary>
+    public static bool TryPreviewSet(Element el, string paramName, string value, out string current, out string error)
+    {
+        current = "";
+        error = "";
+        var p = FindParameter(el, paramName);
+        if (p == null) { error = $"Parameter '{paramName}' not found on element {el.Id}"; return false; }
+        if (p.IsReadOnly) { error = $"Parameter '{paramName}' is read-only on element {el.Id}"; return false; }
+        current = DisplayParameter(p);
+        switch (p.StorageType)
+        {
+            case StorageType.String:
+                return true;
+            case StorageType.Integer:
+                if (int.TryParse(value, out _)
+                    || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                    || value.Equals("false", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                error = $"Cannot set integer param '{paramName}' to '{value}'";
+                return false;
+            case StorageType.Double:
+                if (!LoadingAI.Revit.ParamUnits.TryParse(UnitKindOf(p), value, out _, out var unitError))
+                {
+                    error = $"Cannot set '{paramName}' to '{value}': {unitError}";
+                    return false;
+                }
+                return true;
+            case StorageType.ElementId:
+                if (long.TryParse(value, out _)) return true;
+                error = $"Cannot set ElementId param '{paramName}' to '{value}'";
+                return false;
+            default:
+                error = $"Unsupported storage type {p.StorageType}";
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// The value <see cref="TryCopyParameter"/> would write, without writing it.
+    /// <paramref name="current"/> is the target as exported; <paramref name="next"/> is the source.
+    /// </summary>
+    public static bool TryPreviewCopy(Element el, string sourceName, string targetName, out string current, out string next, out string error)
+    {
+        current = "";
+        next = "";
+        error = "";
+        var src = el.LookupParameter(sourceName);
+        if (src == null) { error = $"Parameter '{sourceName}' not found on element {el.Id}"; return false; }
+        var dst = FindParameter(el, targetName);
+        if (dst == null) { error = $"Parameter '{targetName}' not found on element {el.Id}"; return false; }
+        if (dst.IsReadOnly) { error = $"Parameter '{targetName}' is read-only on element {el.Id}"; return false; }
+        current = DisplayParameter(dst);
+
+        if (src.StorageType == StorageType.Double
+            && dst.StorageType == StorageType.Double
+            && UnitKindOf(src) == UnitKindOf(dst))
+        {
+            next = DisplayParameter(src);
+            return true;
+        }
+
+        next = src.StorageType switch
+        {
+            StorageType.String => src.AsString() ?? "",
+            StorageType.Double => LoadingAI.Revit.ParamUnits.Format(UnitKindOf(src), src.AsDouble()),
+            _ => src.AsValueString() ?? ""
+        };
+        if (!TryPreviewSet(el, targetName, next, out _, out error)) return false;
+        return true;
+    }
+
+    public static bool TrySetParameter(Element el, string paramName, string value, out string error)
+    {
+        error = "";
+        var p = FindParameter(el, paramName);
         if (p == null) { error = $"Parameter '{paramName}' not found on element {el.Id}"; return false; }
         if (p.IsReadOnly) { error = $"Parameter '{paramName}' is read-only on element {el.Id}"; return false; }
         try

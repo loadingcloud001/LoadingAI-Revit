@@ -289,6 +289,7 @@ public sealed partial class AdapterRevitBridge
         string paramName,
         IReadOnlyList<ParamImportRowDto> rows,
         string sourcePath,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -296,6 +297,39 @@ public sealed partial class AdapterRevitBridge
             var doc = uiApp.ActiveUIDocument?.Document;
             if (doc == null) return new CommandResultDto(false, "Please open a model first.");
             var list = rows ?? Array.Empty<ParamImportRowDto>();
+            if (dryRun)
+            {
+                int change = 0, unchanged = 0, missing = 0, cannot = 0, extra = 0;
+                var lines = new List<string>();
+                foreach (var row in list)
+                {
+                    Element? el = null;
+                    try { el = doc.GetElement(AllTools.ParseEid(row.Id)); }
+                    catch { el = null; }
+                    if (el == null)
+                    {
+                        missing++;
+                        AddPreviewLine(lines, ref extra, $"{row.Id}: element not found");
+                        continue;
+                    }
+                    var next = row.Value ?? "";
+                    if (!RevitParse.TryPreviewSet(el, paramName, next, out var current, out var why))
+                    {
+                        cannot++;
+                        AddPreviewLine(lines, ref extra, $"{el.Id}: {why}");
+                        continue;
+                    }
+                    if (string.Equals(current, next, StringComparison.Ordinal))
+                    {
+                        unchanged++;
+                        continue;
+                    }
+                    change++;
+                    AddPreviewLine(lines, ref extra, $"{el.Id}: \"{current}\" → \"{next}\"");
+                }
+                return new CommandResultDto(true,
+                    $"No model changes.\nWould change {change} of {list.Count} {paramName}. Unchanged: {unchanged}. Missing: {missing}. Cannot set: {cannot}.{PreviewTail(lines, extra)}");
+            }
             int upd = 0, skip = 0;
             using var tx = new Transaction(doc, $"LoadingAI for Revit: import {paramName}");
             tx.Start();
@@ -328,6 +362,7 @@ public sealed partial class AdapterRevitBridge
         string sourceParam,
         string targetParam,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -345,6 +380,30 @@ public sealed partial class AdapterRevitBridge
                     .ToElementIds();
                 var total = allIds.Count;
                 var elems = allIds.Take(lim).Select(id => doc.GetElement(id)).Where(e => e != null).Cast<Element>().ToList();
+                if (dryRun)
+                {
+                    int change = 0, unchanged = 0, cannot = 0, extra = 0;
+                    var lines = new List<string>();
+                    foreach (var el in elems)
+                    {
+                        if (!RevitParse.TryPreviewCopy(el, sourceParam, targetParam, out var current, out var next, out var why))
+                        {
+                            cannot++;
+                            AddPreviewLine(lines, ref extra, $"{el.Id}: {why}");
+                            continue;
+                        }
+                        if (string.Equals(current, next, StringComparison.Ordinal))
+                        {
+                            unchanged++;
+                            continue;
+                        }
+                        change++;
+                        AddPreviewLine(lines, ref extra, $"{el.Id}: \"{current}\" → \"{next}\"");
+                    }
+                    var rest = total > elems.Count ? $" The other {total - elems.Count} were not touched." : "";
+                    return new CommandResultDto(true,
+                        $"No model changes.\nCopy {sourceParam} → {targetParam} on {category}: {change} of {elems.Count} values would change. Unchanged: {unchanged}. Cannot set: {cannot}.{rest}{PreviewTail(lines, extra)}");
+                }
                 int upd = 0;
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: copy {sourceParam}->{targetParam}");
                 tx.Start();
@@ -379,6 +438,7 @@ public sealed partial class AdapterRevitBridge
         string pattern,
         string replacement,
         int limit = 200,
+        bool dryRun = false,
         CancellationToken ct = default)
     {
         return _bridge.RunAsync(uiApp =>
@@ -399,6 +459,42 @@ public sealed partial class AdapterRevitBridge
                 int upd = 0;
                 if (!SafeRegex.TryCreate(pattern, out var re, out var reError))
                     return new CommandResultDto(false, $"Failed: {reError}");
+                if (dryRun)
+                {
+                    int change = 0, unchanged = 0, notText = 0, extra = 0;
+                    var lines = new List<string>();
+                    foreach (var el in elems)
+                    {
+                        var p = el.LookupParameter(paramName);
+                        if (p == null || p.StorageType != StorageType.String)
+                        {
+                            notText++;
+                            continue;
+                        }
+                        var cur = p.AsString() ?? "";
+                        string nxt;
+                        try
+                        {
+                            nxt = re!.Replace(cur, replacement);
+                        }
+                        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+                        {
+                            return new CommandResultDto(false,
+                                $"Failed: the pattern /{pattern}/ took longer than {SafeRegex.MatchTimeout.TotalSeconds:0} s on element {el.Id}. Nothing was changed. Use a simpler pattern.");
+                        }
+                        if (cur == nxt)
+                        {
+                            unchanged++;
+                            continue;
+                        }
+                        change++;
+                        AddPreviewLine(lines, ref extra, $"{el.Id}: \"{cur}\" → \"{nxt}\"");
+                    }
+                    var rest = total > elems.Count ? $" The other {total - elems.Count} were not touched." : "";
+                    var skipped = notText > 0 ? $" Not text: {notText}." : "";
+                    return new CommandResultDto(true,
+                        $"No model changes.\nReplace /{pattern}/ with \"{replacement}\" in {paramName} on {category}: {change} of {elems.Count} values would change. Unchanged: {unchanged}.{skipped}{rest}{PreviewTail(lines, extra)}");
+                }
                 using var tx = new Transaction(doc, $"LoadingAI for Revit: replace {paramName}");
                 tx.Start();
                 try
@@ -529,5 +625,19 @@ public sealed partial class AdapterRevitBridge
                 return new CommandResultDto(false, $"Failed: {failEx.Message}");
             }
         }, ct);
+    }
+
+    private const int PreviewLineCap = 20;
+
+    private static void AddPreviewLine(List<string> lines, ref int extra, string line)
+    {
+        if (lines.Count < PreviewLineCap) lines.Add(line);
+        else extra++;
+    }
+
+    private static string PreviewTail(List<string> lines, int extra)
+    {
+        var body = lines.Count == 0 ? "" : "\n" + string.Join("\n", lines);
+        return extra > 0 ? body + $"\n… and {extra} more." : body;
     }
 }

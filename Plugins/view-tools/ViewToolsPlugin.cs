@@ -76,7 +76,7 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
             Function = new ToolFunction
             {
                 Name = "get_schedule_data",
-                Description = "Read schedule table cells. Params: scheduleId or name, rowLimit (default 25, max 40).",
+                Description = "Read schedule table cells. Give the schedule name, or a schedule id. rowLimit defaults to 25 and is capped at 40. Read-only.",
                 Parameters = new
                 {
                     type = "object",
@@ -89,6 +89,11 @@ public sealed class ViewToolsPlugin : IRevitToolPlugin
                     required = Array.Empty<string>()
                 }
             }
+        },
+        Presets = new[]
+        {
+            new PresetField { Id = "name", Label = "Schedule name", Kind = PresetFieldKind.String },
+            new PresetField { Id = "rowLimit", Label = "Row limit", Kind = PresetFieldKind.Number, Default = 25 }
         },
         Handler = async json => (await GetScheduleDataAsync(context, json)).Text,
         StructuredHandler = json => GetScheduleDataAsync(context, json)
