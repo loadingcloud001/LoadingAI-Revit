@@ -1,6 +1,6 @@
 # Known limitations
 
-What LoadingAI does not do yet, or does only partly. This is current as of **v0.3.1**. If something
+What LoadingAI does not do yet, or does only partly. This is current as of **v0.4.0**. If something
 here bites you, [open an issue](https://github.com/loadingcloud001/LoadingAI-Revit/issues) — a
 reproduction on a small model is the most useful thing you can send.
 
