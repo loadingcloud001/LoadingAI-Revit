@@ -17,7 +17,7 @@ internal sealed class ChatSession
     private readonly Action<Action> _onUi;
     private readonly OpenAiCompatibleClient _client = new();
 
-    private AppSettings _settings = ProviderSettings.Load();
+    private AppSettings _settings = new();
     private ToolRegistry _registry = new();
     private List<DiscoveredPlugin> _discovered = new();
     private AgentLoop? _agent;
@@ -32,12 +32,17 @@ internal sealed class ChatSession
         _web = web;
         _approvals = approvals;
         _onUi = onUi;
+        Settings = ProviderSettings.Load();
     }
 
     public AppSettings Settings
     {
         get => _settings;
-        set => _settings = value;
+        set
+        {
+            _settings = value ?? ProviderSettings.CreateDefault();
+            AutoApproveGate.Enabled = _settings.AutoApprove;
+        }
     }
 
     public OpenAiCompatibleClient Client => _client;
@@ -46,7 +51,7 @@ internal sealed class ChatSession
     public AgentLoop? Agent => _agent;
     public bool IsRunning => _isRunning;
 
-    public void ReloadSettings() => _settings = ProviderSettings.Load();
+    public void ReloadSettings() => Settings = ProviderSettings.Load();
 
     public void CancelAndDeny()
     {
@@ -371,6 +376,7 @@ internal sealed class ChatSession
                         enrichedText = text + "\n\n" + ctxSnap.ToPromptString(new[] { "selection", "activeView", "warnings" });
                     var userMsg = attachments.Count > 0 ? ChatMessage.FromMultimodal("user", enrichedText, attachments) : ChatMessage.FromText("user", enrichedText);
                     var effectiveMode = mode == "auto" ? null : mode;
+                    agent.AutoApprove = _settings.AutoApprove;
                     string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                         ExecuteToolAsync,
                         trace =>
@@ -474,7 +480,7 @@ internal sealed class ChatSession
             return $"Tool argument error: {validationError}";
         }
 
-        if (ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson))
+        if (ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
         {
             var preset = await _approvals.AwaitPresetAsync(entry, name, argsJson);
             if (!preset.approved)
@@ -492,7 +498,7 @@ internal sealed class ChatSession
                 return invalid;
             }
             // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
-            if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
+            if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
             {
                 var presetSummary = await ToolGuards.DescribeAsync(entry, argsJson);
                 if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, presetSummary))
@@ -509,7 +515,7 @@ internal sealed class ChatSession
             }
         }
         // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
-        else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson))
+        else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
         {
             var summary = await ToolGuards.DescribeAsync(entry, argsJson);
             var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson, summary);

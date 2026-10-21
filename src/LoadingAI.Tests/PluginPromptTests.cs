@@ -22,6 +22,16 @@ public class PluginPromptTests
     }
 
     [Fact]
+    public void AutoApprovePrompt_IsAbsentUntilTheUserTurnsItOn()
+    {
+        var off = AgentLoop.BuildSystemPrompt(Array.Empty<ToolDefinition>());
+        Assert.DoesNotContain("AUTO-APPROVE IS ON", off);
+        var on = AgentLoop.BuildSystemPrompt(Array.Empty<ToolDefinition>(), autoApprove: true);
+        Assert.StartsWith(AgentLoop.AutoApprovePrompt, on);
+        Assert.Contains("cannot turn this mode on or off", on);
+    }
+
+    [Fact]
     public void Prompt_ListsEveryToolUnit()
     {
         Assert.Contains("millimetres", Prompt);

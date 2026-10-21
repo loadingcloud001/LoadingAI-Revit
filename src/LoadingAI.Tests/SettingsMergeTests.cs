@@ -69,6 +69,27 @@ public class SettingsMergeTests
     }
 
     [Fact]
+    public void Merge_TakesAutoApproveFromThePane_AndRedactKeepsIt()
+    {
+        var current = new AppSettings
+        {
+            ActiveProviderId = "deepseek",
+            AutoApprove = false,
+            Providers = new List<ProviderConfig> { new() { Id = "deepseek", Name = "DeepSeek", ApiKey = "sk-secret" } }
+        };
+        var incoming = new AppSettings
+        {
+            ActiveProviderId = "deepseek",
+            AutoApprove = true,
+            Providers = new List<ProviderConfig> { new() { Id = "deepseek", Name = "DeepSeek", ApiKey = ProviderSettings.KeyMask } }
+        };
+        var merged = ProviderSettings.MergeFromWeb(current, incoming);
+        Assert.True(merged.AutoApprove);
+        Assert.True(ProviderSettings.RedactForWeb(merged).AutoApprove);
+        Assert.False(ProviderSettings.CreateDefault().AutoApprove);
+    }
+
+    [Fact]
     public void IsMaskedKey()
     {
         Assert.True(ProviderSettings.IsMaskedKey("••••••••"));

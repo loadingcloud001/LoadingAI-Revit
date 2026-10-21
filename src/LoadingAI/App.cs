@@ -29,6 +29,8 @@ public class App : IExternalApplication
     public Result OnStartup(UIControlledApplication application)
     {
         ProviderSettings.KeyProtector = WinKeyProtector.Instance;
+        AutoApproveGate.Enabled = ProviderSettings.Load().AutoApprove;
+        application.ControlledApplication.FailuresProcessing += AutoApproveFailures.OnFailures;
 
         // UIApplication not available at UIControlledApplication stage; it will be set
         // on first ExternalEvent execution or command via RevitContext.Set
@@ -67,6 +69,7 @@ public class App : IExternalApplication
 
     public Result OnShutdown(UIControlledApplication application)
     {
+        application.ControlledApplication.FailuresProcessing -= AutoApproveFailures.OnFailures;
         Bridge?.Dispose();
         Bridge = null;
         RevitContext.Clear();

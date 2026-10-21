@@ -36,7 +36,9 @@ reproduction on a small model is the most useful thing you can send.
 - **Some tools cap their output on purpose.** For example `tag_all` tags at most 50 elements per
   call and says so.
 - **Destructive tools are off by default.** Anything that deletes, moves or creates elements (the
-  `L3` tools) must be switched on in the pane, and asks for confirmation each time.
+  `L3` tools) must be switched on in the pane, and asks for confirmation each time. Auto-approve,
+  also off by default, skips those confirms and Revit warning dialogs for tools that are already
+  on. It does not switch a tool on, and it does not delete elements to clear a Revit error.
 - **Rolling back a turn is all-or-nothing.** Denying one write confirmation rolls back every write
   made earlier in the same turn.
 

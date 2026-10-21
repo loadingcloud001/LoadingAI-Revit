@@ -22,6 +22,18 @@ public sealed class AppSettings
     public string ActiveProviderId { get; set; } = "deepseek";
     public List<ProviderConfig> Providers { get; set; } = new();
     public Dictionary<string, bool> Plugins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// User switch in the pane. While true, the host skips L2 and L3 confirms and dismisses Revit
+    /// failure dialogs during a LoadingAI turn. The model cannot set this. Default false.
+    /// </summary>
+    public bool AutoApprove { get; set; }
+}
+
+/// <summary>Live copy of <see cref="AppSettings.AutoApprove"/> for call sites that do not hold settings.</summary>
+public static class AutoApproveGate
+{
+    public static bool Enabled { get; set; }
 }
 
 public static class ProviderCatalog
@@ -255,6 +267,7 @@ public static class ProviderSettings
         return new AppSettings
         {
             ActiveProviderId = s.ActiveProviderId,
+            AutoApprove = s.AutoApprove,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Where(p => !DefaultLlm.ExposesUpstream(p)).Select(p =>
             {
@@ -274,6 +287,7 @@ public static class ProviderSettings
             ActiveProviderId = string.IsNullOrWhiteSpace(incoming.ActiveProviderId)
                 ? current.ActiveProviderId
                 : incoming.ActiveProviderId,
+            AutoApprove = incoming.AutoApprove,
             Plugins = new Dictionary<string, bool>(
                 current.Plugins != null && current.Plugins.Count > 0
                     ? current.Plugins
@@ -337,6 +351,7 @@ public static class ProviderSettings
         return new AppSettings
         {
             ActiveProviderId = s.ActiveProviderId,
+            AutoApprove = s.AutoApprove,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Select(p =>
             {
