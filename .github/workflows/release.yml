@@ -60,9 +60,44 @@ jobs:
           path: artifacts/LoadingAI-Revit-${{ matrix.revit }}.zip
           if-no-files-found: error
 
+  setup:
+    name: Setup exe
+    needs: pack
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: LoadingAI-Revit-*
+          merge-multiple: true
+
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile LoadingAI-Setup.exe
+        shell: pwsh
+        run: |
+          ./scripts/stage-setup.ps1 -Dist dist -Payload installer/payload
+          $version = "0.3.0"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $version = $env:GITHUB_REF.Substring("refs/tags/v".Length)
+          }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe missing at $iscc" }
+          & $iscc "/DMyAppVersion=$version" installer/LoadingAI.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LoadingAI-Setup
+          path: artifacts/LoadingAI-Setup.exe
+          if-no-files-found: error
+
   publish:
     name: GitHub Release
-    needs: pack
+    needs: [pack, setup]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -73,9 +108,12 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.exe
+            dist/*.zip
           generate_release_notes: true
           body: |
-            Unzip the file for your Revit year. Run `Install.ps1` (no admin).
-            Needs [WebView2 Evergreen](https://developer.microsoft.com/microsoft-edge/webview2/).
-            If Revit says Duplicated AddInId, delete leftover `RevitAiPoc.addin`.
+            Download **LoadingAI-Setup.exe** and double-click it. No administrator rights.
+            Close Revit first. Leave the detected Revit year checked.
+            Needs [WebView2 Evergreen](https://developer.microsoft.com/microsoft-edge/webview2/) (already on Windows 11).
+            The zip for one Revit year is the same add-in if you prefer to copy the files yourself.

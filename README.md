@@ -56,23 +56,22 @@ The model can still be wrong. Review what it proposes, and keep your own backups
 
 ## Install (no Visual Studio needed)
 
-1. Install the [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-2. Download the zip for your Revit year from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases)
-   (`LoadingAI-Revit-2024.zip` … `LoadingAI-Revit-2027.zip`).
-3. Right-click the zip → **Properties** → tick **Unblock** if Windows marked it.
-4. Unzip, open PowerShell **in the unzipped folder**, and run:
+1. Install the [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+   if it is not already there. Windows 11 includes it.
+2. Download **LoadingAI-Setup.exe** from [Releases](https://github.com/loadingcloud001/LoadingAI-Revit/releases).
+3. Close Revit. Double-click the setup. It does not need administrator rights. Leave checked the
+   Revit year it finds on this PC.
+4. Start Revit, open a model, then **Add-Ins → LoadingAI → Open Chat**.
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\Install.ps1
-```
+The chat plugins are stored once, for the newest year you leave checked. If you also use an older
+Revit, run the setup again with only that year checked.
 
-   Or copy by hand:
-   - `LoadingAI.addin` → `%AppData%\Autodesk\Revit\Addins\<year>\`
-   - the `LoadingAI\` folder → `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\`
-   - `Plugins\` → `%AppData%\LoadingAI\Plugins\`
+The zip for one year (`LoadingAI-Revit-2024.zip` … `LoadingAI-Revit-2027.zip`) is the same add-in
+if you would rather copy the files yourself. Unblock the zip, unzip it, and run `Install.ps1`, or copy:
 
-5. Start Revit, open a model, then **Add-Ins → LoadingAI → Open Chat**.
+- `LoadingAI.addin` → `%AppData%\Autodesk\Revit\Addins\<year>\`
+- the `LoadingAI\` folder → `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\`
+- `Plugins\` → `%AppData%\LoadingAI\Plugins\`
 
 If Revit reports **Duplicated AddInId**, delete a leftover `RevitAiPoc.addin` and `RevitAiPoc\`
 folder from `%AppData%\Autodesk\Revit\Addins\<year>\`.
@@ -121,7 +120,8 @@ The last command also copies the add-in into `%AppData%\Autodesk\Revit\Addins\20
 accept it after every rebuild. That is a local-development convenience; CI never runs it.
 
 Pack a release zip with `pwsh scripts/pack-addin.ps1 -RevitVersion 2027` (also 2024, 2025, 2026).
-Pushing a `v*` tag publishes the four zips through GitHub Actions.
+Pushing a `v*` tag publishes those four zips and **LoadingAI-Setup.exe** through GitHub Actions.
+The setup program is `installer/LoadingAI.iss`; the workflow expands the zips and compiles it.
 
 ## Repository layout
 

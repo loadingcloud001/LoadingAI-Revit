@@ -137,8 +137,33 @@ public class ScriptContractTests
         Assert.Contains("-m:1", yml);
         Assert.Contains("pack-addin.ps1", yml);
         Assert.Contains("-SkipBuild", yml);
+        Assert.Contains("LoadingAI.iss", yml);
+        Assert.Contains("stage-setup.ps1", yml);
+        Assert.Contains("LoadingAI-Setup.exe", yml);
+        Assert.Contains("dist/*.exe", yml);
         Assert.DoesNotContain("LOADINGAI_DEFAULT_KEY", yml);
         Assert.Contains("DefaultLlmKey.g.cs", yml);
+    }
+
+    [Fact]
+    public void SetupExe_InstallsPerUserForEachRevitYear()
+    {
+        var iss = File.ReadAllText(Path.Combine(RepoRoot(), "installer", "LoadingAI.iss"));
+        var stage = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "stage-setup.ps1"));
+        Assert.Contains("PrivilegesRequired=lowest", iss);
+        Assert.DoesNotContain("PrivilegesRequired=admin", iss);
+        Assert.Contains("{userappdata}\\Autodesk\\Revit\\Addins\\2024", iss);
+        Assert.Contains("{userappdata}\\Autodesk\\Revit\\Addins\\2027", iss);
+        Assert.Contains("{userappdata}\\LoadingAI\\Plugins", iss);
+        Assert.Contains("RevitAiPoc.addin", iss);
+        Assert.Contains("WebView2", iss);
+        Assert.Contains("OutputBaseFilename=LoadingAI-Setup", iss);
+        Assert.Contains("LoadingAI-Revit-$year.zip", stage);
+        foreach (var year in new[] { "2024", "2025", "2026", "2027" })
+        {
+            Assert.Contains($"\"{year}\"", stage);
+            Assert.Contains($"payload\\{year}\\LoadingAI.addin", iss);
+        }
     }
 
     [Fact]
