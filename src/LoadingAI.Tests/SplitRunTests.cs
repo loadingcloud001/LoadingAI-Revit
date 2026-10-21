@@ -105,9 +105,19 @@ public class SplitRunTests
             ("GridSplit.cs", "split_by_grids"),
         })
         {
-            var call = Regex.Match(Host(file), @"SplitScope\.Collect\([^;]*\);");
+            var text = Host(file);
+            var call = Regex.Match(text, @"SplitScope\.Collect\([^;]*\);");
             Assert.True(call.Success, file);
-            Assert.Contains($"\"{command}\"", call.Value);
+            // A named storey gets its own page key ("split_by_levels|Level 1"), so the literal
+            // is the variable's first value, not an argument written inline.
+            if (command == "split_by_levels")
+            {
+                Assert.Contains(", command)", call.Value);
+                Assert.Contains("var command = \"split_by_levels\";", text);
+                Assert.Contains("command = \"split_by_levels|\" + named.Name;", text);
+            }
+            else
+                Assert.Contains($"\"{command}\"", call.Value);
             Assert.Contains($"Name = \"{command}\"", plugin);
         }
     }
