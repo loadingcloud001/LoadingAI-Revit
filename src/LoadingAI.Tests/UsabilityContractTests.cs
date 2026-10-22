@@ -41,6 +41,7 @@ public class UsabilityContractTests
         // The native confirm itself is unchanged and still the single L3 gate.
         Assert.Contains("ConfirmL3NativeAsync", src, StringComparison.Ordinal);
         Assert.Contains("Confirm L3:", src, StringComparison.Ordinal);
+        Assert.Equal(3, CountOccurrences(src, "!AutoApproveGate.Enabled"));
 
         // Dry-run already skips L3 TaskDialog; it must also skip the Confirm-options preset form.
         Assert.Contains("ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
@@ -99,6 +100,27 @@ public class UsabilityContractTests
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
         Assert.Contains("entry.Tier == ToolTier.L3", src);
+        Assert.Equal(2, CountOccurrences(src, "if (AutoApproveGate.Enabled)"));
+    }
+
+    [Fact]
+    public void AutoApprove_IsAUserSwitchAndDoesNotDeleteElementsToClearADialog()
+    {
+        var failures = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Revit", "AutoApproveFailures.cs"));
+        Assert.Contains("HasActiveTurnGroup", failures);
+        Assert.Contains("GetProcessingResult() != FailureProcessingResult.Continue", failures);
+        Assert.Contains("AutoApproveGate.Enabled", failures);
+        Assert.Contains("FailureResolutionType.DetachElements", failures);
+        Assert.DoesNotContain("FailureResolutionType.DeleteElements", failures);
+        Assert.DoesNotContain("FailureResolutionType.CreateElements", failures);
+        var session = UiSrc();
+        Assert.Contains("agent.AutoApprove = _settings.AutoApprove", session);
+        Assert.DoesNotContain("GetProperty(\"autoApprove\")", session);
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "App.cs"));
+        Assert.Contains("FailuresProcessing += AutoApproveFailures.OnFailures", app);
+        var pane = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        Assert.Contains("Auto-approve on", pane);
+        Assert.Contains("window.confirm", pane);
     }
 
     [Fact]

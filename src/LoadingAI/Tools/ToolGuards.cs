@@ -1,4 +1,5 @@
 using Autodesk.Revit.UI;
+using LoadingAI.Llm;
 using LoadingAI.Revit;
 
 namespace LoadingAI.Tools;
@@ -57,6 +58,7 @@ public static class ToolGuards
             Describe = entry.Describe,
             Handler = async json =>
             {
+                if (AutoApproveGate.Enabled) return await inner(json);
                 var body = ConfirmBody(await DescribeAsync(entry, json), json);
                 bool ok = await bridge.RunAsync(uiApp =>
                 {
@@ -76,6 +78,7 @@ public static class ToolGuards
                 ? null
                 : async argsJson =>
                 {
+                    if (AutoApproveGate.Enabled) return await structured(argsJson);
                     var body = ConfirmBody(await DescribeAsync(entry, argsJson), argsJson);
                     bool ok = await bridge.RunAsync(uiApp =>
                     {

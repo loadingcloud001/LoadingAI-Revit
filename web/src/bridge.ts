@@ -24,6 +24,8 @@ export type AppSettings = {
   activeProviderId: string;
   providers: ProviderConfig[];
   plugins?: Record<string, boolean>;
+  /** User switch. The model cannot set this. */
+  autoApprove?: boolean;
 };
 
 /** Must match DefaultLlm.Id / DisplayName in C#. */

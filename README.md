@@ -41,6 +41,10 @@ Tools come in three tiers, and the tier decides what you are asked:
   parameter edits it summarises what will change.
 - **L3 — delete, move, create.** **Off by default.** When switched on, each use needs a click in the
   pane and then a second confirmation in a Revit dialog that defaults to **No**.
+- **Auto-approve** is a switch in the chat header, off by default. While it is on, L2 and L3 tools
+  that are already switched on run without those confirms, and Revit warning dialogs during that
+  turn are dismissed. An error Revit can only fix by deleting elements rolls that step back. The
+  model cannot turn the switch on. The whole turn is still one undo. Plan and Ask stay read-only.
 
 Also:
 

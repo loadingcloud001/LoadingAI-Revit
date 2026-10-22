@@ -80,7 +80,8 @@ function normalizeSettings(raw: any): AppSettings | null {
     icon: p.icon ?? p.Icon ?? '＋',
   }));
   const plugins = raw.plugins ?? raw.Plugins ?? undefined;
-  return { activeProviderId: active, providers, plugins };
+  const autoApprove = raw.autoApprove === true || raw.AutoApprove === true;
+  return { activeProviderId: active, providers, plugins, autoApprove };
 }
 function normalizePresets(raw: any): ProviderPreset[] {
   if (!Array.isArray(raw)) return [];
@@ -640,6 +641,21 @@ export default function App() {
               <div style={{ fontSize: 11, marginTop: 2, color: quota?.ok === false ? '#b3261e' : '#5c5c5c' }} className="truncate">{quotaLine}</div>
             )}
           </div>
+          <button
+            type="button"
+            className={btn}
+            title="When on, the agent runs switched-on L2 and L3 tools without asking, and Revit warning dialogs during that work are dismissed. One undo per chat turn. Tools that are switched off stay off."
+            style={settings?.autoApprove ? { background: '#8a1f11', color: '#fff', borderColor: '#8a1f11' } : undefined}
+            onClick={() => {
+              const cur = settingsRef.current;
+              if (!cur) return;
+              const next = !cur.autoApprove;
+              if (next && !window.confirm('Auto-approve lets the agent change the model without asking, and dismisses Revit warning dialogs while it works. You can undo the whole turn once. Turn it on?')) return;
+              const ns: AppSettings = { ...cur, autoApprove: next };
+              setSettings(ns); settingsRef.current = ns;
+              postToHost({ type: 'saveSettings', settings: providersOnly(ns) });
+            }}
+          >{settings?.autoApprove ? 'Auto-approve on' : 'Auto-approve'}</button>
           <button type="button" className={btn} onClick={() => setShowSettings(v => { const next = !v; if (!v) postToHost({ type: 'listPlugins' }); return next; })}>{showSettings ? 'Close' : 'Settings'}</button>
         </div>
       </div>
