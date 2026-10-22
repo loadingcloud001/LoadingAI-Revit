@@ -14,7 +14,7 @@ more than the tools allow.
 
 MIT licensed. Free to use with the built-in provider, or bring your own key.
 
-> **Status: early release (v0.4.0).** Revit 2027 is the only version it has been run in so far. See
+> **Status: early release (v0.5.0).** Revit 2027 is the only version it has been run in so far. See
 > [Known limitations](docs/KNOWN_LIMITATIONS.md) before you point it at a model you care about, and
 > work on a copy.
 
