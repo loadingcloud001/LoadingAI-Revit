@@ -83,9 +83,9 @@ public class PluginLoadIssueTests
         Assert.Contains("do not claim the capability does not exist", loop);
         Assert.Contains("These plugins failed to load", loop);
 
-        var app = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        Assert.Contains("loadIssues", app);
-        Assert.Contains("setLoadIssues", app);
+        var reducer = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "state", "reducer.ts"));
+        Assert.Contains("loadIssues", reducer);
+        Assert.Contains("case 'plugins'", reducer);
 
         var shelf = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "plugins", "PluginShelf.tsx"));
         Assert.Contains("loadIssues", shelf);

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using LoadingAI.Llm;
 using Xunit;
 
@@ -49,42 +50,53 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void WebPane_StopAndClearUnmountTheRunPanel_AndBlockALateConfirm()
+    public void WebPane_StopAndClearUnmountTheReviewCard_AndBlockALateConfirm()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var reducer = WebFile("state", "reducer.ts");
 
-        // Review Focus 4. Stop and Clear must take the Run panel away. The panel only mounts while
-        // a preset is pending, so clearing the pending preset unmounts Cancel/Confirm with it.
-        Assert.Matches(@"const handleStop = [^\n]*setPendingPreset\(null\)", src);
-        Assert.Matches(@"const handleClear = [^\n]*setPendingPreset\(null\)", src);
-        Assert.Contains("{pendingPreset && (() => {", src, StringComparison.Ordinal);
+        // Review Focus 4. Stop and Clear must take the review card away. The card only mounts while
+        // a review is pending, so clearing the pending review unmounts Cancel/Confirm with it.
+        Assert.Contains("case 'stop': return finishTurn(s, 'cancelled');", reducer, StringComparison.Ordinal);
+        Assert.Contains("pendingReview: null", PaneSlice(reducer, "function finishTurn(", "function plainTodos("), StringComparison.Ordinal);
+        Assert.Contains("pendingReview: null", PaneSlice(reducer, "case 'clear': {", "case 'settingsLocal'"), StringComparison.Ordinal);
+        Assert.Contains("{reviewStep && pending && (", WebFile("chat", "Turn.tsx"), StringComparison.Ordinal);
 
         // And a confirm arriving after either is a no-op rather than a submission.
-        var submit = PaneSlice(src, "const handleSubmitPreset = (approved: boolean) => {", "const handlePresetPick =");
-        Assert.Contains("if (!pendingPreset) return;", submit, StringComparison.Ordinal);
+        var submit = PaneSlice(WebFile("state", "usePane.ts"), "const submitPreset = useCallback(", "const pick = useCallback(");
+        Assert.Contains("if (!pending) return;", submit, StringComparison.Ordinal);
 
-        // ADR-014: the interactive form must not live in the transcript any more. A receipt card
-        // that still bound setPresetValues would be a second, unpinned confirm surface.
-        var transcriptCard = PaneSlice(src, "if (m.role === 'preset' && m.preset) {", "if (m.role === 'approval' && m.approval) {");
-        Assert.DoesNotContain("setPresetValues", transcriptCard, StringComparison.Ordinal);
-        Assert.DoesNotContain("handleSubmitPreset", transcriptCard, StringComparison.Ordinal);
+        // ADR-014: one confirm surface. Only the review card may submit a Run form.
+        foreach (var file in Directory.GetFiles(Path.Combine(RepoRoot(), "web", "src"), "*.tsx", SearchOption.AllDirectories))
+        {
+            if (Path.GetFileName(file) == "ReviewCard.tsx") continue;
+            Assert.DoesNotContain("onSubmitPreset(true", File.ReadAllText(file), StringComparison.Ordinal);
+        }
     }
 
     [Fact]
-    public void WebPane_RunPanelReadsLiveValues_NotOnlyTheHostSnapshot()
+    public void WebPane_ReviewCardReadsLiveValues_NotOnlyTheHostSnapshot()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        var panel = PaneSlice(src, "{pendingPreset && (() => {", "ref={composerRef}");
+        var card = WebFile("chat", "ReviewCard.tsx");
+        var form = card.Substring(card.IndexOf("function PresetForm(", StringComparison.Ordinal));
 
         // The summary above the form is what a person confirms against. It has to follow the form,
         // or it can read "delete off" over a checked Delete box.
-        Assert.Contains("previewRows(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
-        Assert.Contains("previewWarnings(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
+        Assert.Contains("previewRows(preset, values)", form, StringComparison.Ordinal);
+        Assert.Contains("previewWarnings(preset, values)", form, StringComparison.Ordinal);
 
         // Long forms (structure-cuts ships a seven-knob form) must not push Cancel/Confirm/Stop out
         // of reach on a docked pane.
-        Assert.Contains("overflowY", panel, StringComparison.Ordinal);
+        Assert.Contains("overflowY", form, StringComparison.Ordinal);
     }
+
+    private static string WebFile(params string[] parts)
+        => File.ReadAllText(Path.Combine(new[] { RepoRoot(), "web", "src" }.Concat(parts).ToArray()));
+
+    // Every non-test source file of the pane, for checks that do not care which file holds a string.
+    private static string WebSrc()
+        => string.Join("\n", Directory.GetFiles(Path.Combine(RepoRoot(), "web", "src"), "*.*", SearchOption.AllDirectories)
+            .Where(f => (f.EndsWith(".ts") || f.EndsWith(".tsx")) && !f.EndsWith(".test.ts"))
+            .Select(File.ReadAllText));
 
     private static string PaneSlice(string src, string start, string end)
     {
@@ -118,9 +130,13 @@ public class UsabilityContractTests
         Assert.DoesNotContain("GetProperty(\"autoApprove\")", session);
         var app = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "App.cs"));
         Assert.Contains("FailuresProcessing += AutoApproveFailures.OnFailures", app);
-        var pane = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        Assert.Contains("Auto-approve on", pane);
-        Assert.Contains("window.confirm", pane);
+        // The pane switch is Bypass: it asks once in the pane, and a stored level never restores it.
+        var permissions = WebFile("lib", "permissions.ts");
+        Assert.Contains("return level === 'bypass';", permissions);
+        Assert.Contains("if (!pick || pick.id === 'bypass') return DEFAULT_LEVEL;", permissions);
+        var pane = WebFile("App.tsx");
+        Assert.Contains("Turn on {info.label}", pane);
+        Assert.DoesNotContain("window.confirm", WebSrc());
     }
 
     [Fact]
@@ -178,12 +194,12 @@ public class UsabilityContractTests
         Assert.DoesNotContain("PickObjects", bridge);
         Assert.DoesNotContain("PickBox", bridge);
         Assert.DoesNotContain("Preset", bridge);
-        var web = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        Assert.Contains("submitPreset", web);
-        Assert.Contains("presetPick", web);
-        Assert.Contains("Confirm", web);
-        Assert.Contains("setPendingPreset(cur =>", web);
-        Assert.Contains("text.includes(cur.toolName)", web);
+        var pane = WebFile("state", "usePane.ts");
+        Assert.Contains("type: 'submitPreset'", pane);
+        Assert.Contains("type: 'presetPick'", pane);
+        Assert.Contains("Pick in Revit", WebFile("chat", "ReviewCard.tsx"));
+        // A tool result for the reviewed step closes its card.
+        Assert.Contains("s1.pendingReview.stepId === target.id", WebFile("state", "reducer.ts"));
     }
 
     [Fact]
@@ -227,10 +243,10 @@ public class UsabilityContractTests
     [Fact]
     public void GearChrome_HostsPluginToggles()
     {
-        var app = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var app = WebSrc();
         Assert.Contains("PluginShelf", app);
         Assert.Contains("listPlugins", app);
-        Assert.Contains("type === 'plugins'", app);
+        Assert.Contains("case 'plugins'", app);
         Assert.Contains("isBuiltinProvider(activeProvider", app);
         Assert.DoesNotContain("MiniMax", app);
         Assert.DoesNotContain("minimaxi", app);
