@@ -13,27 +13,33 @@ import { Icon } from './ui/Icon';
 
 const THEME_KEY = 'lai.theme';
 
-function readTheme(): ThemePref {
+function readTheme(): ThemePref | null {
   try {
     const v = window.localStorage.getItem(THEME_KEY);
-    return v === 'light' || v === 'system' ? v : 'dark';
-  } catch { return 'dark'; }
+    return v === 'light' || v === 'system' || v === 'dark' ? v : null;
+  } catch { return null; }
 }
 
-function useTheme(): [ThemePref, (t: ThemePref) => void] {
-  const [pref, setPref] = useState<ThemePref>(readTheme);
+/**
+ * "system" follows Revit's UI theme when the host reports it (ThemeChanged), else the OS. A person who never chose
+ * a theme gets Revit's when the host can say, and dark otherwise.
+ */
+function useTheme(hostDark: boolean | null, followsRevit: boolean): [ThemePref, (t: ThemePref) => void] {
+  const [chosen, setChosen] = useState<ThemePref | null>(readTheme);
+  const pref: ThemePref = chosen ?? (followsRevit ? 'system' : 'dark');
   useEffect(() => {
     const apply = () => {
-      const dark = pref === 'dark' || (pref === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+      const os = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+      const dark = pref === 'dark' || (pref === 'system' && (followsRevit && hostDark != null ? hostDark : os));
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     };
     apply();
-    if (pref !== 'system') return;
+    if (pref !== 'system' || (followsRevit && hostDark != null)) return;
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     mq?.addEventListener?.('change', apply);
     return () => mq?.removeEventListener?.('change', apply);
-  }, [pref]);
-  return [pref, (t: ThemePref) => { setPref(t); try { window.localStorage.setItem(THEME_KEY, t); } catch { /* storage blocked */ } }];
+  }, [pref, hostDark, followsRevit]);
+  return [pref, (t: ThemePref) => { setChosen(t); try { window.localStorage.setItem(THEME_KEY, t); } catch { /* storage blocked */ } }];
 }
 
 export default function App() {
@@ -41,7 +47,7 @@ export default function App() {
   const openSettingsRef = useRef(() => setPage('settings'));
   const pane = usePane({ openSettings: () => openSettingsRef.current() });
   const { state } = pane;
-  const [theme, setTheme] = useTheme();
+  const [theme, setTheme] = useTheme(state.hostDark, pane.caps.has('theme'));
   const [askLevel, setAskLevel] = useState<PermissionLevel | null>(null);
   const [draft, setDraft] = useState<{ text: string; nonce: number } | null>(null);
 
@@ -57,6 +63,11 @@ export default function App() {
 
   const h: TurnHandlers = {
     onApprove: pane.approve,
+    onEdit: pane.editArgs,
+    onSelect: pane.selectIds,
+    onShow: pane.showIds,
+    onIsolate: pane.isolateIds,
+    onRetryStep: pane.retryStep,
     onSubmitPreset: pane.submitPreset,
     onValue: pane.setPresetValue,
     onPick: pane.pick,
@@ -144,6 +155,8 @@ export default function App() {
         onCycleLevel={() => pickLevel(nextLevel(pane.level, pane.caps))}
         onModel={id => state.settings && pane.saveSettings({ ...state.settings, activeProviderId: id })}
         onManageModels={() => setPage('settings')}
+        canSteer={pane.caps.has('steer')}
+        onQueueSteer={pane.steerNow}
         onQueueRemove={pane.queueActions.remove}
         onQueueResume={pane.queueActions.resume}
         onQueueClear={pane.queueActions.clear}

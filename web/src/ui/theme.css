@@ -106,6 +106,14 @@ body {
 .btn-danger:hover { background: var(--danger); opacity: 0.92; }
 .btn-ghost { border-color: transparent; }
 .btn-ghost:hover { background: var(--raised); }
+.receipt-cats { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.receipt-cat-btn { display: flex; align-items: center; gap: 5px; width: 100%; padding: 2px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.receipt-cat-btn:disabled { cursor: default; }
+.receipt-ids { display: flex; flex-wrap: wrap; gap: 3px; margin: 2px 0 4px 16px; }
+.receipt-ids .chip { height: 18px; font-size: 10.5px; }
+.split { position: relative; display: inline-flex; }
+.split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: rgba(127, 127, 127, 0.5); padding: 0 5px; }
 .btn-stop { color: var(--danger); border-color: var(--danger-border); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
 .icon-btn:hover { background: var(--raised); color: var(--text); }
@@ -170,7 +178,8 @@ button.chip:hover { border-color: var(--border-strong); color: var(--text); }
 .kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; font-size: 11.5px; margin-top: 4px; }
 .kv > :nth-child(odd) { color: var(--muted); }
 .kv > :nth-child(even) { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; text-align: right; word-break: break-all; }
-.warn-line { color: var(--danger); font-size: 11.5px; margin-top: 4px; }
+.warn-line { display: flex; align-items: flex-start; gap: 4px; color: var(--danger); font-size: 11.5px; margin-top: 4px; }
+.warn-line > svg { flex: none; margin-top: 2px; }
 
 /* Composer */
 .composer { position: relative; padding: 7px 8px 8px; border-top: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
@@ -180,6 +189,9 @@ button.chip:hover { border-color: var(--border-strong); color: var(--text); }
 .composer-bar { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
 .queue { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .queue .chip { border-style: dashed; color: var(--text); }
+.chip-act { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; padding: 0 2px; }
+.chip-act:hover { text-decoration: underline; }
+.note-steer { border-left: 2px solid var(--accent); color: var(--text); }
 .attachments { display: flex; gap: 4px; margin-bottom: 6px; overflow-x: auto; }
 .attachments figure { position: relative; margin: 0; flex-shrink: 0; }
 .attachments img { width: 44px; height: 44px; object-fit: cover; border: 1px solid var(--border); border-radius: 4px; }

@@ -44,6 +44,9 @@ type Props = {
   onCycleLevel: () => void;
   onModel: (id: string) => void;
   onManageModels: () => void;
+  /** The host can deliver a message to the running turn. */
+  canSteer: boolean;
+  onQueueSteer: (id: string) => void;
   onQueueRemove: (id: string) => void;
   onQueueResume: () => void;
   onQueueClear: () => void;
@@ -164,7 +167,10 @@ export function Composer(p: Props) {
           {p.queue.paused && <span className="chip tone-change" style={{ borderStyle: 'solid' }}>{p.queue.reason ?? 'Paused'}</span>}
           {p.queue.items.map(i => (
             <span key={i.id} className="chip" title={i.text}>
-              <span className="faint">queued</span><span className="truncate" style={{ maxWidth: 170 }}>{i.text}</span>
+              <span className="faint">queued</span><span className="truncate" style={{ maxWidth: 150 }}>{i.text}</span>
+              {p.canSteer && p.running && !p.queue.paused && (
+                <button type="button" className="chip-act" title="Hand this to the agent now, without waiting for the turn to end" aria-label={`Send now: ${i.text}`} onClick={() => p.onQueueSteer(i.id)}>Send now</button>
+              )}
               <button type="button" aria-label={`Remove queued message: ${i.text}`} style={{ border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', padding: 0, display: 'inline-flex' }} onClick={() => p.onQueueRemove(i.id)}><Icon name="x" size={11} /></button>
             </span>
           ))}
@@ -199,7 +205,7 @@ export function Composer(p: Props) {
           onKeyDown={onKeyDown}
           rows={2}
           aria-label="Message"
-          placeholder={p.running ? 'Add a follow-up. Enter queues it.' : 'Ask, or describe a change · / and @'}
+          placeholder={p.running ? (p.canSteer ? 'Add a follow-up. Enter queues it; Send now steers the agent.' : 'Add a follow-up. Enter queues it.') : 'Ask, or describe a change · / and @'}
         />
         {dragging && <div className="drop-hint">Drop images to attach</div>}
       </div>

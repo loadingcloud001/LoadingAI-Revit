@@ -1,6 +1,7 @@
 import type {
-  AppSettings, ApprovalPayload, Attachment, ChatMode, CheckpointInfo, ContextPayload, FromHost,
-  PlanPayload, PluginInfo, PluginLoadIssue, PresetPayload, ProgressPayload, ProviderPreset, QuotaPayload, TodoPayload,
+  AppSettings, ApprovalPayload, Attachment, ChangeCategory, ChatMode, CheckpointInfo, ContextPayload, FromHost,
+  PlanPayload, PluginInfo, PluginLoadIssue, PresetPayload, ProgressPayload, ProviderPreset, QuotaPayload, ReviewPayload,
+  TodoPayload, ToolOutcome,
 } from '../bridge';
 
 /** The five user-owned permission levels (spec, ADR-0017). The model can never set this. */
@@ -11,31 +12,53 @@ export type StepState = 'running' | 'review' | 'done' | 'failed' | 'denied' | 't
 
 export type ReviewDecision = 'allowed' | 'denied' | 'timeout' | 'cancelled';
 
-/** A confirm the host is waiting on: the L3 approval card or a Run form. */
+/**
+ * A confirm the host is waiting on. `card` is the host's single in-chat review (ADR-0017); `approval` and
+ * `preset` are the older two-card messages, kept so scripted demos and older hosts still render.
+ */
 export type Review = {
-  kind: 'approval' | 'preset';
+  kind: 'approval' | 'preset' | 'card';
   toolCallId: string;
   approval?: ApprovalPayload;
   preset?: PresetPayload;
+  card?: ReviewPayload;
   decided?: ReviewDecision;
 };
 
 export type Step = {
   id: string;
+  /** The host's id for this call (tool_start, tool_review, tool_end). Absent for steps built from legacy text. */
+  callId?: string;
   name: string;
   tier?: string;
+  destructive?: boolean;
   argsText: string;
   state: StepState;
   review?: Review;
   resultText?: string;
+  outcome?: ToolOutcome;
+  /** Host-measured run time. Falls back to endedAt - startedAt. */
+  ms?: number;
+  /** Some of the work was done and some failed. */
+  partial?: boolean;
   startedAt: number;
   endedAt?: number;
 };
 
-export type NoteKind = 'system' | 'trace' | 'error';
+/** A message you sent mid-turn is a `steer` note. */
+export type NoteKind = 'system' | 'trace' | 'error' | 'steer';
 export type Note = { id: string; kind: NoteKind; text: string };
 
 export type TurnOutcome = 'running' | 'done' | 'cancelled' | 'error';
+
+/** What the turn changed in the model, as Revit reported it (turn_changes). */
+export type TurnChanges = {
+  added: number;
+  modified: number;
+  deleted: number;
+  idsTruncated?: boolean;
+  byCategory: ChangeCategory[];
+};
 
 export type Turn = {
   id: string;
@@ -52,6 +75,15 @@ export type Turn = {
   outcome: TurnOutcome;
   startedAt: number;
   endedAt?: number;
+  /** The host's id for the turn (turn_start). Later host messages for the turn carry it. */
+  hostId?: string;
+  /** The permission level the turn started under. */
+  level?: string;
+  /** True once the host sent turn_start: step lifecycle then comes from tool_start / tool_end only. */
+  structured?: boolean;
+  changes?: TurnChanges;
+  /** The turn's writes were undone (denied, failed or stopped after a write). */
+  rolledBack?: boolean;
 };
 
 /** The transcript is turns plus standalone notes (welcome, /help, messages outside a turn). */
@@ -61,7 +93,7 @@ export type Entry = { kind: 'turn'; turn: Turn } | { kind: 'note'; note: Note };
 export type PendingReview = {
   stepId: string;
   toolCallId: string;
-  kind: 'approval' | 'preset';
+  kind: 'approval' | 'preset' | 'card';
   values: Record<string, unknown>;
   pickBusy: string | null;
 };
@@ -85,6 +117,10 @@ export type PaneState = {
   providerTest: ProviderTest | null;
   models: Record<string, string[]>;
   modelsLoading: string | null;
+  /** What the host announced it can do (host_caps). Empty for a host that announced nothing. */
+  caps: string[];
+  /** Revit's UI theme, once the host has said (theme). */
+  hostDark: boolean | null;
   seq: number;
 };
 

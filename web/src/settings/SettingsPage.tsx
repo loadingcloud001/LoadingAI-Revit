@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { postToHost } from '../bridge';
 import { copyText } from '../lib/clipboard';
 import { availableLevels, HostCaps } from '../lib/permissions';
@@ -33,6 +33,60 @@ type Props = {
   onModelsLoading: (id: string | null) => void;
 };
 type PaneSaveFn = Parameters<typeof ModelsSection>[0]['onSave'];
+
+/** Matches UserInstructions.MaxChars on the host. */
+const INSTRUCTIONS_MAX = 2000;
+
+function InstructionsEditor({ saved, onSave }: { saved: string; onSave: (text: string) => void }) {
+  const [draft, setDraft] = useState(saved);
+  const [justSaved, setJustSaved] = useState(false);
+  // A save from elsewhere (or the host trimming the text) replaces the draft only when the person is not mid-edit.
+  useEffect(() => { setDraft(d => (d === saved ? d : saved)); }, [saved]);
+  const dirty = draft.trim() !== saved.trim();
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <label className="field">
+        <span>Instructions the agent follows in every chat</span>
+        <textarea
+          className="textarea"
+          rows={5}
+          maxLength={INSTRUCTIONS_MAX}
+          value={draft}
+          placeholder="For example: Answer in English. Use millimetres. Our level names start with L, like L01."
+          onChange={e => { setDraft(e.target.value); setJustSaved(false); }}
+        />
+      </label>
+      <div className="row">
+        <button type="button" className="btn btn-sm" disabled={!dirty} onClick={() => { onSave(draft.trim()); setJustSaved(true); }}>Save instructions</button>
+        {dirty && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDraft(saved)}>Discard</button>}
+        <span className="grow" />
+        <span className="faint" style={{ fontSize: 11 }} role="status">{justSaved && !dirty ? 'Saved' : `${draft.length}/${INSTRUCTIONS_MAX}`}</span>
+      </div>
+      <div className="faint" style={{ fontSize: 11.5 }}>These go into the agent&apos;s system prompt. They cannot loosen permissions: a review still waits for you.</div>
+    </div>
+  );
+}
+
+function AlwaysAllowed({ tools, onRemove }: { tools: string[]; onRemove: (name: string) => void }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <h3>Always allowed</h3>
+      {tools.length === 0 ? (
+        <div className="faint" style={{ fontSize: 11.5 }}>None. Choose &quot;Always allow this tool&quot; on a review card to add one.</div>
+      ) : (
+        <div className="list">
+          {tools.map(name => (
+            <div key={name} className="list-row">
+              <span className="grow truncate mono" style={{ fontSize: 11 }}>{name}</span>
+              <button type="button" className="btn btn-sm" aria-label={`Stop always allowing ${name}`} onClick={() => onRemove(name)}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>These tools run without a review at Ask-before-changes and Auto-edit. Delete, replace and file-writing tools can never be added.</div>
+    </div>
+  );
+}
 
 export function SettingsPage(p: Props) {
   const [tab, setTab] = useState<Tab>(p.initialTab ?? 'models');
@@ -75,14 +129,34 @@ export function SettingsPage(p: Props) {
                   {availableLevels(p.caps).map(l => <option key={l.id} value={l.id}>{l.label}: {l.hint}</option>)}
                 </select>
               </label>
-              <div className="faint" style={{ fontSize: 11.5 }}>The model can never change this. Bypass is stored by the add-in; the other levels are stored in this pane.</div>
+              <div className="faint" style={{ fontSize: 11.5 }}>
+                {p.caps.has('levels')
+                  ? 'The model can never change this. The add-in stores the level and enforces it on every tool call.'
+                  : 'The model can never change this. Bypass is stored by the add-in; the other levels are stored in this pane.'}
+              </div>
+              {p.caps.has('changes') && p.state.settings && (
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={p.state.settings.selectChangedAfterTurn !== false}
+                    onChange={e => p.onSave({ ...p.state.settings!, selectChangedAfterTurn: e.target.checked })}
+                  />
+                  Select changed elements in Revit after each turn
+                </label>
+              )}
+              {p.caps.has('instructions') && p.state.settings && (
+                <>
+                  <h3>Custom instructions</h3>
+                  <InstructionsEditor saved={p.state.settings.instructions ?? ''} onSave={text => p.onSave({ ...p.state.settings!, instructions: text })} />
+                </>
+              )}
               <h3>Appearance</h3>
               <label className="field">
                 <span>Theme</span>
                 <select className="select" value={p.theme} onChange={e => p.onTheme(e.target.value as ThemePref)}>
                   <option value="dark">Dark</option>
                   <option value="light">Light</option>
-                  <option value="system">Follow Windows</option>
+                  <option value="system">{p.caps.has('theme') ? 'Follow Revit' : 'Follow Windows'}</option>
                 </select>
               </label>
               <h3>Session</h3>
@@ -92,7 +166,17 @@ export function SettingsPage(p: Props) {
               </div>
             </div>
           )}
-          {tab === 'tools' && <PluginShelf plugins={p.state.plugins} loadIssues={p.state.loadIssues} view="tools" />}
+          {tab === 'tools' && (
+            <>
+              {p.caps.has('reviewScopes') && p.state.settings && (
+                <AlwaysAllowed
+                  tools={p.state.settings.alwaysAllowTools ?? []}
+                  onRemove={name => p.onSave({ ...p.state.settings!, alwaysAllowTools: (p.state.settings!.alwaysAllowTools ?? []).filter(n => n !== name) })}
+                />
+              )}
+              <PluginShelf plugins={p.state.plugins} loadIssues={p.state.loadIssues} view="tools" />
+            </>
+          )}
           {tab === 'plugins' && <PluginShelf plugins={p.state.plugins} loadIssues={p.state.loadIssues} view="plugins" />}
           {tab === 'about' && (
             <div style={{ display: 'grid', gap: 8 }}>

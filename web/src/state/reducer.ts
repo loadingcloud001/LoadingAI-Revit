@@ -1,6 +1,6 @@
-import type { AppSettings, FromHost, PluginLoadIssue, ProviderConfig, ProviderPreset, TodoPayload } from '../bridge';
+import type { AppSettings, ChatMode, FromHost, PluginLoadIssue, ProviderConfig, ProviderPreset, TodoPayload, ToolOutcome } from '../bridge';
 import { callInfo, classifyResult, resultBody } from './legacyText';
-import type { Entry, Note, NoteKind, PaneAction, PaneState, Step, StepState, Turn } from './types';
+import type { Entry, Note, NoteKind, PaneAction, PaneState, PermissionLevel, ReviewDecision, Step, StepState, Turn } from './types';
 
 export function initialState(): PaneState {
   return {
@@ -20,6 +20,8 @@ export function initialState(): PaneState {
     providerTest: null,
     models: {},
     modelsLoading: null,
+    caps: [],
+    hostDark: null,
     seq: 0,
   };
 }
@@ -106,13 +108,22 @@ function normalizeSettings(raw: any): AppSettings | null {
     group: p.group ?? p.Group ?? 'custom',
     icon: p.icon ?? p.Icon ?? '＋',
   }));
+  const level = raw.permissionLevel ?? raw.PermissionLevel;
+  const always = raw.alwaysAllowTools ?? raw.AlwaysAllowTools;
+  const select = raw.selectChangedAfterTurn ?? raw.SelectChangedAfterTurn;
   return {
     activeProviderId: raw.activeProviderId ?? raw.ActiveProviderId ?? '',
     providers,
     plugins: raw.plugins ?? raw.Plugins ?? undefined,
     autoApprove: raw.autoApprove === true || raw.AutoApprove === true,
+    permissionLevel: LEVEL_IDS.includes(level) ? (level as PermissionLevel) : undefined,
+    alwaysAllowTools: Array.isArray(always) ? always.filter((n: unknown): n is string => typeof n === 'string') : [],
+    selectChangedAfterTurn: select !== false,
+    instructions: String(raw.instructions ?? raw.Instructions ?? ''),
   };
 }
+
+const LEVEL_IDS = ['readonly', 'plan', 'confirm', 'autoEdit', 'bypass'];
 
 function normalizePresets(raw: any): ProviderPreset[] {
   if (!Array.isArray(raw)) return [];
@@ -190,6 +201,9 @@ function onAssistant(s: PaneState, incoming: string, at?: number): PaneState {
     }
     return { ...t, answer };
   });
+  // A host turn ends with turn_end, after any steer it could not deliver (those become the next message).
+  const cur = s1.entries[idx];
+  if (cur.kind === 'turn' && cur.turn.structured) return s1;
   return finishTurn(s1, 'done', at);
 }
 
@@ -197,12 +211,175 @@ function newTurn(id: string, userText: string, mode: Turn['mode'], at?: number):
   return { id, mode, userText, steps: [], notes: [], todos: [], answer: '', answerStreaming: false, outcome: 'running', startedAt: now(at) };
 }
 
+/** Index of the turn the host calls `hostId`, else the running turn, else -1. */
+function turnFor(s: PaneState, hostId?: string): number {
+  if (hostId) {
+    for (let i = s.entries.length - 1; i >= 0; i--) {
+      const e = s.entries[i];
+      if (e.kind === 'turn' && e.turn.hostId === hostId) return i;
+    }
+    // A turn the host has not named yet is the running one; a turn it named differently is someone else's.
+    const idx = activeIndex(s);
+    if (idx < 0) return -1;
+    const e = s.entries[idx];
+    return e.kind === 'turn' && e.turn.hostId && e.turn.hostId !== hostId ? -1 : idx;
+  }
+  return activeIndex(s);
+}
+
+/** Adds a running, host-structured turn when the host talks about one the pane never started. */
+function openHostTurn(s: PaneState, hostId: string | undefined, at?: number): PaneState {
+  const [tid, s1] = nextId(s, 't');
+  const turn = { ...newTurn(tid, '', 'build', at), hostId, structured: true };
+  return { ...s1, running: true, entries: [...s1.entries, { kind: 'turn', turn }] };
+}
+
+function findStep(s: PaneState, callId: string): { idx: number; pos: number } | null {
+  for (let i = s.entries.length - 1; i >= 0; i--) {
+    const e = s.entries[i];
+    if (e.kind !== 'turn') continue;
+    const pos = e.turn.steps.findIndex(st => st.callId === callId || st.review?.toolCallId === callId);
+    if (pos >= 0) return { idx: i, pos };
+  }
+  return null;
+}
+
+function endState(outcome: ToolOutcome, ok: boolean): StepState {
+  switch (outcome) {
+    case 'ran': return ok ? 'done' : 'failed';
+    case 'denied': return 'denied';
+    case 'timeout': return 'timeout';
+    case 'cancelled': return 'cancelled';
+    default: return 'failed';
+  }
+}
+
+function decidedFor(outcome: ToolOutcome): ReviewDecision | undefined {
+  switch (outcome) {
+    case 'ran': return 'allowed';
+    case 'denied': return 'denied';
+    case 'timeout': return 'timeout';
+    case 'cancelled': return 'cancelled';
+    default: return undefined;
+  }
+}
+
+/** Once the host speaks in structured turns, the older text messages for that turn are duplicates. */
+function inStructuredTurn(s: PaneState): boolean {
+  const idx = activeIndex(s);
+  if (idx < 0) return false;
+  const e = s.entries[idx];
+  return e.kind === 'turn' && !!e.turn.structured;
+}
+
 function reduceHost(s: PaneState, msg: FromHost, at?: number): PaneState {
   switch (msg.type) {
     case 'status': return { ...s, status: String(msg.text ?? '') };
     case 'trace': return addNote(s, 'trace', String(msg.text ?? ''));
-    case 'tool_call': return onToolCall(s, String(msg.text ?? ''), at);
-    case 'tool_result': return onToolResult(s, String(msg.text ?? ''), at);
+    case 'tool_call': return inStructuredTurn(s) ? s : onToolCall(s, String(msg.text ?? ''), at);
+    case 'tool_result': return inStructuredTurn(s) ? s : onToolResult(s, String(msg.text ?? ''), at);
+    case 'host_caps': return { ...s, caps: Array.isArray(msg.caps) ? msg.caps.filter(c => typeof c === 'string') : [] };
+    case 'theme': return { ...s, hostDark: !!msg.dark };
+    case 'turn_start': {
+      let s1 = s;
+      let idx = activeIndex(s1);
+      if (idx < 0) {
+        s1 = openHostTurn(s1, msg.turnId, at);
+        idx = activeIndex(s1);
+      }
+      return withTurn(s1, idx, t => ({ ...t, hostId: msg.turnId, level: msg.level, structured: true, mode: (msg.mode as ChatMode) || t.mode }));
+    }
+    case 'tool_start': {
+      let s1 = s;
+      let idx = turnFor(s1, msg.turnId);
+      if (idx < 0) {
+        s1 = openHostTurn(s1, msg.turnId, at);
+        idx = activeIndex(s1);
+      }
+      const t = (s1.entries[idx] as Extract<Entry, { kind: 'turn' }>).turn;
+      if (t.steps.some(st => st.callId === msg.toolCallId)) return s1;
+      const [id, s2] = nextId(s1, 's');
+      const step: Step = {
+        id, callId: msg.toolCallId, name: msg.name, tier: msg.tier, destructive: msg.destructive,
+        argsText: msg.args ?? '', state: 'running', startedAt: now(at),
+      };
+      return withTurn(s2, idx, tt => withSteps(tt, steps => [...steps, step]));
+    }
+    case 'tool_review': {
+      const r = msg.review;
+      if (!r) return s;
+      let s1 = s;
+      let found = findStep(s1, r.toolCallId);
+      if (!found) {
+        let idx = activeIndex(s1);
+        if (idx < 0) {
+          s1 = openHostTurn(s1, undefined, at);
+          idx = activeIndex(s1);
+        }
+        const [id, s2] = nextId(s1, 's');
+        const step: Step = { id, callId: r.toolCallId, name: r.toolName, tier: r.tier, destructive: r.destructive, argsText: r.args ?? '', state: 'running', startedAt: now(at) };
+        s1 = withTurn(s2, idx, tt => withSteps(tt, steps => [...steps, step]));
+        found = findStep(s1, r.toolCallId)!;
+      }
+      const target = (s1.entries[found.idx] as Extract<Entry, { kind: 'turn' }>).turn.steps[found.pos];
+      const hasForm = !!r.fields?.length;
+      const next: Step = {
+        ...target, name: r.toolName, tier: r.tier, destructive: r.destructive, argsText: r.args ?? target.argsText, state: 'review',
+        review: { kind: 'card', toolCallId: r.toolCallId, card: r },
+      };
+      const s2 = withTurn(s1, found.idx, tt => withSteps(tt, steps => steps.map((st, i) => i === found!.pos ? next : st)));
+      const prev = s2.pendingReview;
+      // The host re-posts a plain card after the user edits its inputs. A form the person is filling keeps its live values.
+      const keep = prev && prev.toolCallId === r.toolCallId ? prev : null;
+      return {
+        ...s2,
+        pendingReview: {
+          stepId: target.id,
+          toolCallId: r.toolCallId,
+          kind: 'card',
+          values: keep ? keep.values : hasForm ? { ...(r.values ?? {}) } : {},
+          pickBusy: keep ? keep.pickBusy : null,
+        },
+      };
+    }
+    case 'tool_end': {
+      const found = findStep(s, msg.toolCallId);
+      if (!found) return s;
+      const target = (s.entries[found.idx] as Extract<Entry, { kind: 'turn' }>).turn.steps[found.pos];
+      const decided = target.review ? (target.review.decided ?? decidedFor(msg.outcome)) : undefined;
+      const next: Step = {
+        ...target,
+        state: endState(msg.outcome, msg.ok),
+        outcome: msg.outcome,
+        resultText: msg.text,
+        ms: msg.ms,
+        partial: msg.partial,
+        endedAt: now(at),
+        review: target.review ? { ...target.review, decided } : undefined,
+      };
+      const s1 = withTurn(s, found.idx, tt => withSteps(tt, steps => steps.map((st, i) => i === found.pos ? next : st)));
+      return s1.pendingReview && s1.pendingReview.stepId === target.id ? { ...s1, pendingReview: null } : s1;
+    }
+    case 'turn_end': {
+      const idx = turnFor(s, msg.turnId);
+      if (idx < 0) return s;
+      const turn = (s.entries[idx] as Extract<Entry, { kind: 'turn' }>).turn;
+      const s1 = withTurn(s, idx, t => ({ ...t, rolledBack: msg.rolledBack === true ? true : t.rolledBack }));
+      if (turn.outcome !== 'running') return s1;
+      const outcome = msg.outcome === 'cancelled' ? 'cancelled' : msg.outcome === 'error' ? 'error' : 'done';
+      return finishTurn(s1, outcome, at);
+    }
+    case 'turn_changes': {
+      const idx = turnFor(s, msg.turnId);
+      if (idx < 0) return s;
+      return withTurn(s, idx, t => ({
+        ...t,
+        changes: { added: msg.added, modified: msg.modified, deleted: msg.deleted, idsTruncated: msg.idsTruncated, byCategory: Array.isArray(msg.byCategory) ? msg.byCategory : [] },
+      }));
+    }
+    case 'steer_ack':
+      // Delivered: show it in the turn. Undelivered is handled by the hook, which sends it as a normal message.
+      return msg.deliveredAt != null ? addNote(s, 'steer', msg.text) : s;
     case 'tool_approval':
     case 'tool_preset': {
       const isApproval = msg.type === 'tool_approval';
@@ -310,7 +487,8 @@ function reduceHost(s: PaneState, msg: FromHost, at?: number): PaneState {
     case 'assistant': return onAssistant(s, String(msg.text ?? ''), at);
     case 'error': {
       const text = String(msg.text ?? '');
-      if (activeIndex(s) < 0) return addNote(s, 'error', text);
+      // Stop already ended the turn in the pane; the host's own "Cancelled." is not news.
+      if (activeIndex(s) < 0) return /^cancelled\.?$/i.test(text.trim()) ? s : addNote(s, 'error', text);
       return finishTurn(addNote(s, 'error', text), 'error', at);
     }
     case 'history': {

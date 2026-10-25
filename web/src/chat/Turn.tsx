@@ -2,14 +2,21 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { copyText } from '../lib/clipboard';
 import { errorCopy, turnTitle } from '../lib/copy';
+import type { ApprovalScope } from '../bridge';
 import type { HostCaps } from '../lib/permissions';
-import type { Note, PendingReview, Turn as TurnT } from '../state/types';
+import type { Note, PendingReview, Step, Turn as TurnT } from '../state/types';
 import { Icon } from '../ui/Icon';
+import { ChangeReceipt } from './ChangeReceipt';
 import { ReviewCard } from './ReviewCard';
 import { WorkGroup } from './WorkGroup';
 
 export type TurnHandlers = {
-  onApprove: (toolCallId: string, approved: boolean) => void;
+  onApprove: (toolCallId: string, approved: boolean, opts?: { scope?: ApprovalScope; reason?: string }) => void;
+  onEdit: (toolCallId: string, args: Record<string, unknown>) => void;
+  onSelect: (ids: number[]) => void;
+  onShow: (ids: number[]) => void;
+  onIsolate: (ids: number[]) => void;
+  onRetryStep: (step: Step) => void;
   onSubmitPreset: (approved: boolean, override?: Record<string, unknown>) => void;
   onValue: (fieldId: string, value: unknown) => void;
   onPick: (fieldId: string) => void;
@@ -39,6 +46,7 @@ export function ErrorNote({ note, onOpenSettings, onRetry }: { note: Note; onOpe
 }
 
 export function NoteRow({ note }: { note: Note }) {
+  if (note.kind === 'steer') return <div className="note note-steer">You added: {note.text}</div>;
   return <div className={`note ${note.kind === 'trace' ? 'note-trace' : ''}`}>{note.text}</div>;
 }
 
@@ -109,15 +117,23 @@ export function Turn({ turn, isLast, pending, caps, h }: { turn: TurnT; isLast: 
           {turn.attachments?.length ? <div>{turn.attachments.map(a => <img key={a.id} src={a.dataUrl} alt={a.name} />)}</div> : null}
         </div>
       ) : null}
-      <WorkGroup turn={turn} forceOpen={!!reviewStep}>
+      <WorkGroup turn={turn} forceOpen={!!reviewStep} onRetryStep={isLast && !running ? h.onRetryStep : undefined}>
         {reviewStep && pending && (
-          <ReviewCard step={reviewStep} pending={pending} caps={caps} onApprove={h.onApprove} onSubmitPreset={h.onSubmitPreset} onValue={h.onValue} onPick={h.onPick} />
+          <ReviewCard step={reviewStep} pending={pending} caps={caps} onApprove={h.onApprove} onEdit={h.onEdit} onSubmitPreset={h.onSubmitPreset} onValue={h.onValue} onPick={h.onPick} />
         )}
       </WorkGroup>
       {turn.plan && <PlanCard turn={turn} isLast={isLast} onRunPlan={h.onRunPlan} onEditText={h.onEditText} />}
       {others.map(n => <NoteRow key={n.id} note={n} />)}
       {turn.answer && (
         <div className="answer"><ReactMarkdown>{turn.answer}</ReactMarkdown></div>
+      )}
+      {(turn.rolledBack || turn.changes) && (
+        <ChangeReceipt
+          changes={turn.changes ?? { added: 0, modified: 0, deleted: 0, byCategory: [] }}
+          rolledBack={turn.rolledBack}
+          actions={{ onSelect: h.onSelect, onShow: h.onShow, onIsolate: h.onIsolate }}
+          busy={isLast ? running : false}
+        />
       )}
       {errors.map(n => (
         <ErrorNote key={n.id} note={n} onOpenSettings={h.onOpenSettings} onRetry={isLast && turn.userText ? () => h.onRetry(turn.userText) : undefined} />

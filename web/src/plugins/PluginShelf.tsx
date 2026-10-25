@@ -121,6 +121,7 @@ export function PluginShelf({ plugins, loadIssues = [], view = 'tools' }: { plug
             {tools.map(t => (
               <div key={t.name} className="list-row" style={{ opacity: t.enabled ? 1 : 0.7 }}>
                 <span className="grow truncate mono" style={{ fontSize: 11 }} title={t.description}>{t.name}</span>
+                {t.destructive && <span className="badge badge-danger" title="Deletes or replaces elements, or writes a file. Always asks.">destructive</span>}
                 <span className={`badge ${t.tier === 'L3' ? 'badge-change' : ''}`}>{t.tier}</span>
                 <label className="toggle">
                   <input type="checkbox" aria-label={toolAriaLabel(t)} checked={t.enabled} onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })} />

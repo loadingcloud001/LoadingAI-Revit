@@ -336,6 +336,13 @@ export function postToHost(msg: ToHost) {
           { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/go/v1', model: 'muse-spark-1.2-contributor', apiKey: '', apiKind: 'responses', group: 'gateway', icon: '⚡' },
         ]
       };
+      const demo = new URLSearchParams(window.location.search).get('demo');
+      const caps = demo ? SCENARIOS[demo]?.caps : undefined;
+      if (caps) {
+        Object.assign(mock, { permissionLevel: 'confirm', alwaysAllowTools: ['rename_view', 'set_parameter'], selectChangedAfterTurn: true, instructions: '' });
+        setTimeout(() => emit({ type: 'host_caps', caps }), 60);
+        setTimeout(() => emit({ type: 'theme', dark: new URLSearchParams(window.location.search).get('revit') !== 'light' }), 80);
+      }
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'settings', settings: mock } })), 100);
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'quota', quota: { providerId: BUILTIN_PROVIDER_ID, limit: 100, used: 3, remaining: 97, ok: true, resetUtc: new Date(Date.now() + 86400000).toISOString() } } })), 140);
       const mockPresets: any[] = [
@@ -368,8 +375,23 @@ function playDemo(msg: ToHost): boolean {
   const sc = name ? SCENARIOS[name] : undefined;
   if (!sc) return false;
   if (msg.type === 'send') { playSteps(sc.steps); return true; }
+  if (msg.type === 'approveTool' && sc.gate && msg.toolCallId === sc.gate.toolCallId && msg.args && sc.gate.edit) {
+    playSteps(sc.gate.edit);
+    return true;
+  }
   if ((msg.type === 'approveTool' || msg.type === 'submitPreset') && sc.gate && msg.toolCallId === sc.gate.toolCallId) {
     playSteps(msg.approved ? sc.gate.allow : sc.gate.deny);
+    return true;
+  }
+  if (msg.type === 'steer') {
+    emit({ type: 'steer_ack', text: msg.text, deliveredAt: Date.now() });
+    if (name === 'steer') {
+      playSteps([
+        { at: 400, msg: { type: 'tool_end', toolCallId: 's1', ok: true, outcome: 'ran', summary: 'Model summary', text: 'get_model_summary result: 1,204 elements', ms: 400 } },
+        { at: 700, msg: { type: 'assistant', text: 'Got it, I will keep the audit to walls only.' } },
+        { at: 750, msg: { type: 'turn_end', turnId: 'T1', outcome: 'done' } },
+      ]);
+    }
     return true;
   }
   if (msg.type === 'cancel') return true;

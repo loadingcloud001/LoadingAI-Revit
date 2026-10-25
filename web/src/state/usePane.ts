@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { AppSettings, Attachment, BUILTIN_PROVIDER_NAME, isBuiltinProvider, onHostMessage, postToHost, providersOnly, ProviderConfig } from '../bridge';
+import { AppSettings, ApprovalScope, Attachment, BUILTIN_PROVIDER_NAME, isBuiltinProvider, onHostMessage, postToHost, providersOnly, ProviderConfig } from '../bridge';
 import { parseInput } from '../cli/inputParser';
 import { SLASH_COMMANDS } from '../cli/slashCommands';
 import { autoApproveFor, HostCaps, modeFor, resolveLevel } from '../lib/permissions';
 import { EMPTY_QUEUE, editItem, enqueue, onTurnEnd, QueueState, removeItem, resume } from '../lib/queue';
 import { initialState, reduce } from './reducer';
-import type { Entry, PaneState, PermissionLevel, ReviewDecision, Turn } from './types';
+import type { Entry, PaneState, PermissionLevel, ReviewDecision, Step, Turn } from './types';
 
 const LEVEL_KEY = 'lai.level';
 
@@ -39,9 +39,12 @@ export function usePane(opts: { openSettings: () => void }) {
     setQueueState(queueRef.current);
   }, []);
   const queueSeq = useRef(0);
-  // P3 hosts announce capabilities; today's host announces none.
-  const caps: HostCaps = useMemo(() => new Set<string>(), []);
-  const [level, setLevelState] = useState<PermissionLevel>(() => resolveLevel(readStored(LEVEL_KEY), false, caps));
+  // The host announces what it can do (host_caps); an older host announces nothing and gets the older controls.
+  const caps: HostCaps = useMemo(() => new Set<string>(state.caps), [state.caps]);
+  const [localLevel, setLevelState] = useState<PermissionLevel>(() => resolveLevel(readStored(LEVEL_KEY), false, new Set()));
+  // With host levels the host stores the level and enforces it; the pane only shows it (ADR-0017).
+  const hostLevel = caps.has('levels') ? state.settings?.permissionLevel : undefined;
+  const level: PermissionLevel = hostLevel ?? localLevel;
 
   useEffect(() => {
     const off = onHostMessage(msg => dispatch({ type: 'host', msg, at: Date.now() }));
@@ -55,10 +58,10 @@ export function usePane(opts: { openSettings: () => void }) {
     return () => { window.clearTimeout(t); off(); };
   }, []);
 
-  // The host switch is the source of truth for Bypass.
+  // Without host levels the host switch is the source of truth for Bypass.
   const autoApprove = !!state.settings?.autoApprove;
   useEffect(() => {
-    if (!state.settings) return;
+    if (!state.settings || caps.has('levels')) return;
     setLevelState(cur => {
       if (autoApprove) return 'bypass';
       return cur === 'bypass' ? resolveLevel(readStored(LEVEL_KEY), false, caps) : cur;
@@ -77,9 +80,13 @@ export function usePane(opts: { openSettings: () => void }) {
   }, []);
 
   const setLevel = useCallback((next: PermissionLevel) => {
+    const cur = stateRef.current.settings;
+    if (stateRef.current.caps.includes('levels')) {
+      if (cur) saveSettings({ ...cur, permissionLevel: next, autoApprove: autoApproveFor(next) });
+      return;
+    }
     setLevelState(next);
     if (next !== 'bypass') writeStored(LEVEL_KEY, next);
-    const cur = stateRef.current.settings;
     if (cur && autoApproveFor(next) !== !!cur.autoApprove) saveSettings({ ...cur, autoApprove: autoApproveFor(next) });
   }, [saveSettings]);
 
@@ -137,10 +144,48 @@ export function usePane(opts: { openSettings: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastId, lastOutcome]);
 
-  const approve = useCallback((toolCallId: string, approved: boolean) => {
-    postToHost({ type: 'approveTool', toolCallId, approved });
+  const approve = useCallback((toolCallId: string, approved: boolean, opts: { scope?: ApprovalScope; reason?: string } = {}) => {
+    const reason = opts.reason?.trim();
+    postToHost({
+      type: 'approveTool', toolCallId, approved,
+      scope: approved && opts.scope && opts.scope !== 'once' ? opts.scope : undefined,
+      reason: !approved && reason ? reason : undefined,
+    });
     dispatch({ type: 'decide', toolCallId, decision: approved ? 'allowed' : 'denied' });
   }, []);
+
+  /** Sends edited inputs back. The host re-checks them and posts the card again; the review stays open. */
+  const editArgs = useCallback((toolCallId: string, args: Record<string, unknown>) => {
+    postToHost({ type: 'approveTool', toolCallId, approved: false, args });
+  }, []);
+
+  /** Turns a queued message into guidance for the running turn. */
+  const steerNow = useCallback((id: string) => {
+    const item = queueRef.current.items.find(i => i.id === id);
+    if (!item || !stateRef.current.running) return;
+    setQueue(q => removeItem(q, id));
+    postToHost({ type: 'steer', text: item.text });
+  }, []);
+
+  // A steer the host could not deliver (the turn ended first) goes out as a normal message.
+  useEffect(() => onHostMessage(msg => {
+    if (msg.type !== 'steer_ack' || msg.deliveredAt != null) return;
+    const text = msg.text;
+    window.setTimeout(() => {
+      if (stateRef.current.running) setQueue(q => enqueue(q, `q${++queueSeq.current}`, text));
+      else sendNow(text);
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const elementAction = useCallback((kind: 'selectElements' | 'showElements' | 'isolateElements', ids: number[]) => {
+    if (ids.length) postToHost({ type: kind, ids });
+  }, []);
+
+  const retryStep = useCallback((step: Step) => {
+    const inputs = step.argsText.trim();
+    submit(`Retry ${step.name} with the same inputs${inputs ? `:\n${inputs}` : '.'}`);
+  }, [submit]);
 
   const submitPreset = useCallback((approved: boolean, override?: Record<string, unknown>) => {
     const pending = stateRef.current.pendingReview;
@@ -178,6 +223,12 @@ export function usePane(opts: { openSettings: () => void }) {
     saveSettings,
     submit,
     approve,
+    editArgs,
+    steerNow,
+    retryStep,
+    selectIds: (ids: number[]) => elementAction('selectElements', ids),
+    showIds: (ids: number[]) => elementAction('showElements', ids),
+    isolateIds: (ids: number[]) => elementAction('isolateElements', ids),
     submitPreset,
     setPresetValue: (fieldId: string, value: unknown) => dispatch({ type: 'presetValue', fieldId, value }),
     pick,

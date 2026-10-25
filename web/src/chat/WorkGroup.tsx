@@ -25,12 +25,12 @@ function decisionText(step: Step): string | null {
   return d === 'allowed' ? 'allowed' : d === 'denied' ? 'denied' : d === 'timeout' ? 'timed out' : 'cancelled';
 }
 
-function StepRow({ step }: { step: Step }) {
+function StepRow({ step, onRetry }: { step: Step; onRetry?: (step: Step) => void }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const icon = stateIcon(step);
-  const ms = step.endedAt != null ? formatMs(step.endedAt - step.startedAt) : '';
-  const summary = step.state === 'done' ? stepSummary(step.resultText) : stepStateLabel(step.state);
+  const ms = step.ms != null ? formatMs(step.ms) : step.endedAt != null ? formatMs(step.endedAt - step.startedAt) : '';
+  const summary = step.state === 'done' ? stepSummary(step.resultText) : step.outcome === 'blocked' ? 'blocked' : stepStateLabel(step.state);
   const decided = decisionText(step);
   const args = step.argsText ? formatApprovalArgs(step.argsText) : [];
   const onCopy = async () => {
@@ -45,6 +45,8 @@ function StepRow({ step }: { step: Step }) {
       <button type="button" className="row" style={{ border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer', minWidth: 0 }} aria-expanded={open} onClick={() => setOpen(v => !v)}>
         <span className="step-name">{step.name}</span>
         {step.tier === 'L3' && <span className="badge badge-change">L3</span>}
+        {step.destructive && <span className="badge badge-danger" title="Deletes or replaces elements, or writes a file">destructive</span>}
+        {step.partial && <span className="badge badge-change" title="Some of the work was done and some failed">partial</span>}
         {decided && <span className={`badge ${decided === 'allowed' ? 'badge-ok' : 'badge-danger'}`}>{decided}</span>}
         <span className="step-sum truncate">{summary}</span>
       </button>
@@ -54,7 +56,10 @@ function StepRow({ step }: { step: Step }) {
           <h4>Input</h4>
           {args.length ? args.join('\n') : '(none)'}
           {step.resultText ? <><h4 style={{ marginTop: 6 }}>Output</h4>{step.resultText}</> : null}
-          <div style={{ marginTop: 6 }}><button type="button" className="btn btn-sm" onClick={onCopy}><Icon name="copy" size={12} />{copied ? 'Copied' : 'Copy'}</button></div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <button type="button" className="btn btn-sm" onClick={onCopy}><Icon name="copy" size={12} />{copied ? 'Copied' : 'Copy'}</button>
+            {onRetry && step.state === 'failed' && <button type="button" className="btn btn-sm" onClick={() => onRetry(step)}><Icon name="refresh" size={12} />Retry</button>}
+          </div>
         </div>
       )}
     </div>
@@ -74,7 +79,7 @@ function TodoRow({ todo }: { todo: TodoPayload }) {
 }
 
 /** Live list of what the agent did in a turn; folds to one line when the turn ends. */
-export function WorkGroup({ turn, forceOpen, children }: { turn: Turn; forceOpen: boolean; children?: React.ReactNode }) {
+export function WorkGroup({ turn, forceOpen, onRetryStep, children }: { turn: Turn; forceOpen: boolean; onRetryStep?: (step: Step) => void; children?: React.ReactNode }) {
   const running = turn.outcome === 'running';
   const [open, setOpen] = useState(running);
   useEffect(() => { if (running || forceOpen) setOpen(true); }, [running, forceOpen]);
@@ -104,7 +109,7 @@ export function WorkGroup({ turn, forceOpen, children }: { turn: Turn; forceOpen
           {turn.todos.length > 0 && !turn.plan && (
             <div className="steps" style={{ marginBottom: 2 }}>{turn.todos.map(t => <TodoRow key={t.id} todo={t} />)}</div>
           )}
-          <div className="steps">{turn.steps.map(s => <StepRow key={s.id} step={s} />)}</div>
+          <div className="steps">{turn.steps.map(s => <StepRow key={s.id} step={s} onRetry={onRetryStep} />)}</div>
         </>
       )}
       {children}
