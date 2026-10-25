@@ -1,3 +1,4 @@
+import { SCENARIOS, type ScriptStep } from './mock/scenarios';
 export type ProviderConfig = {
   id: string;
   name: string;
@@ -263,6 +264,7 @@ export function postToHost(msg: ToHost) {
     }
   } else {
     console.log('postToHost (no webview):', msg);
+    if (playDemo(msg)) return;
     // For dev in browser, echo back mock
     if (msg.type === 'send') {
       setTimeout(() => {
@@ -300,6 +302,28 @@ export function postToHost(msg: ToHost) {
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'models', providerId: (msg as any).providerId ?? (msg as any).provider?.id ?? 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner', 'gpt-4o-mini'] } })), 400);
     }
   }
+}
+
+function emit(detail: FromHost) {
+  window.dispatchEvent(new CustomEvent('host-message', { detail }));
+}
+
+function playSteps(steps: ScriptStep[]) {
+  for (const st of steps) setTimeout(() => emit(st.msg), st.at);
+}
+
+/** Browser-only mock: `?demo=<scenario>` replays a scripted host turn (see mock/scenarios.ts). */
+function playDemo(msg: ToHost): boolean {
+  const name = new URLSearchParams(window.location.search).get('demo');
+  const sc = name ? SCENARIOS[name] : undefined;
+  if (!sc) return false;
+  if (msg.type === 'send') { playSteps(sc.steps); return true; }
+  if ((msg.type === 'approveTool' || msg.type === 'submitPreset') && sc.gate && msg.toolCallId === sc.gate.toolCallId) {
+    playSteps(msg.approved ? sc.gate.allow : sc.gate.deny);
+    return true;
+  }
+  if (msg.type === 'cancel') return true;
+  return false;
 }
 
 export function onHostMessage(handler: (msg: FromHost) => void): () => void {

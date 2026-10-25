@@ -2,6 +2,10 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Attachment, PlanPayload } from './bridge';
 import { copyText } from './lib/clipboard';
+import { callInfo, classifyResult, outcomeLabel, splitToolText, type Outcome } from './state/legacyText';
+
+export { callInfo, classifyResult, outcomeLabel, splitToolText } from './state/legacyText';
+export type { Outcome, ResultClass } from './state/legacyText';
 
 export type TranscriptMessage = {
   id: string;
@@ -22,14 +26,6 @@ export type TranscriptItem =
   | { kind: 'turn'; id: string; role: 'you' | 'assistant'; messages: TranscriptMessage[] }
   | { kind: 'tool'; id: string; call?: TranscriptMessage; result?: TranscriptMessage }
   | { kind: 'note'; id: string; message: TranscriptMessage };
-
-/** Write-confirm outcome. Matched only when the text itself is an outcome line. */
-export type Outcome = 'confirmed' | 'cancelled' | 'timeout';
-
-export type ResultClass =
-  | { kind: 'outcome'; name: string; outcome: Outcome }
-  | { kind: 'ran'; name: string }
-  | { kind: 'other'; name: string };
 
 /** Lifecycle of one tool: live before its result lands, terminal after. */
 export type ToolState = Outcome | 'done' | 'awaiting-approval' | 'awaiting-preset' | 'running';
@@ -67,48 +63,12 @@ export function groupTranscript(messages: TranscriptMessage[]): TranscriptItem[]
   return items;
 }
 
-// Host result lines are "{name} result: …" or "{name} <outcome line>". The name may
-// contain spaces, so the split is anchored on the exact line endings the host posts
-// and takes the shortest name that leaves one of those endings.
-const RESULT_LINE = /^(.*?\S)\s+(result:.*|cancelled by user\.?|cancelled: preset timeout\.?|denied by user\.?|timed out\b.*|timeout\.?|confirmed\.?)$/i;
-
-export function splitToolText(text: string): { name: string; rest: string } {
-  const t = text.trim();
-  const m = RESULT_LINE.exec(t);
-  return m ? { name: m[1].trim(), rest: m[2].trim() } : { name: '', rest: t };
-}
-
-export function classifyResult(text: string): ResultClass {
-  const { name, rest } = splitToolText(text);
-  if (!name) return { kind: 'other', name: '' };
-  const s = rest.trim().toLowerCase();
-  if (s.startsWith('result:')) return { kind: 'ran', name };
-  if (s.startsWith('confirmed')) return { kind: 'outcome', name, outcome: 'confirmed' };
-  if (s.startsWith('timed out') || s.startsWith('timeout') || s.startsWith('cancelled: preset timeout')) return { kind: 'outcome', name, outcome: 'timeout' };
-  if (s.startsWith('cancelled') || s.startsWith('canceled') || s.startsWith('denied')) return { kind: 'outcome', name, outcome: 'cancelled' };
-  return { kind: 'other', name };
-}
-
-export function outcomeLabel(outcome: Outcome): string {
-  return outcome === 'confirmed' ? 'Confirmed' : outcome === 'timeout' ? 'Timeout' : 'Cancelled';
-}
-
 function stateLabel(state: ToolState): string {
   if (state === 'awaiting-approval') return 'Awaiting approval';
   if (state === 'awaiting-preset') return 'Awaiting preset';
   if (state === 'running') return 'Running';
   if (state === 'done') return 'Done';
   return outcomeLabel(state);
-}
-
-const AWAITING_MARKER = /\(awaiting (approval|preset) [^)]*\)/;
-
-export function callInfo(text: string): { name: string; awaiting: 'approval' | 'preset' | null; display: string } {
-  const m = AWAITING_MARKER.exec(text);
-  const awaiting = m ? (m[1] === 'preset' ? 'preset' as const : 'approval' as const) : null;
-  const display = (m ? text.replace(m[0], '') : text).trim();
-  const name = (display.split(':')[0] ?? '').trim() || 'Tool';
-  return { name, awaiting, display };
 }
 
 /** Resolves each tool_call to its state once its tool_result lands anywhere in the conversation. */

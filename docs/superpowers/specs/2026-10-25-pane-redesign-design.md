@@ -236,9 +236,8 @@ Each stage is one PR on `feat/pane-redesign`, or a stage branch off it. The pane
 
 | Stage | Contents | Checks |
 |---|---|---|
-| P0 Foundation | `state/` reducer and events, with legacy parsing moved over. App split into components, behaviour unchanged. The C# contract tests that read `App.tsx` move to the new file paths. | vitest; CI C# tests; `npm run build`; dist committed |
-| P1 Look and frame | Theme, top bar, composer (permission and model pickers, queue chips), Settings page with five sections | vitest; browser preview at 386 px in both themes; CI |
-| P2 Chat | Turn, WorkGroup, StepRow, PlanCard, ReviewCard (all actions; host-side ones sent but ignored by an old host), ChangeReceipt (legacy: none), ErrorNote, EmptyState, Intro. Scripted mock host. | vitest reducer cases; browser preview; CI |
+| P0 State layer | `state/` types, reducer and the legacy mapping from today's host messages, covered by vitest replay tests, plus the scripted mock host. The current `App.tsx` is untouched, so the pane is unchanged. | vitest; `tsc` |
+| P1 New pane | Theme, top bar, composer (permission and model pickers, queue chips), chat (Turn, WorkGroup, StepRow, PlanCard, ReviewCard, ChangeReceipt, ErrorNote, EmptyState, Intro) and the Settings page, all on the P0 state. Replaces the old `App.tsx`. Actions the host doesn't support yet are hidden until the host says it supports them. The C# contract tests that read `App.tsx` are repointed. | vitest; browser preview at 386 px in both themes; `dotnet build` here; C# tests on CI |
 | P3 Host | ADR-0017; single gate; permission levels; scopes and allowlists; edit inputs; destructive flag; `TurnChangeTracker`; select, zoom and isolate; steer; retry; theme; instructions; the new messages | xunit on CI; in-Revit checklist on the maintainer's Windows PC |
 | P4 Polish and docs | Keyboard and screen-reader pass, README and screenshots, ADR index, version bump | review |
 
