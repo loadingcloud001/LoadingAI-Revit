@@ -507,7 +507,7 @@ public static class PluginLoader
             {
                 var inst = (IRevitToolPlugin)Activator.CreateInstance(pt)!;
                 var ctx = factory.Create(folder);
-                var ts = OverlayTags(ToolGuards.ApplyAll(inst.CreateTools(ctx), bridge), meta.Tools).ToList();
+                var ts = OverlayTags(inst.CreateTools(ctx), meta.Tools).ToList();
                 tools.AddRange(ts);
                 if (meta.Tools.Count == 0)
                 {
@@ -583,9 +583,12 @@ public static class PluginLoader
     internal static IEnumerable<ToolEntry> OverlayTags(IEnumerable<ToolEntry> entries, IReadOnlyList<PluginToolMeta> metaTools)
     {
         var declared = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        var destructive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in metaTools)
         {
-            if (string.IsNullOrWhiteSpace(m.Name) || m.Tags == null || m.Tags.Count == 0) continue;
+            if (string.IsNullOrWhiteSpace(m.Name)) continue;
+            if (m.Destructive) destructive.Add(m.Name);
+            if (m.Tags == null || m.Tags.Count == 0) continue;
             declared[m.Name] = m.Tags;
         }
         foreach (var e in entries)
@@ -596,7 +599,8 @@ public static class PluginLoader
                 tags = fromMeta;
             else if (tags.Count == 0)
                 tags = ToolSelector.InferTags(name);
-            if (ReferenceEquals(tags, e.Tags))
+            var isDestructive = e.Destructive || destructive.Contains(name);
+            if (ReferenceEquals(tags, e.Tags) && isDestructive == e.Destructive)
             {
                 yield return e;
                 continue;
@@ -607,6 +611,7 @@ public static class PluginLoader
                 Handler = e.Handler,
                 StructuredHandler = e.StructuredHandler,
                 RequiresWriteConfirm = e.RequiresWriteConfirm,
+                Destructive = isDestructive,
                 Tier = e.Tier,
                 Presets = e.Presets,
                 Describe = e.Describe,

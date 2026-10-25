@@ -25,8 +25,16 @@ export type AppSettings = {
   activeProviderId: string;
   providers: ProviderConfig[];
   plugins?: Record<string, boolean>;
-  /** User switch. The model cannot set this. */
+  /** True exactly when permissionLevel is bypass. Kept for hosts from before levels. */
   autoApprove?: boolean;
+  /** The user's permission level, stored by the host (ADR-0017). The model cannot set this. */
+  permissionLevel?: 'readonly' | 'plan' | 'confirm' | 'autoEdit' | 'bypass';
+  /** Tools the user chose "Always allow" for. The pane can remove entries; only the host adds them. */
+  alwaysAllowTools?: string[];
+  /** Select the added and modified elements in Revit after a turn that changed the model. */
+  selectChangedAfterTurn?: boolean;
+  /** Standing instructions for the agent, written into its system prompt. */
+  instructions?: string;
 };
 
 /** Must match DefaultLlm.Id / DisplayName in C#. */
@@ -48,6 +56,8 @@ export type PluginToolInfo = {
   description: string;
   enabledByDefault: boolean;
   enabled: boolean;
+  /** Deletes or replaces elements, or writes a file. Never offered "Always allow". */
+  destructive?: boolean;
 };
 
 export type PluginInfo = {
@@ -90,6 +100,9 @@ export type Attachment = {
 
 export type ChatMode = 'ask' | 'plan' | 'build' | 'auto';
 
+/** How long an Allow lasts. The host honours session and always only where the card offered them. */
+export type ApprovalScope = 'once' | 'session' | 'always';
+
 export type ToHost =
   | { type: 'send'; text: string; attachments?: Attachment[]; mode?: ChatMode; slash?: string; mentions?: string[] }
   | { type: 'clear' }
@@ -100,7 +113,7 @@ export type ToHost =
   | { type: 'testProvider'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
-  | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
+  | { type: 'approveTool'; toolCallId: string; approved: boolean; scope?: ApprovalScope; reason?: string; args?: Record<string, unknown> }
   | { type: 'submitPreset'; toolCallId: string; approved: boolean; values?: Record<string, unknown> }
   | { type: 'presetPick'; toolCallId: string; fieldId: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
@@ -111,7 +124,11 @@ export type ToHost =
   | { type: 'reloadPlugins' }
   | { type: 'trustPlugin'; folder: string; assembly: string }
   | { type: 'listCheckpoints' }
-  | { type: 'resumeCheckpoint'; id: string };
+  | { type: 'resumeCheckpoint'; id: string }
+  | { type: 'steer'; text: string }
+  | { type: 'selectElements'; ids: number[] }
+  | { type: 'showElements'; ids: number[] }
+  | { type: 'isolateElements'; ids: number[] };
 
 export type PlanPayload = {
   title: string;
@@ -192,6 +209,30 @@ export type PresetPayload = {
   preview?: PreviewPayload;
 };
 
+/** The one in-chat review card (ADR-0017). Plain tools carry a summary or rows; tools with a Run form add fields. */
+export type ReviewPayload = {
+  toolCallId: string;
+  toolName: string;
+  tier: string;
+  destructive: boolean;
+  description?: string;
+  summary: string;
+  rows: PreviewRowView[];
+  warnings: string[];
+  canAlways: boolean;
+  canSession: boolean;
+  /** Raw argument JSON the card's edit box starts from. */
+  args: string;
+  fields?: PresetFieldPayload[];
+  values?: Record<string, unknown>;
+  /** True after the user edited the inputs and the host accepted them. */
+  edited?: boolean;
+};
+
+export type ChangeCategory = { category: string; added: number; modified: number; deleted: number; ids: number[] };
+
+export type ToolOutcome = 'ran' | 'denied' | 'cancelled' | 'timeout' | 'blocked' | 'error';
+
 export type PresetPickResult = {
   toolCallId: string;
   fieldId: string;
@@ -241,7 +282,16 @@ export type FromHost =
   | { type: 'quota'; quota: QuotaPayload }
   | { type: 'history'; messages: { role: string; text: string; attachments?: Attachment[] }[] }
   | { type: 'error'; text: string }
-  | { type: 'delta'; text: string };
+  | { type: 'delta'; text: string }
+  | { type: 'host_caps'; caps: string[] }
+  | { type: 'theme'; dark: boolean }
+  | { type: 'turn_start'; turnId: string; mode: string; level: string }
+  | { type: 'turn_end'; turnId: string; outcome: string; rolledBack?: boolean }
+  | { type: 'tool_start'; turnId: string; toolCallId: string; name: string; tier: string; destructive: boolean; args: string; startedAt: number }
+  | { type: 'tool_end'; toolCallId: string; ok: boolean; outcome: ToolOutcome; summary: string; text: string; ms: number; partial?: boolean }
+  | { type: 'tool_review'; review: ReviewPayload }
+  | { type: 'turn_changes'; turnId: string; added: number; modified: number; deleted: number; idsTruncated?: boolean; byCategory: ChangeCategory[] }
+  | { type: 'steer_ack'; text: string; deliveredAt?: number };
 
 declare global {
   interface Window {

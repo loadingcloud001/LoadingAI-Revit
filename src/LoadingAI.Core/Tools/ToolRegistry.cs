@@ -87,15 +87,18 @@ public sealed class ToolEntry
         }
     }
     /// <summary>
-    /// Opt OUT of the generic L2 write-confirm dialog that <c>ToolGuards.ApplyConfirm</c>
-    /// would otherwise add. Despite the name, <c>true</c> means this tool does NOT get that
-    /// dialog: it owns its own confirmation (L3 host gate, chat preset form) or the host
-    /// deliberately confirms it elsewhere. <c>false</c> on an L2 write is what triggers the
-    /// "Run X? This will create an undoable transaction." TaskDialog.
-    /// This sense is frozen by ADR-0004 and called out as do-not-change in ADR-0006.
-    /// Do not invert it without a Proposed ADR first.
+    /// Historical flag from ADR-0004, when <c>ToolGuards.ApplyConfirm</c> added a native "Run X?" dialog to
+    /// L2 tools that did not opt out. ADR-0017 removed every native dialog: the host now asks once, in chat,
+    /// through <c>ApprovalGate.ReviewAsync</c>. Nothing reads this any more; it stays so plugins that set it
+    /// still compile.
     /// </summary>
     public bool RequiresWriteConfirm { get; init; }
+    /// <summary>
+    /// The tool deletes or replaces elements, writes to disk, or overwrites many values at once. The
+    /// review card never offers "Always allow" for it, and Auto-edit still asks (ADR-0017). Declared per
+    /// tool in plugin.json (<c>"destructive": true</c>) and applied at load.
+    /// </summary>
+    public bool Destructive { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
     /// <summary>
     /// Opt-in pre-execute form. Empty (the default) keeps today’s path for existing plugins.

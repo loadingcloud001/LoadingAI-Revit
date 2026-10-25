@@ -38,6 +38,7 @@
       "tier": "L3",
       "description": "Purge unused elements via Document.GetUnusedElements. Params: preview bool (default true).",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "export",
         "write"

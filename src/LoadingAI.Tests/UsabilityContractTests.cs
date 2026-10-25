@@ -19,34 +19,36 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void HostPage_L3NativeConfirm_AppliesToEveryL3Tool()
+    public void Gate_AppliesToEveryL3Tool_ByTierNotByName()
     {
         var src = UiSrc();
         Assert.DoesNotContain("name is \"delete_elements\" or \"move_elements\"", src);
-        Assert.Contains("Confirm L3:", src);
+        Assert.DoesNotContain("Confirm L3:", src);
+        Assert.Contains("GatePolicy.Decide(", src);
+        Assert.Contains("_approvals.ReviewAsync(", src);
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        Assert.Contains("r.Tier == ToolTier.L1", policy);
+        Assert.DoesNotContain("delete_elements", policy);
     }
 
     [Fact]
-    public void HostPage_SkipsL3ConfirmForDryRun_ViaGenericArgCheck()
+    public void Gate_SkipsTheCardForDryRun_ViaGenericArgCheck()
     {
         var src = UiSrc();
 
-        // Both the preset branch and the non-preset L3 branch must honour dryRun.
-        Assert.Equal(2, CountOccurrences(src, "entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson)"));
-        Assert.Contains("ToolPresets.IsDryRun", src, StringComparison.Ordinal);
-
-        // A generic merged-JSON check, not a tool-name allowlist.
+        // The dry-run test is the shared merged-JSON helper, not a tool-name allowlist.
+        Assert.Contains("DryRun = ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
         foreach (var name in new[] { "split_beams_by_columns", "split_floors_by_beams", "split_by_levels", "split_by_grids" })
             Assert.DoesNotContain(name, src, StringComparison.Ordinal);
 
-        // The native confirm itself is unchanged and still the single L3 gate.
-        Assert.Contains("ConfirmL3NativeAsync", src, StringComparison.Ordinal);
-        Assert.Contains("Confirm L3:", src, StringComparison.Ordinal);
-        Assert.Equal(3, CountOccurrences(src, "!AutoApproveGate.Enabled"));
+        // The policy runs a dry run at every level, before it looks at the level.
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        var dry = policy.IndexOf("if (r.DryRun) return GateDecision.Run;", StringComparison.Ordinal);
+        var level = policy.IndexOf("PermissionLevels.EffectiveFor", StringComparison.Ordinal);
+        Assert.True(dry >= 0 && dry < level);
 
-        // Dry-run already skips L3 TaskDialog; it must also skip the Confirm-options preset form.
-        Assert.Contains("ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
-        Assert.Contains("ToolPresets.HasPresets(entry)", src, StringComparison.Ordinal);
+        // A dry run never opens the turn group: only a real L2 or L3 write does.
+        Assert.Contains("entry.Tier == ToolTier.L3 && !dryRun", src, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -108,11 +110,12 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void ToolGuards_SkipsL3_HostOwnsTheGate()
+    public void ToolGuards_HasNoGate_HostOwnsIt()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("entry.Tier == ToolTier.L3", src);
-        Assert.Equal(2, CountOccurrences(src, "if (AutoApproveGate.Enabled)"));
+        Assert.DoesNotContain("AutoApproveGate", src);
+        Assert.DoesNotContain("TaskDialog", src);
+        Assert.Contains("DescribeAsync", src);
     }
 
     [Fact]
@@ -126,7 +129,7 @@ public class UsabilityContractTests
         Assert.DoesNotContain("FailureResolutionType.DeleteElements", failures);
         Assert.DoesNotContain("FailureResolutionType.CreateElements", failures);
         var session = UiSrc();
-        Assert.Contains("agent.AutoApprove = _settings.AutoApprove", session);
+        Assert.Contains("agent.AutoApprove = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass", session);
         Assert.DoesNotContain("GetProperty(\"autoApprove\")", session);
         var app = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "App.cs"));
         Assert.Contains("FailuresProcessing += AutoApproveFailures.OnFailures", app);
@@ -155,31 +158,34 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void ToolGuards_SkipsL2WrapWhenPresetsExist()
+    public void Gate_NeverAllowListsAToolThatHasARunForm()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("ToolPresets.HasPresets(entry)", src);
-        Assert.Contains("Presets = entry.Presets", src);
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        Assert.Contains("!r.HasPresets", policy);
+        Assert.Contains("!r.Destructive", policy);
+        var gate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
+        Assert.Contains("Plain = !ToolPresets.HasPresets(entry);", gate);
+        Assert.Contains("GatePolicy.CanOfferAlways(Entry.Destructive, !Plain)", gate);
     }
 
     [Fact]
-    public void HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm()
+    public void HostPage_PresetMessages_UseTheSingleReviewCard()
     {
         var src = UiSrc();
         var protocol = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Protocol", "HostProtocol.cs"));
-        Assert.Contains("new FromHostMessage.ToolPreset", src);
+        Assert.Contains("new FromHostMessage.ToolReview", src);
         Assert.Contains("ToHostMessage.SubmitPreset", src);
         Assert.Contains("ToHostMessage.PresetPick", src);
         Assert.Contains("FromHostMessage.PresetPickResult", src);
-        Assert.Contains("FromHostKind.ToolPreset", protocol);
+        Assert.Contains("FromHostKind.ToolReview", protocol);
         Assert.Contains("SubmitPreset = \"submitPreset\"", protocol);
         Assert.Contains("PresetPick = \"presetPick\"", protocol);
-        Assert.Contains("ConfirmL3NativeAsync", src);
-        Assert.Contains("Confirm L3:", src);
         Assert.Contains("ToolPresets.HasPresets(entry)", src);
         Assert.Contains("DenyAllPending", src);
-        var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("Chat preset form is the confirm", guards);
+        // ADR-0017: one card, no second surface. The old two-step posts and the native dialog are gone.
+        Assert.DoesNotContain("new FromHostMessage.ToolPreset", src);
+        Assert.DoesNotContain("new FromHostMessage.ToolApproval", src);
+        Assert.DoesNotContain("Confirm L3:", src);
     }
 
     [Fact]
@@ -284,8 +290,8 @@ public class UsabilityContractTests
         Assert.Contains("type: 'progress'", bridge);
         Assert.Contains("ProgressPayload", bridge);
         var app = File.ReadAllText(Path.Combine(root, "web", "src", "App.tsx"));
-        Assert.Contains("function ProgressBar", app);
-        Assert.Contains("msg.type === 'progress'", app);
+        Assert.Contains("status-bar", app);
+        Assert.Contains("case 'progress'", File.ReadAllText(Path.Combine(root, "web", "src", "state", "reducer.ts")));
     }
 
     [Fact]

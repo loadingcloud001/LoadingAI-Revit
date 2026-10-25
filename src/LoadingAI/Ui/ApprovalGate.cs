@@ -1,17 +1,74 @@
-using Autodesk.Revit.UI;
+using LoadingAI.Gate;
 using LoadingAI.Protocol;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
 
 namespace LoadingAI.Ui;
 
-/// <summary>L3 web TCS + native TaskDialog + chat presets. Host owns every confirm.</summary>
+internal enum ReviewOutcome
+{
+    Approved,
+    /// <summary>The user pressed Deny, with or without a reason.</summary>
+    Denied,
+    /// <summary>Stop, Clear session, or the pane closed. Nobody said no; the run was ended.</summary>
+    Cancelled,
+    /// <summary>No answer in time. A timeout never approves.</summary>
+    TimedOut
+}
+
+/// <summary>
+/// The answer to one review card. <see cref="ArgsJson"/> is what to run: the model's arguments, the
+/// arguments after the user edited them, or after the Run form was merged in.
+/// </summary>
+internal sealed record ReviewResult(ReviewOutcome Outcome, string ArgsJson, ApprovalScope Scope, string? Reason, bool Edited);
+
+/// <summary>What the card should say that the tool and its arguments do not.</summary>
+internal sealed record ReviewContext(bool TurnHasWrites);
+
+/// <summary>
+/// The single in-chat gate (ADR-0017). Every L2 or L3 call that the policy sends to the user gets one card in
+/// the pane, answered in the pane. There is no native dialog behind it. The host owns the wait: only a message
+/// from the pane completes it, a timeout cancels, and Stop cancels.
+/// </summary>
 internal sealed class ApprovalGate
 {
-    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingApprovals = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, TaskCompletionSource<(bool approved, string? valuesJson)>> _pendingPresets = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ToolEntry> _pendingPresetTools = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _approvalLock = new();
+    private sealed class PendingReview
+    {
+        private long _deadlineTicks;
+
+        public PendingReview(string callId, ToolEntry entry, string name, string argsJson, TimeSpan idle, bool turnHasWrites)
+        {
+            CallId = callId;
+            Entry = entry;
+            Name = name;
+            ArgsJson = argsJson;
+            Idle = idle;
+            TurnHasWrites = turnHasWrites;
+            Plain = !ToolPresets.HasPresets(entry);
+            Touch();
+        }
+
+        public string CallId { get; }
+        public ToolEntry Entry { get; }
+        public string Name { get; }
+        public string ArgsJson { get; set; }
+        public TimeSpan Idle { get; }
+        public bool TurnHasWrites { get; }
+        /// <summary>No Run form: the card is an Allow / Deny question about the arguments as given.</summary>
+        public bool Plain { get; }
+        public bool Edited { get; set; }
+        public TaskCompletionSource<ReviewResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public DateTime Deadline => new DateTime(Interlocked.Read(ref _deadlineTicks), DateTimeKind.Utc);
+
+        /// <summary>Editing inputs or picking in the model is activity: the timeout starts again.</summary>
+        public void Touch() => Interlocked.Exchange(ref _deadlineTicks, (DateTime.UtcNow + Idle).Ticks);
+
+        public bool CanOfferAlways => GatePolicy.CanOfferAlways(Entry.Destructive, !Plain);
+    }
+
+    private readonly Dictionary<string, PendingReview> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _lock = new();
     private readonly WebHostBridge _web;
     private readonly Action<Action> _onUi;
 
@@ -21,171 +78,205 @@ internal sealed class ApprovalGate
         _onUi = onUi;
     }
 
-    public void CompleteApproval(string toolCallId, bool approved)
+    /// <summary>The user answered a plain card. Scope beyond Once is honoured only where the card offered it.</summary>
+    public void CompleteApproval(string toolCallId, bool approved, ApprovalScope scope, string? reason)
     {
-        lock (_approvalLock)
+        PendingReview? p;
+        lock (_lock)
         {
-            if (_pendingApprovals.TryGetValue(toolCallId, out var tcs))
-            {
-                _pendingApprovals.Remove(toolCallId);
-                try { tcs.TrySetResult(approved); } catch { }
-            }
+            if (!_pending.TryGetValue(toolCallId, out p) || !p.Plain) return;
+            _pending.Remove(toolCallId);
         }
+        var granted = approved && p.CanOfferAlways ? scope : ApprovalScope.Once;
+        p.Completion.TrySetResult(new ReviewResult(
+            approved ? ReviewOutcome.Approved : ReviewOutcome.Denied,
+            p.ArgsJson,
+            granted,
+            approved ? null : ReviewText.CleanReason(reason),
+            p.Edited));
     }
 
+    /// <summary>The user answered a card with a Run form. The form values are merged over the model's arguments.</summary>
     public void CompletePreset(string toolCallId, bool approved, string? valuesJson)
     {
-        lock (_approvalLock)
+        PendingReview? p;
+        lock (_lock)
         {
-            _pendingPresetTools.Remove(toolCallId);
-            if (_pendingPresets.TryGetValue(toolCallId, out var tcs))
-            {
-                _pendingPresets.Remove(toolCallId);
-                try { tcs.TrySetResult((approved, valuesJson)); } catch { }
-            }
+            if (!_pending.TryGetValue(toolCallId, out p) || p.Plain) return;
+            _pending.Remove(toolCallId);
         }
+        var args = approved ? ToolPresets.Merge(p.ArgsJson, valuesJson) : p.ArgsJson;
+        p.Completion.TrySetResult(new ReviewResult(
+            approved ? ReviewOutcome.Approved : ReviewOutcome.Denied, args, ApprovalScope.Once, null, false));
     }
 
+    /// <summary>Stop, Clear session, or the pane going away: every open card ends as cancelled.</summary>
     public void DenyAllPending()
     {
-        lock (_approvalLock)
+        List<PendingReview> all;
+        lock (_lock)
         {
-            foreach (var kv in _pendingApprovals.ToList())
+            all = _pending.Values.ToList();
+            _pending.Clear();
+        }
+        foreach (var p in all)
+            p.Completion.TrySetResult(new ReviewResult(ReviewOutcome.Cancelled, p.ArgsJson, ApprovalScope.Once, null, p.Edited));
+    }
+
+    /// <summary>
+    /// The user edited a plain card's inputs. The new arguments are checked against the tool's schema; the card is
+    /// rebuilt from them and posted again. The decision is still open: only Allow or Deny completes the wait.
+    /// </summary>
+    public async Task ApplyEditAsync(string toolCallId, string editedJson)
+    {
+        PendingReview? p;
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(toolCallId, out p) || !p.Plain) return;
+        }
+        p.Touch();
+        var schema = p.Entry.Definition.Function.Parameters;
+        var coerced = ToolArgumentCoercer.Coerce(schema, editedJson);
+        if (!ToolArgumentValidator.Validate(schema, coerced, out var normalized, out var error))
+        {
+            await PostReviewAsync(p, $"Those inputs were not accepted: {error}. The card still shows the last accepted inputs.");
+            return;
+        }
+        p.ArgsJson = normalized;
+        p.Edited = true;
+        await PostReviewAsync(p, null);
+    }
+
+    public async Task<ReviewResult> ReviewAsync(string callId, ToolEntry entry, string name, string argsJson, ReviewContext ctx)
+    {
+        var plain = !ToolPresets.HasPresets(entry);
+        // A plain question gets 180 s. A Run form can need a pick in the model, so it gets longer.
+        var idle = plain ? TimeSpan.FromSeconds(ReviewText.ApprovalTimeoutSeconds) : TimeSpan.FromMinutes(15);
+        var p = new PendingReview(callId, entry, name, argsJson, idle, ctx.TurnHasWrites);
+        lock (_lock) _pending[callId] = p;
+        try
+        {
+            // The review must be seen: a hidden pane is shown, never replaced by a dialog.
+            await PaneVisibility.ShowIfHiddenAsync();
+            await PostReviewAsync(p, null);
+            return await WaitAsync(p);
+        }
+        finally
+        {
+            lock (_lock) _pending.Remove(callId);
+        }
+    }
+
+    private static async Task<ReviewResult> WaitAsync(PendingReview p)
+    {
+        while (true)
+        {
+            var remaining = p.Deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                return new ReviewResult(ReviewOutcome.TimedOut, p.ArgsJson, ApprovalScope.Once, null, p.Edited);
+            using var cts = new CancellationTokenSource();
+            var delay = Task.Delay(remaining, cts.Token);
+            var done = await Task.WhenAny(p.Completion.Task, delay);
+            if (done == p.Completion.Task)
             {
-                _pendingApprovals.Remove(kv.Key);
-                try { kv.Value.TrySetResult(false); } catch { }
-            }
-            foreach (var kv in _pendingPresets.ToList())
-            {
-                _pendingPresets.Remove(kv.Key);
-                _pendingPresetTools.Remove(kv.Key);
-                try { kv.Value.TrySetResult((false, null)); } catch { }
+                cts.Cancel();
+                return await p.Completion.Task;
             }
         }
     }
 
-    public async Task<(bool approved, string? valuesJson, string message)> AwaitPresetAsync(ToolEntry entry, string name, string argsJson)
+    private async Task PostReviewAsync(PendingReview p, string? extraWarning)
     {
-        var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
-        var tcs = new TaskCompletionSource<(bool approved, string? valuesJson)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_approvalLock)
-        {
-            _pendingPresets[callId] = tcs;
-            _pendingPresetTools[callId] = entry;
-        }
-
-        var fields = entry.Presets.Select(f => new FromHostMessage.PresetFieldPayload(
-            f.Id,
-            string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
-            ToolPresets.KindName(f.Kind),
-            f.Required,
-            f.Options,
-            f.Category,
-            f.Prompt,
-            f.Warning)).ToList();
-        var values = ToolPresets.Prefill(entry.Presets, argsJson);
-
-        // Preview is enrichment, never a precondition: TryBuildPreview swallows, so a value that
-        // cannot be rendered still gets the user a form to correct (ADR-014).
-        var preview = ToolPresets.TryBuildPreview(entry.Presets, argsJson);
-        var previewPayload = preview == null
-            ? null
-            : new FromHostMessage.PreviewPayload(
-                preview.Summary,
-                preview.Rows.Select(r => new FromHostMessage.PreviewRowPayload(r.Label, r.Detail)).ToList(),
-                preview.Warnings.ToList());
-
+        FromHostMessage.ReviewPayload payload;
         try
         {
-            _onUi(() => _web.Post(new FromHostMessage.ToolPreset(new FromHostMessage.PresetPayload(
-                callId, name, entry.Tier.ToString(), entry.Definition.Function.Description, fields, values, previewPayload))));
+            payload = await BuildPayloadAsync(p, extraWarning);
         }
-        catch { }
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting preset {callId})"))); } catch { }
-
-        var timeout = Task.Delay(TimeSpan.FromMinutes(15));
-        Task completed;
-        try
+        catch (Exception ex)
         {
-            completed = await Task.WhenAny(tcs.Task, timeout);
+            // A card that cannot be built still has to ask. Fall back to the raw arguments.
+            HostLog.Write($"Review payload for {p.Name} failed: {ex.Message}");
+            payload = new FromHostMessage.ReviewPayload(
+                p.CallId, p.Name, p.Entry.Tier.ToString(), p.Entry.Destructive, p.Entry.Definition.Function.Description,
+                $"Run {p.Name}", ReviewText.RowsFromArgs(p.ArgsJson).Select(r => new FromHostMessage.PreviewRowPayload(r.Label, r.Detail)).ToList(),
+                Array.Empty<string>(), p.CanOfferAlways, p.CanOfferAlways, p.ArgsJson);
         }
-        catch (OperationCanceledException)
-        {
-            CompletePreset(callId, false, null);
-            return (false, null, "Cancelled by user.");
-        }
-
-        if (completed != tcs.Task)
-        {
-            CompletePreset(callId, false, null);
-            return (false, null, "Cancelled: preset timeout.");
-        }
-
-        var (approved, valuesJson) = await tcs.Task;
-        return approved
-            ? (true, valuesJson, "")
-            : (false, null, "Cancelled by user.");
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolReview(payload))); } catch { }
     }
 
-    public async Task<string?> AwaitL3WebAsync(ToolEntry entry, string name, string argsJson, string? summary = null)
+    private static async Task<FromHostMessage.ReviewPayload> BuildPayloadAsync(PendingReview p, string? extraWarning)
     {
-        var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_approvalLock) _pendingApprovals[callId] = tcs;
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolApproval(new FromHostMessage.ApprovalPayload(callId, name, entry.Tier.ToString(), argsJson, entry.Definition.Function.Description, summary)))); } catch { }
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson} (awaiting approval {callId})"))); } catch { }
-        var timeout = Task.Delay(TimeSpan.FromSeconds(180));
-        var completed = await Task.WhenAny(tcs.Task, timeout);
-        bool approved = false;
-        if (completed == tcs.Task) approved = await tcs.Task;
+        var entry = p.Entry;
+        var warnings = new List<string>();
+        if (entry.Destructive)
+            warnings.Add("This tool deletes or replaces elements, or writes a file. It always asks.");
+        if (p.TurnHasWrites)
+            warnings.Add("Deny also undoes the changes already made in this turn.");
+        if (!string.IsNullOrWhiteSpace(extraWarning))
+            warnings.Add(extraWarning!);
+
+        string summary;
+        List<FromHostMessage.PreviewRowPayload> rows;
+        IReadOnlyList<FromHostMessage.PresetFieldPayload>? fields = null;
+        object? values = null;
+
+        if (p.Plain)
+        {
+            var described = await ToolGuards.DescribeAsync(entry, p.ArgsJson);
+            summary = string.IsNullOrWhiteSpace(described) ? $"Run {p.Name}" : described!;
+            // The tool's own summary says what will change; without one, show the arguments as rows.
+            rows = string.IsNullOrWhiteSpace(described)
+                ? ReviewText.RowsFromArgs(p.ArgsJson).Select(r => new FromHostMessage.PreviewRowPayload(r.Label, r.Detail)).ToList()
+                : new List<FromHostMessage.PreviewRowPayload>();
+        }
         else
         {
-            lock (_approvalLock) _pendingApprovals.Remove(callId);
-            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} timed out waiting for approval (180s)"))); } catch { }
-            return "Cancelled: approval timeout (180s).";
+            fields = entry.Presets.Select(f => new FromHostMessage.PresetFieldPayload(
+                f.Id,
+                string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
+                ToolPresets.KindName(f.Kind),
+                f.Required,
+                f.Options,
+                f.Category,
+                f.Prompt,
+                f.Warning)).ToList();
+            values = ToolPresets.Prefill(entry.Presets, p.ArgsJson);
+            // Preview is enrichment, never a precondition: TryBuildPreview swallows, so a value that cannot
+            // be rendered still gets the user a form to correct (ADR-014).
+            var preview = ToolPresets.TryBuildPreview(entry.Presets, p.ArgsJson);
+            summary = string.IsNullOrWhiteSpace(preview?.Summary) ? $"Run {p.Name}" : preview!.Summary;
+            rows = preview == null
+                ? new List<FromHostMessage.PreviewRowPayload>()
+                : preview.Rows.Select(r => new FromHostMessage.PreviewRowPayload(r.Label, r.Detail)).ToList();
+            if (preview != null) warnings.AddRange(preview.Warnings);
         }
-        if (!approved)
-        {
-            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} denied by user"))); } catch { }
-            return "Cancelled by user (denied).";
-        }
-        return null;
-    }
 
-    public async Task<bool> ConfirmL3NativeAsync(string name, string argsJson, string? summary = null)
-    {
-        var raw = App.Bridge;
-        if (raw == null) return false;
-        try
-        {
-            return await raw.RunAsync(_ =>
-            {
-                var td = new TaskDialog("LoadingAI for Revit")
-                {
-                    MainInstruction = $"Confirm L3: {name}?",
-                    MainContent = (string.IsNullOrWhiteSpace(summary) ? WebHostBridge.Truncate(argsJson, 400) : summary)
-                                  + "\n\nUndoable transaction. Default No.",
-                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                    DefaultButton = TaskDialogResult.No
-                };
-                return td.Show() == TaskDialogResult.Yes;
-            }, RevitBridge.UserDialogTimeout);
-        }
-        catch (BridgeOperationUnknownException ex)
-        {
-            // An unanswered confirm is a No: never run a write the engineer did not accept.
-            HostLog.Write($"Confirm L3 {name} not answered: {ex.Message}");
-            return false;
-        }
+        var offer = p.CanOfferAlways;
+        return new FromHostMessage.ReviewPayload(
+            p.CallId,
+            p.Name,
+            entry.Tier.ToString(),
+            entry.Destructive,
+            entry.Definition.Function.Description,
+            summary,
+            rows,
+            warnings,
+            offer,
+            offer,
+            p.ArgsJson,
+            fields,
+            values,
+            p.Edited ? true : null);
     }
 
     public async Task RunPresetPickAsync(string toolCallId, string fieldId)
     {
-        ToolEntry? entry = null;
-        lock (_approvalLock)
+        PendingReview? pending;
+        lock (_lock)
         {
-            _pendingPresetTools.TryGetValue(toolCallId, out entry);
+            _pending.TryGetValue(toolCallId, out pending);
         }
+        var entry = pending is { Plain: false } ? pending.Entry : null;
         var field = entry?.Presets.FirstOrDefault(f => string.Equals(f.Id, fieldId, StringComparison.OrdinalIgnoreCase));
         if (entry == null || field == null)
         {
@@ -205,6 +296,7 @@ internal sealed class ApprovalGate
             return;
         }
 
+        pending!.Touch();
         object result;
         try
         {
@@ -219,6 +311,7 @@ internal sealed class ApprovalGate
             return;
         }
 
+        pending.Touch();
         _web.Post(new FromHostMessage.PresetPickResult(toolCallId, fieldId, result));
     }
 }

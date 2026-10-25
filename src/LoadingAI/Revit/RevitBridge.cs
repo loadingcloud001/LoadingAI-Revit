@@ -31,6 +31,12 @@ public sealed class RevitBridge : IDisposable
     public bool HasActiveDocument => _hasActiveDocument;
 
     /// <summary>True when this turn has an open TransactionGroup on the UI thread.</summary>
+    /// <summary>True when <paramref name="doc"/> is the document the open turn group is bound to.</summary>
+    public bool IsTurnDocument(Document doc)
+    {
+        lock (_turnLock) return _turnGroup != null && ReferenceEquals(_turnDocument, doc);
+    }
+
     public bool HasActiveTurnGroup
     {
         get { lock (_turnLock) return _turnGroup != null; }

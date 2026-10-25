@@ -1,4 +1,5 @@
 using Autodesk.Revit.UI;
+using LoadingAI.Gate;
 using LoadingAI.Llm;
 using LoadingAI.Revit;
 using LoadingAI.Ui;
@@ -29,8 +30,11 @@ public class App : IExternalApplication
     public Result OnStartup(UIControlledApplication application)
     {
         ProviderSettings.KeyProtector = WinKeyProtector.Instance;
-        AutoApproveGate.Enabled = ProviderSettings.Load().AutoApprove;
+        AutoApproveGate.Enabled = ProviderSettings.LevelOf(ProviderSettings.Load()) == PermissionLevels.Bypass;
         application.ControlledApplication.FailuresProcessing += AutoApproveFailures.OnFailures;
+        // What a turn changed, for the receipt in the pane (ADR-0017). Reads only.
+        application.ControlledApplication.DocumentChanged += TurnChangeTracker.OnDocumentChanged;
+        ThemeWatcher.Attach(application);
 
         // UIApplication not available at UIControlledApplication stage; it will be set
         // on first ExternalEvent execution or command via RevitContext.Set
@@ -70,6 +74,8 @@ public class App : IExternalApplication
     public Result OnShutdown(UIControlledApplication application)
     {
         application.ControlledApplication.FailuresProcessing -= AutoApproveFailures.OnFailures;
+        application.ControlledApplication.DocumentChanged -= TurnChangeTracker.OnDocumentChanged;
+        ThemeWatcher.Detach(application);
         Bridge?.Dispose();
         Bridge = null;
         RevitContext.Clear();

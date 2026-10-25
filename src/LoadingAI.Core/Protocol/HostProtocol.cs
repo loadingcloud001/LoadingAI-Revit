@@ -31,12 +31,17 @@ public static class ToHostKind
     public const string TrustPlugin = "trustPlugin";
     public const string ListCheckpoints = "listCheckpoints";
     public const string ResumeCheckpoint = "resumeCheckpoint";
+    public const string Steer = "steer";
+    public const string SelectElements = "selectElements";
+    public const string ShowElements = "showElements";
+    public const string IsolateElements = "isolateElements";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Send, Clear, Cancel, SaveSettings, RequestSettings, GetCatalog, TestProvider, ListModels,
         ListPlugins, ApproveTool, SubmitPreset, PresetPick, SetPluginEnabled, SetPluginGroupEnabled,
-        SetPluginTierEnabled, SaveToolSettings, RemovePlugin, ReloadPlugins, TrustPlugin, ListCheckpoints, ResumeCheckpoint
+        SetPluginTierEnabled, SaveToolSettings, RemovePlugin, ReloadPlugins, TrustPlugin, ListCheckpoints, ResumeCheckpoint,
+        Steer, SelectElements, ShowElements, IsolateElements
     };
 }
 
@@ -70,12 +75,22 @@ public static class FromHostKind
     public const string History = "history";
     public const string Error = "error";
     public const string Delta = "delta";
+    public const string HostCaps = "host_caps";
+    public const string Theme = "theme";
+    public const string TurnStart = "turn_start";
+    public const string TurnEnd = "turn_end";
+    public const string ToolStart = "tool_start";
+    public const string ToolEnd = "tool_end";
+    public const string ToolReview = "tool_review";
+    public const string TurnChanges = "turn_changes";
+    public const string SteerAck = "steer_ack";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Status, Trace, ToolCall, ToolResult, ToolApproval, ToolPreset, PresetPickResult, Plan, Todo,
         Progress, Context, Checkpoints, Reasoning, Suggestions, Assistant, Settings, Catalog, TestResult,
-        Models, Plugins, Quota, History, Error, Delta
+        Models, Plugins, Quota, History, Error, Delta,
+        HostCaps, Theme, TurnStart, TurnEnd, ToolStart, ToolEnd, ToolReview, TurnChanges, SteerAck
     };
 }
 
@@ -106,7 +121,13 @@ public abstract record ToHostMessage(string Kind)
     public sealed record TestProvider(string? ProviderId, ProviderConfig? Provider) : ToHostMessage(ToHostKind.TestProvider);
     public sealed record ListModels(string? ProviderId, ProviderConfig? Provider) : ToHostMessage(ToHostKind.ListModels);
     public sealed record ListPlugins() : ToHostMessage(ToHostKind.ListPlugins);
-    public sealed record ApproveTool(string ToolCallId, bool Approved) : ToHostMessage(ToHostKind.ApproveTool);
+    /// <summary>
+    /// The user's answer to a review card. <c>Scope</c> is once, session or always (unknown means once).
+    /// <c>Reason</c> is the text typed on Deny. A non-null <c>ArgsJson</c> is an edit request: the host
+    /// re-validates it, rebuilds the card and keeps waiting; <c>Approved</c> is ignored for it.
+    /// </summary>
+    public sealed record ApproveTool(string ToolCallId, bool Approved, string? Scope = null, string? Reason = null, string? ArgsJson = null)
+        : ToHostMessage(ToHostKind.ApproveTool);
     public sealed record SubmitPreset(string ToolCallId, bool Approved, string? ValuesJson) : ToHostMessage(ToHostKind.SubmitPreset);
     public sealed record PresetPick(string ToolCallId, string FieldId) : ToHostMessage(ToHostKind.PresetPick);
     public sealed record SetPluginEnabled(string ToolName, bool Enabled) : ToHostMessage(ToHostKind.SetPluginEnabled);
@@ -123,6 +144,11 @@ public abstract record ToHostMessage(string Kind)
     public sealed record TrustPlugin(string Folder, string Assembly) : ToHostMessage(ToHostKind.TrustPlugin);
     public sealed record ListCheckpoints() : ToHostMessage(ToHostKind.ListCheckpoints);
     public sealed record ResumeCheckpoint(string Id) : ToHostMessage(ToHostKind.ResumeCheckpoint);
+    /// <summary>A message sent while the agent works. Delivered before the next model call.</summary>
+    public sealed record Steer(string Text) : ToHostMessage(ToHostKind.Steer);
+    public sealed record SelectElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.SelectElements);
+    public sealed record ShowElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.ShowElements);
+    public sealed record IsolateElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.IsolateElements);
 
     /// <summary>
     /// Unknown <c>type</c> yields <c>true</c> with <c>message == null</c> (ignored, same as the old switch).
@@ -167,7 +193,12 @@ public abstract record ToHostMessage(string Kind)
                     message = new ListPlugins();
                     return true;
                 case ToHostKind.ApproveTool:
-                    message = new ApproveTool(ReadString(root, "toolCallId") ?? "", ReadTrue(root, "approved"));
+                    message = new ApproveTool(
+                        ReadString(root, "toolCallId") ?? "",
+                        ReadTrue(root, "approved"),
+                        ReadString(root, "scope"),
+                        ReadString(root, "reason"),
+                        ReadObjectRaw(root, "args"));
                     return true;
                 case ToHostKind.SubmitPreset:
                     message = new SubmitPreset(ReadString(root, "toolCallId") ?? "", ReadTrue(root, "approved"), ReadObjectRaw(root, "values"));
@@ -201,6 +232,18 @@ public abstract record ToHostMessage(string Kind)
                     return true;
                 case ToHostKind.ResumeCheckpoint:
                     message = new ResumeCheckpoint(ReadString(root, "id") ?? "");
+                    return true;
+                case ToHostKind.Steer:
+                    message = new Steer(ReadString(root, "text") ?? "");
+                    return true;
+                case ToHostKind.SelectElements:
+                    message = new SelectElements(ReadIds(root));
+                    return true;
+                case ToHostKind.ShowElements:
+                    message = new ShowElements(ReadIds(root));
+                    return true;
+                case ToHostKind.IsolateElements:
+                    message = new IsolateElements(ReadIds(root));
                     return true;
                 default:
                     return true;
@@ -274,6 +317,25 @@ public abstract record ToHostMessage(string Kind)
     private static bool ReadTrue(JsonElement root, string name)
         => root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.True;
 
+    public const int MaxElementIds = 5000;
+
+    /// <summary>Element ids from the pane: numbers or numeric strings, capped, junk dropped.</summary>
+    private static IReadOnlyList<long> ReadIds(JsonElement root)
+    {
+        var ids = new List<long>();
+        if (!root.TryGetProperty("ids", out var arr) || arr.ValueKind != JsonValueKind.Array) return ids;
+        foreach (var el in arr.EnumerateArray())
+        {
+            long id;
+            if (el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out id)) { }
+            else if (el.ValueKind == JsonValueKind.String && long.TryParse(el.GetString(), out id)) { }
+            else continue;
+            ids.Add(id);
+            if (ids.Count >= MaxElementIds) break;
+        }
+        return ids;
+    }
+
     private static string? ReadObjectRaw(JsonElement root, string name)
         => root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Object ? el.GetRawText() : null;
 }
@@ -325,6 +387,53 @@ public abstract record FromHostMessage(string Type)
     public sealed record History(IReadOnlyList<HistoryMessage> Messages) : FromHostMessage(FromHostKind.History);
     public sealed record Error(string Text) : FromHostMessage(FromHostKind.Error);
     public sealed record Delta(string Text) : FromHostMessage(FromHostKind.Delta);
+
+    /// <summary>What this host can do, so the pane shows only controls that work (ADR-0017).</summary>
+    public sealed record HostCaps([property: JsonPropertyName("caps")] IReadOnlyList<string> Items) : FromHostMessage(FromHostKind.HostCaps);
+    /// <summary>Revit's UI theme. The pane follows it unless the user picked a theme.</summary>
+    public sealed record Theme(bool Dark) : FromHostMessage(FromHostKind.Theme);
+    public sealed record TurnStart(string TurnId, string Mode, string Level) : FromHostMessage(FromHostKind.TurnStart);
+    /// <summary>Outcome: done, cancelled or error. <c>RolledBack</c> is true when the turn's writes were undone.</summary>
+    public sealed record TurnEnd(string TurnId, string Outcome, bool? RolledBack = null) : FromHostMessage(FromHostKind.TurnEnd);
+    public sealed record ToolStart(string TurnId, string ToolCallId, string Name, string Tier, bool Destructive, string Args, long StartedAt)
+        : FromHostMessage(FromHostKind.ToolStart);
+    /// <summary>Outcome: ran, denied, cancelled, timeout, blocked or error. <c>Text</c> is what the model read.</summary>
+    public sealed record ToolEnd(string ToolCallId, bool Ok, string Outcome, string Summary, string Text, long Ms, bool? Partial = null)
+        : FromHostMessage(FromHostKind.ToolEnd);
+    /// <summary>The one in-chat review card. Replaces tool_approval and tool_preset (ADR-0017).</summary>
+    public sealed record ToolReview([property: JsonPropertyName("review")] ReviewPayload Payload) : FromHostMessage(FromHostKind.ToolReview);
+    public sealed record TurnChanges(
+        string TurnId,
+        int Added,
+        int Modified,
+        int Deleted,
+        bool? IdsTruncated,
+        IReadOnlyList<CategoryChangesPayload> ByCategory) : FromHostMessage(FromHostKind.TurnChanges);
+    /// <summary><c>DeliveredAt</c> is absent when the turn ended before the message could be delivered.</summary>
+    public sealed record SteerAck(string Text, long? DeliveredAt = null) : FromHostMessage(FromHostKind.SteerAck);
+
+    public sealed record CategoryChangesPayload(string Category, int Added, int Modified, int Deleted, IReadOnlyList<long> Ids);
+
+    /// <summary>
+    /// One review card. Plain tools carry a summary or rows; tools with a Run form also carry
+    /// <c>Fields</c> and <c>Values</c>. <c>CanAlways</c>/<c>CanSession</c> are false for destructive tools and
+    /// tools with a form. <c>Args</c> is the raw argument JSON the card's edit box starts from.
+    /// </summary>
+    public sealed record ReviewPayload(
+        string ToolCallId,
+        string ToolName,
+        string Tier,
+        bool Destructive,
+        string? Description,
+        string Summary,
+        IReadOnlyList<PreviewRowPayload> Rows,
+        IReadOnlyList<string> Warnings,
+        bool CanAlways,
+        bool CanSession,
+        string Args,
+        IReadOnlyList<PresetFieldPayload>? Fields = null,
+        object? Values = null,
+        bool? Edited = null);
 
     public sealed record ApprovalPayload(string ToolCallId, string ToolName, string Tier, string Args, string? Description, string? Summary = null);
     public sealed record PresetFieldPayload(

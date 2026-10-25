@@ -22,6 +22,8 @@ public sealed class PluginToolMeta
     [JsonPropertyName("tier")] public string Tier { get; set; } = "L1";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("enabledByDefault")] public bool EnabledByDefault { get; set; } = true;
+    /// <summary>Deletes or replaces elements, writes to disk, or overwrites many values. Never "Always allow" (ADR-0017).</summary>
+    [JsonPropertyName("destructive")] public bool Destructive { get; set; }
     /// <summary>Catalog tags for ToolSelector. Empty means infer from the tool name at load.</summary>
     [JsonPropertyName("tags")] public List<string> Tags { get; set; } = new();
 }

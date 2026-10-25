@@ -3,10 +3,12 @@ using System.Windows;
 using System.Windows.Controls;
 using Autodesk.Revit.UI;
 using Microsoft.Web.WebView2.Core;
+using LoadingAI.Gate;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Progress;
 using LoadingAI.Protocol;
+using LoadingAI.Revit;
 
 namespace LoadingAI.Ui;
 
@@ -27,6 +29,16 @@ public partial class HostPage : Page
         Unloaded += OnUnloaded;
     }
 
+    /// <summary>Capabilities and the Revit theme, so the pane shows only what works and matches Revit.</summary>
+    private void PostHostInfo()
+    {
+        PostToWeb(new FromHostMessage.HostCaps(HostCapabilities.All));
+        PostToWeb(new FromHostMessage.Theme(ThemeWatcher.IsDark));
+    }
+
+    private void OnRevitThemeChanged(bool dark)
+        => Dispatcher.BeginInvoke(new Action(() => { try { PostToWeb(new FromHostMessage.Theme(dark)); } catch { } }));
+
     private void OnUi(Action action)
     {
         Dispatcher.Invoke(action);
@@ -41,6 +53,8 @@ public partial class HostPage : Page
 
         _session.ReloadSettings();
         _session.InitTools();
+        ThemeWatcher.Changed -= OnRevitThemeChanged;
+        ThemeWatcher.Changed += OnRevitThemeChanged;
 
         try
         {
@@ -91,6 +105,7 @@ public partial class HostPage : Page
             return;
         }
         LoadingText.Visibility = Visibility.Collapsed;
+        PostHostInfo();
         PostToWeb(new FromHostMessage.Settings(ProviderSettings.RedactForWeb(_session.Settings)));
         PostToWeb(new FromHostMessage.Status(_session.GetStatusText()));
         try { PostPlugins(); } catch { }
@@ -101,6 +116,7 @@ public partial class HostPage : Page
         try
         {
             _session.DisposeCts();
+            ThemeWatcher.Changed -= OnRevitThemeChanged;
             Web.NavigationCompleted -= OnNavigationCompleted;
             if (Web.CoreWebView2 != null)
             {
@@ -232,6 +248,13 @@ public partial class HostPage : Page
             ? "Nothing was written. Click Trust this plugin… again to retry."
             : "Nothing was written.";
 
+    /// <summary>Runs a receipt button and returns a one-line status. A failure is a message, never a crash.</summary>
+    private static async Task<string> RunElementActionAsync(Func<Task<string>> action, string verb)
+    {
+        try { return await action(); }
+        catch (Exception ex) { return $"Could not {verb} the changed elements: {ex.Message}"; }
+    }
+
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         var json = _web.TryRead(e, out var receiveError);
@@ -254,6 +277,7 @@ public partial class HostPage : Page
             switch (msg)
             {
                 case ToHostMessage.RequestSettings:
+                    PostHostInfo();
                     PostToWeb(new FromHostMessage.Settings(ProviderSettings.RedactForWeb(_session.Settings)));
                     PostPlugins();
                     _ = Task.Run(async () =>
@@ -376,7 +400,7 @@ public partial class HostPage : Page
                             var td = new TaskDialog("LoadingAI for Revit")
                             {
                                 MainInstruction = "Enable all L3 tools?",
-                                MainContent = "Turns on delete, move, create, and save for chat. Each L3 action still asks Confirm L3 (default No). This does not write the model yet.",
+                                MainContent = "Turns on delete, move, create, and save for chat. At Ask before changes and Auto-edit, each L3 action still waits for your review in the chat. Bypass skips that. This does not write the model yet.",
                                 CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
                                 DefaultButton = TaskDialogResult.No
                             };
@@ -466,14 +490,32 @@ public partial class HostPage : Page
                     TrustPlugin(trustFolder, trustAssembly);
                     break;
 
-                case ToHostMessage.ApproveTool { ToolCallId: var toolCallId, Approved: var approved }:
-                    _approvals.CompleteApproval(toolCallId, approved);
-                    PostToWeb(new FromHostMessage.Status(approved ? $"Approved {toolCallId}" : $"Denied {toolCallId}"));
+                case ToHostMessage.ApproveTool { ToolCallId: var toolCallId, Approved: var approved, Scope: var scope, Reason: var reason, ArgsJson: var editedArgs }:
+                    // Edited inputs are not a decision: re-check them, rebuild the card, keep waiting.
+                    if (editedArgs != null)
+                        await _approvals.ApplyEditAsync(toolCallId, editedArgs);
+                    else
+                        _approvals.CompleteApproval(toolCallId, approved, ApprovalScopes.Parse(scope), reason);
                     break;
 
                 case ToHostMessage.SubmitPreset { ToolCallId: var toolCallId, Approved: var approved, ValuesJson: var valuesJson }:
                     _approvals.CompletePreset(toolCallId, approved, valuesJson);
-                    PostToWeb(new FromHostMessage.Status(approved ? $"Confirmed preset {toolCallId}" : $"Cancelled preset {toolCallId}"));
+                    break;
+
+                case ToHostMessage.Steer { Text: var steerText }:
+                    _session.Steer(steerText);
+                    break;
+
+                case ToHostMessage.SelectElements { Ids: var selectIds }:
+                    PostToWeb(new FromHostMessage.Status(await RunElementActionAsync(() => ElementActions.SelectAsync(selectIds), "select")));
+                    break;
+
+                case ToHostMessage.ShowElements { Ids: var showIds }:
+                    PostToWeb(new FromHostMessage.Status(await RunElementActionAsync(() => ElementActions.ShowAsync(showIds), "zoom to")));
+                    break;
+
+                case ToHostMessage.IsolateElements { Ids: var isolateIds }:
+                    PostToWeb(new FromHostMessage.Status(await RunElementActionAsync(() => ElementActions.IsolateAsync(isolateIds), "isolate")));
                     break;
 
                 case ToHostMessage.PresetPick { ToolCallId: var toolCallId, FieldId: var fieldId }:
