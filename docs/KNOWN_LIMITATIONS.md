@@ -36,9 +36,18 @@ reproduction on a small model is the most useful thing you can send.
 - **Some tools cap their output on purpose.** For example `tag_all` tags at most 50 elements per
   call and says so.
 - **Destructive tools are off by default.** Anything that deletes, moves or creates elements (the
-  `L3` tools) must be switched on in the pane, and asks for confirmation each time. Auto-approve,
-  also off by default, skips those confirms and Revit warning dialogs for tools that are already
-  on. It does not switch a tool on, and it does not delete elements to clear a Revit error.
+  `L3` tools) must be switched on in the pane, and asks for a review in the chat each time. The
+  **Bypass** permission level, off by default, skips those reviews and Revit warning dialogs for
+  tools that are already on. It does not switch a tool on, and it does not delete elements to clear
+  a Revit error. Tools that delete or replace elements can never be set to "Always allow".
+- **One confirm, no Revit dialog.** The review is a card in the pane. If the pane is hidden the
+  add-in shows it; a review left unanswered is cancelled after 3 minutes (15 for a Run form), never
+  approved.
+- **Select, Zoom to and Isolate only change what you see.** They are unavailable while the agent is
+  still changing the model, and Isolate needs a view that supports temporary isolation. There is no
+  Undo button: use Ctrl+Z in Revit, which undoes the whole turn at once.
+- **The change count is Revit's own.** It counts what Revit reported inside the turn, including
+  dependents deleted with an element. Element ids are listed for the first 2000 per category.
 - **Rolling back a turn is all-or-nothing.** Denying one write confirmation rolls back every write
   made earlier in the same turn.
 

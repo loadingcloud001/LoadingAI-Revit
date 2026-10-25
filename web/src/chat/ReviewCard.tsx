@@ -124,6 +124,8 @@ function HostCard({ card, onApprove, onEdit }: { card: ReviewPayload; onApprove:
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const caretRef = useRef<HTMLButtonElement>(null);
   const l3 = card.tier === 'L3';
   const lines = card.summary.split('\n').map(l => l.trimEnd()).filter(Boolean);
   const [first, ...rest] = lines;
@@ -154,6 +156,19 @@ function HostCard({ card, onApprove, onEdit }: { card: ReviewPayload; onApprove:
 
   const allow = (scope?: ApprovalScope) => { setMenu(false); onApprove(card.toolCallId, true, { scope }); };
 
+  // A menu button opens onto its first item and moves with the arrow keys.
+  useEffect(() => {
+    if (menu) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [menu]);
+  const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at - 1 + items.length) % items.length;
+    items[next]?.focus();
+  };
+
   return (
     <div
       ref={ref}
@@ -163,7 +178,7 @@ function HostCard({ card, onApprove, onEdit }: { card: ReviewPayload; onApprove:
       aria-label={`Review ${card.toolName}`}
       onKeyDown={e => {
         if (e.key !== 'Escape') return;
-        if (menu) { e.stopPropagation(); setMenu(false); } else if (mode !== 'view') { e.stopPropagation(); setMode('view'); }
+        if (menu) { e.stopPropagation(); setMenu(false); caretRef.current?.focus(); } else if (mode !== 'view') { e.stopPropagation(); setMode('view'); }
       }}
     >
       <div className="card-head">
@@ -231,6 +246,7 @@ function HostCard({ card, onApprove, onEdit }: { card: ReviewPayload; onApprove:
           </button>
           {canScope && (
             <button
+              ref={caretRef}
               type="button"
               className={`${l3 ? 'btn btn-change' : 'btn btn-primary'} split-caret`}
               aria-haspopup="menu"
@@ -240,7 +256,7 @@ function HostCard({ card, onApprove, onEdit }: { card: ReviewPayload; onApprove:
             ><Icon name="chevronDown" size={12} /></button>
           )}
           {menu && (
-            <div className="popover" role="menu" style={{ bottom: 'calc(100% + 4px)', right: 0, minWidth: 230 }}>
+            <div ref={menuRef} className="popover" role="menu" aria-label="Ways to allow" onKeyDown={onMenuKey} style={{ bottom: 'calc(100% + 4px)', right: 0, minWidth: 230 }}>
               <button type="button" role="menuitem" className="menu-item" onClick={() => allow('once')}><span>Allow once</span></button>
               {card.canSession && (
                 <button type="button" role="menuitem" className="menu-item" onClick={() => allow('session')}>

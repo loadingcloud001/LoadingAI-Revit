@@ -1,9 +1,9 @@
 # LoadingAI pane redesign
 
-- Date: 2026-10-25 (revision 2)
-- Status: Draft for review
+- Date: 2026-10-25 (revision 3)
+- Status: Implemented on `feat/pane-redesign` (P0 to P4). The Revit-only behaviour is not yet run in Revit; see the [in-Revit checklist](../../pane-redesign-in-revit-checklist.md). Where this document and "As built" below differ, "As built" is right.
 - Branch: `feat/pane-redesign`
-- Changes: [ADR-0004](../../adr/0004-host-owned-l3-confirm.md) gate order (the new ADR-0017 replaces it); [ADR-0016](../../adr/0016-auto-approve.md) auto-approve becomes the "Bypass" permission level
+- Changes: [ADR-0004](../../adr/0004-host-owned-l3-confirm.md) gate order (replaced by [ADR-0017](../../adr/0017-single-in-chat-review-and-permission-levels.md)); [ADR-0016](../../adr/0016-auto-approve.md) auto-approve becomes the "Bypass" permission level
 - Keeps: [ADR-0014](../../adr/0014-preview-before-preset-form.md) and [ADR-0015](../../adr/0015-confirm-l2-parameter-writes.md) previews; host-owned confirms; one undo step per turn
 
 ## Why
@@ -300,3 +300,31 @@ Each stage is one PR on `feat/pane-redesign`, or a stage branch off it. The pane
 - A third-party agent-UI library.
 - An Insights tab.
 - Thumbs up/down feedback.
+
+## As built (revision 3)
+
+What changed between this design and the code. The wire format itself is in [`web/src/bridge.ts`](../../../web/src/bridge.ts) and `src/LoadingAI.Core/Protocol/HostProtocol.cs`.
+
+| Topic | Design said | As built |
+|---|---|---|
+| Call id | `callId` | `toolCallId`, as in the existing messages |
+| `tool_review` | Fields at the top level; the host sends both old and new messages during P3 | One nested object, `{ type: 'tool_review', review: { toolCallId, toolName, tier, destructive, description?, summary, rows[], warnings[], canAlways, canSession, args, fields?, values?, edited? } }`. It replaces `tool_approval` and `tool_preset`. The pane still understands the old two for older hosts and scripted demos. |
+| `canAlways` | Only `canAlways` | `canAlways` and `canSession` are separate: a tool with a Run form offers neither, a destructive tool offers neither |
+| `tool_end` | `outcome?`, `partial?{ done, failed, reasons[] }` | `outcome` is `ran`, `denied`, `cancelled`, `timeout`, `blocked` or `error`; `partial` is a boolean that makes a "partial" badge |
+| `turn_start` | `turnId, mode, level` | The same. A turn also ends only on `turn_end`: the host posts `turn_changes`, then the answer, then any undelivered `steer_ack`, then `turn_end` |
+| `turn_end` | `outcome` | Also `rolledBack` when the turn's writes were undone. The pane then shows a "Rolled back" note instead of the receipt |
+| `retryStep` | A pane to host message that re-runs a call | No host message. Retry sends a normal message ("Retry <tool> with the same inputs"), so the call goes through the same gate and cards |
+| `steer` | Injected after the next tool result | The same. When the turn ends first, the host answers `steer_ack` without `deliveredAt` and the pane sends the text as a normal message |
+| Capabilities | Not in the design | `host_caps { caps[] }` on connect. The pane shows only the controls a host announced: `singleGate`, `levels`, `autoEdit`, `reviewScopes`, `structuredTurns`, `changes`, `steer`, `theme`, `instructions` |
+| Level source | The pane stores `permissionLevel` | With `levels` the host stores and enforces it and the pane only shows it. Without it, the pane keeps the older local pick |
+| Settings payload | `permissionLevel, alwaysAllowTools[], selectChangedAfterTurn, instructions` | The same, plus `autoApprove`, which is true exactly when the level is Bypass. `saveSettings` can remove names from `alwaysAllowTools` but never add any |
+| Timeouts | 180 s | 180 s for a plain card, 15 minutes for a Run form (it can need a pick in the model) |
+| Always allow | Not for destructive tools | Also not for tools with Run forms |
+| Plugin payload | `destructive` on the tool entry | `destructive` is also sent to the pane and shows as a badge in Settings and on the card |
+| Theme | `theme { dark }` | The same. "Follow Revit" is the default theme when the host reports it, and falls back to the OS setting |
+| First-run intro | A three-card intro | One dismissible card in the empty state (`lai.introDone`), plus the starters, the tool count and the quota |
+| Countdown | Last 30 s before the timeout | Not built |
+| Per-category selection | Each category row selects its elements | The row expands to its element ids. Select changed, Zoom to and Isolate act on every added or modified element in the turn |
+| Context chip | Opens a list with remove toggles | Shows the view, selection and warnings. No list |
+
+Not covered by an automated test and left for the in-Revit checklist: `DocumentChanged` inside a `TransactionGroup`, `ThemeChanged`, `DockablePane.Show()`, `Selection.SetElementIds`, `ShowElements`, `IsolateElementsTemporary` in its own transaction, WebView2 message delivery while the pane is hidden, and one-step Ctrl+Z for a whole turn.

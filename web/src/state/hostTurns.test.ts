@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FromHost } from '../bridge';
 import { SCENARIOS } from '../mock/scenarios';
 import { initialState, reduce } from './reducer';
+import { lastTurnOf, turnAnnouncement } from './selectors';
 import type { PaneAction, PaneState, Turn } from './types';
 
 function run(state: PaneState, actions: PaneAction[]): PaneState {
@@ -221,5 +222,22 @@ describe('settings from the host', () => {
     expect(s.alwaysAllowTools).toEqual([]);
     expect(s.selectChangedAfterTurn).toBe(true);
     expect(s.instructions).toBe('');
+  });
+});
+
+describe('screen reader announcement', () => {
+  it('says nothing while the turn runs, then what happened', () => {
+    expect(turnAnnouncement(lastTurnOf(play('reviewL3')))).toBe('');
+    expect(turnAnnouncement(lastTurnOf(play('reviewL3', 'allow')))).toBe('Finished. 36 elements changed.');
+    expect(turnAnnouncement(lastTurnOf(play('blocked')))).toBe('Finished.');
+    expect(turnAnnouncement(lastTurnOf(play('rolledBack')))).toBe('Rolled back. The changes were undone.');
+    expect(turnAnnouncement(null)).toBe('');
+  });
+
+  it('a stopped or failed turn says so', () => {
+    const stopped = reduce(play('reviewL3'), { type: 'stop' });
+    expect(turnAnnouncement(lastTurnOf(stopped))).toBe('Stopped.');
+    const failed = reduce(play('reviewL3'), { type: 'host', msg: { type: 'error', text: '401 Unauthorized' } });
+    expect(turnAnnouncement(lastTurnOf(failed))).toBe('The turn failed.');
   });
 });

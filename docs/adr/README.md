@@ -58,7 +58,7 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0001](0001-bridge-first-hardening.md) | Bridge-first hardening (core-tools, HostProtocol, Recall) | Accepted |
 | [0002](0002-plugin-shelf-bridge-first.md) | Plugin shelf: Core-only, Bridge-first, never host | Accepted |
 | [0003](0003-fullaccess-exceptions.md) | FullAccess is opt-in and listed | Superseded by 0009 |
-| [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Accepted |
+| [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Superseded by 0017 |
 | [0005](0005-port-modeling-tools-onto-bridge.md) | Port modeling-tools onto Bridge | Accepted |
 | [0006](0006-port-export-tools-onto-bridge.md) | Port export-tools onto Bridge | Accepted |
 | [0007](0007-port-view-tools-onto-bridge.md) | Port view-tools onto Bridge | Accepted |
@@ -70,4 +70,5 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Accepted |
 | [0014](0014-preview-before-preset-form.md) | Preview before the preset form (Run panel, gates untouched) | Accepted |
 | [0015](0015-confirm-l2-parameter-writes.md) | Confirm L2 parameter writes with a summary | Accepted |
-| [0016](0016-auto-approve.md) | User-owned auto-approve skips confirms during a turn | Accepted |
+| [0016](0016-auto-approve.md) | User-owned auto-approve skips confirms during a turn | Accepted (amended by 0017) |
+| [0017](0017-single-in-chat-review-and-permission-levels.md) | One in-chat review and user-owned permission levels | Accepted |

@@ -5,6 +5,7 @@
 - Deciders: the maintainer
 - Extends: [ADR-0004](0004-host-owned-l3-confirm.md)
 - Does not supersede: [ADR-0004](0004-host-owned-l3-confirm.md). The default gate is unchanged.
+- Amended by: [ADR-0017](0017-single-in-chat-review-and-permission-levels.md). The switch is now the Bypass permission level, and the default gate is the single in-chat review.
 
 ## Context
 

@@ -6,7 +6,7 @@ import { Composer } from './composer/Composer';
 import { quotaLine } from './lib/copy';
 import { levelInfo, needsWarning, nextLevel, warningText } from './lib/permissions';
 import { SettingsPage, ThemePref } from './settings/SettingsPage';
-import { liveStatus } from './state/selectors';
+import { lastTurnOf, liveStatus, turnAnnouncement } from './state/selectors';
 import type { PermissionLevel } from './state/types';
 import { usePane } from './state/usePane';
 import { Icon } from './ui/Icon';
@@ -57,6 +57,7 @@ export default function App() {
     else pane.setLevel(l);
   };
 
+  const announcement = turnAnnouncement(lastTurnOf(state));
   const ctx = state.context;
   const activeProvider = pane.activeProvider;
   const quota = isBuiltinProvider(activeProvider?.id) ? quotaLine(state.quota) : null;
@@ -124,6 +125,7 @@ export default function App() {
         </>
       )}
 
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
       <Transcript
         entries={state.entries}
         pending={state.pendingReview}

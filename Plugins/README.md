@@ -5,7 +5,7 @@ This folder documents the runtime plugin directory, not the repo source.
 Runtime location: `%AppData%\LoadingAI\Plugins\<pluginId>\plugin.json + *.dll` — hash-gated, see **Load gate** below.
 Dev location: `LoadingAI\Plugins\dev` next to the installed `LoadingAI.dll` — `%AppData%\Autodesk\Revit\Addins\<year>\LoadingAI\Plugins\dev`. Not hash-gated. Create the folder and copy the plugin into it by hand; no build step does that, and a plugin put anywhere else under `Addins\<year>\` is never scanned.
 
-Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach Confirm L3. Put the plugin in `LoadingAI\Plugins\dev` beside the installed `LoadingAI.dll`, or record its SHA-256 in the AppData allowlist. Stage 2 (ADR-0011) is in: Settings lists a refused DLL with **Trust this plugin…**. The host re-hashes the file, asks with a default-No dialog that shows the plugin's own claims, appends the SHA-256 to `plugin-allowlist.json` and rescans.
+Load gate (ADR-0010 stage 1): the loader hashes the DLL (SHA-256) **before** it loads the assembly. A DLL loads when its folder is the dev location, or its hash is recorded in `%AppData%\LoadingAI\plugin-allowlist.json`, or its hash is in the shipped set the host writes when it builds (`plugin-shipped-hashes.json`, refreshed by rebuilding the host after a plugin binary change). An **unknown hash** in `%AppData%\LoadingAI\Plugins` is refused before load: **Settings** shows a load issue and none of that plugin's tools register, so they never reach a review card. Put the plugin in `LoadingAI\Plugins\dev` beside the installed `LoadingAI.dll`, or record its SHA-256 in the AppData allowlist. Stage 2 (ADR-0011) is in: Settings lists a refused DLL with **Trust this plugin…**. The host re-hashes the file, asks with a default-No dialog that shows the plugin's own claims, appends the SHA-256 to `plugin-allowlist.json` and rescans.
 
 Each plugin folder example:
 
@@ -32,6 +32,7 @@ Plugins/hello/
 }
 ```
 
+- `"destructive": true` on a tool (optional, default false) marks one that deletes or replaces elements, or writes a file. The review card for it never offers "Always allow" or "Allow for this session", Auto-edit still asks for it, and Settings shows a **destructive** badge. Leave it off for ordinary parameter, view and creation tools. See ADR-0017.
 - `verified:true` = merged via PR and reviewed.
 - `verified:false` = built outside the repo, shown in **Settings** as unverified. Display-only: this field is **not** the load gate, the DLL hash is. `"verified":true` on an unknown hash still refuses to load.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggling needs no restart. **Rescan** in Settings picks up a new or changed plugin on Revit 2025+; on Revit 2024 (net48) a DLL that is already loaded stays in memory until Revit restarts. **Remove** marks the folder and deletes it; if the DLL is locked the folder is skipped and purged at the next scan.
@@ -45,7 +46,7 @@ See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/
 
 **Numbers.** Tool arguments and results use millimetres, m², m³ and degrees. Convert with `LoadingAI.Revit.ParamUnits` (or `Metric`); never pass Revit internal units across the Bridge.
 
-Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. Confirm merges form values over AI args; L3 still shows the native TaskDialog.
+Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. The review card merges form values over AI args; there is no native dialog (ADR-0017).
 
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 - `Plugins/core-tools/` — Bridge-only query/view/param/geometry/document (L3 off by default)
@@ -65,7 +66,7 @@ Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
 | `continueFrom` | Number | 0 | skip this many matching hosts so a capped run can continue (`nextOffset`) |
 | `categories` | Select | all four | walls, columns, beams, floors (Naviate-style tools only) |
 | `limit` | Number | 50 | caps how many input elements one run touches (clamped 1–200) |
-| `dryRun` | Boolean | off | counts splits/openings without touching the model; the host skips the L3 write Confirm for it |
+| `dryRun` | Boolean | off | counts splits/openings without touching the model; the host runs it without a review at every permission level |
 | `uniqueMark` | Boolean | off | keeps the original Mark on the first piece and appends `-1`, `-2`, … to the rest (blank stays blank) |
 | `copyParams` | Boolean | on | copies the original's copyable instance parameters onto the pieces the re-creation fallback makes |
 

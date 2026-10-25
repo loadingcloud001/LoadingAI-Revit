@@ -37,14 +37,28 @@ on and off in the pane, and [write your own plugin](CONTRIBUTING.md).
 Tools come in three tiers, and the tier decides what you are asked:
 
 - **L1 — read only.** Runs without a prompt.
-- **L2 — light writes** (view overrides, parameter edits). You confirm in a dialog first, and for
-  parameter edits it summarises what will change.
-- **L3 — delete, move, create.** **Off by default.** When switched on, each use needs a click in the
-  pane and then a second confirmation in a Revit dialog that defaults to **No**.
-- **Auto-approve** is a switch in the chat header, off by default. While it is on, L2 and L3 tools
-  that are already switched on run without those confirms, and Revit warning dialogs during that
-  turn are dismissed. An error Revit can only fix by deleting elements rolls that step back. The
-  model cannot turn the switch on. The whole turn is still one undo. Plan and Ask stay read-only.
+- **L2 — light writes** (view overrides, parameter edits). A review card in the chat says what will
+  change before it runs.
+- **L3 — delete, move, create.** **Off by default.** When switched on, each use shows the same
+  review card in the chat. There is one confirm and no second Revit dialog.
+
+The review card names its effect on the Allow button ("Split 8 beams"). You can allow once, for this
+session, or always (never for tools that delete or replace elements), deny with a reason the agent
+reads, or edit the inputs first.
+
+A **permission level** next to the Send button sets how much asks. Only you can change it; the model
+cannot.
+
+| Level | Reads | L2 writes | L3 writes |
+|---|---|---|---|
+| Read only | run | blocked | blocked |
+| Plan | run | blocked | blocked |
+| Ask before changes (default) | run | ask | ask |
+| Auto-edit | run | run | ask |
+| Bypass | run | run | run |
+
+Bypass also dismisses Revit warning dialogs during the turn. An error Revit can only fix by deleting
+elements rolls that step back. The whole turn is still one undo. A dry run never asks.
 
 Also:
 
