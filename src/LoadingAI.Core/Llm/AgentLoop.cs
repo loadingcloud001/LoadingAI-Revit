@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using LoadingAI.Gate;
 using LoadingAI.Progress;
 using LoadingAI.Revit;
 using LoadingAI.Tools;
@@ -43,6 +45,58 @@ public sealed class AgentLoop
     }
 
     public string? EnvironmentWarnings { get; set; }
+
+    /// <summary>
+    /// The user's standing instructions from Settings → Agent. Written into the system prompt in a marked
+    /// block; it cannot change tool tiers or confirms. Takes effect from the next prompt build.
+    /// </summary>
+    public string? CustomInstructions
+    {
+        get => _customInstructions;
+        set
+        {
+            _customInstructions = UserInstructions.Sanitize(value);
+            lock (_historyLock)
+            {
+                if (_history.Count > 0 && _history[0].Role == "system")
+                    _history[0].Content = ComposeBasePrompt();
+            }
+        }
+    }
+    private string? _customInstructions;
+
+    private readonly ConcurrentQueue<string> _steer = new();
+
+    /// <summary>Called with the text when a steer message reaches the model.</summary>
+    public Action<string>? OnSteerDelivered { get; set; }
+
+    /// <summary>
+    /// Queues a message the user sent while the agent works. It is added to the conversation before the
+    /// next model call, after the tool result in flight, so the model reads it at its next step.
+    /// </summary>
+    public void Steer(string text)
+    {
+        var t = (text ?? "").Trim();
+        if (t.Length > 0) _steer.Enqueue(t);
+    }
+
+    /// <summary>Steer messages the turn ended before delivering. The host hands them back to the pane.</summary>
+    public IReadOnlyList<string> DrainUndeliveredSteers()
+    {
+        var left = new List<string>();
+        while (_steer.TryDequeue(out var t)) left.Add(t);
+        return left;
+    }
+
+    private void DeliverSteers()
+    {
+        while (_steer.TryDequeue(out var text))
+        {
+            lock (_historyLock) _history.Add(ChatMessage.FromText("user", ReviewText.SteerMessage(text)));
+            try { HistoryStore.Append("user", text); } catch { }
+            try { OnSteerDelivered?.Invoke(text); } catch { }
+        }
+    }
 
     /// <summary>Copied from the user's pane switch before each run. The model does not set it.</summary>
     public bool AutoApprove { get; set; }
@@ -139,6 +193,7 @@ public sealed class AgentLoop
         Action<string>? onReasoning,
         CancellationToken ct = default)
     {
+        while (_steer.TryDequeue(out _)) { }
         lock (_historyLock)
         {
             _history.Add(userMsg);
@@ -178,6 +233,7 @@ public sealed class AgentLoop
                 ApplySystemPrompt(mode, selected);
             }
 
+            DeliverSteers();
             List<ChatMessage> snapshot;
             lock (_historyLock) snapshot = new List<ChatMessage>(_history);
 
@@ -340,7 +396,7 @@ public sealed class AgentLoop
     private void ApplySystemPrompt(string? mode, IReadOnlyList<ToolDefinition> selected)
     {
         var tell = AutoApprove && ModeAllowsTier(mode, ToolTier.L2);
-        var sys = BuildSystemPrompt(selected, EnvironmentWarnings, tell);
+        var sys = BuildSystemPrompt(selected, EnvironmentWarnings, tell, _customInstructions);
         if (string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
             sys = "PLAN MODE — read-only: use only L1 inspect tools. Do NOT modify the model. End with a numbered plan (1. 2. 3.) listing each step and the tool that would be used. Do not execute writes.\n" + sys;
         else if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase))
@@ -402,7 +458,7 @@ public sealed class AgentLoop
         return string.Join("\n", parts);
     }
 
-    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools, string? environmentWarnings = null, bool autoApprove = false)
+    public static string BuildSystemPrompt(IReadOnlyList<ToolDefinition> tools, string? environmentWarnings = null, bool autoApprove = false, string? userInstructions = null)
     {
         var lines = tools.Select(t =>
         {
@@ -412,11 +468,11 @@ public sealed class AgentLoop
             else if (desc.Length > 160) desc = desc.Substring(0, 157) + "...";
             return $"- {t.Function.Name}: {desc}";
         });
-        var prompt = BaseSystemPrompt + AppendWarnings(environmentWarnings) + "\n# Tools\n" + string.Join("\n", lines);
+        var prompt = BaseSystemPrompt + AppendWarnings(environmentWarnings) + UserInstructions.Block(userInstructions) + "\n# Tools\n" + string.Join("\n", lines);
         return autoApprove ? AutoApprovePrompt + "\n" + prompt : prompt;
     }
 
-    private string ComposeBasePrompt() => BaseSystemPrompt + AppendWarnings(EnvironmentWarnings);
+    private string ComposeBasePrompt() => BaseSystemPrompt + AppendWarnings(EnvironmentWarnings) + UserInstructions.Block(_customInstructions);
 
     private static string AppendWarnings(string? environmentWarnings)
     {

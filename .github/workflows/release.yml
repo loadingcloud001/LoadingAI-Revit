@@ -80,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/stage-setup.ps1 -Dist dist -Payload installer/payload
-          $version = "0.5.0"
+          $version = "0.6.0"
           if ($env:GITHUB_REF -like "refs/tags/v*") {
             $version = $env:GITHUB_REF.Substring("refs/tags/v".Length)
           }

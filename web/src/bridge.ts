@@ -1,3 +1,4 @@
+import { SCENARIOS, type ScriptStep } from './mock/scenarios';
 export type ProviderConfig = {
   id: string;
   name: string;
@@ -24,8 +25,16 @@ export type AppSettings = {
   activeProviderId: string;
   providers: ProviderConfig[];
   plugins?: Record<string, boolean>;
-  /** User switch. The model cannot set this. */
+  /** True exactly when permissionLevel is bypass. Kept for hosts from before levels. */
   autoApprove?: boolean;
+  /** The user's permission level, stored by the host (ADR-0017). The model cannot set this. */
+  permissionLevel?: 'readonly' | 'plan' | 'confirm' | 'autoEdit' | 'bypass';
+  /** Tools the user chose "Always allow" for. The pane can remove entries; only the host adds them. */
+  alwaysAllowTools?: string[];
+  /** Select the added and modified elements in Revit after a turn that changed the model. */
+  selectChangedAfterTurn?: boolean;
+  /** Standing instructions for the agent, written into its system prompt. */
+  instructions?: string;
 };
 
 /** Must match DefaultLlm.Id / DisplayName in C#. */
@@ -47,6 +56,8 @@ export type PluginToolInfo = {
   description: string;
   enabledByDefault: boolean;
   enabled: boolean;
+  /** Deletes or replaces elements, or writes a file. Never offered "Always allow". */
+  destructive?: boolean;
 };
 
 export type PluginInfo = {
@@ -89,6 +100,9 @@ export type Attachment = {
 
 export type ChatMode = 'ask' | 'plan' | 'build' | 'auto';
 
+/** How long an Allow lasts. The host honours session and always only where the card offered them. */
+export type ApprovalScope = 'once' | 'session' | 'always';
+
 export type ToHost =
   | { type: 'send'; text: string; attachments?: Attachment[]; mode?: ChatMode; slash?: string; mentions?: string[] }
   | { type: 'clear' }
@@ -99,7 +113,7 @@ export type ToHost =
   | { type: 'testProvider'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listModels'; provider?: ProviderConfig; providerId?: string }
   | { type: 'listPlugins' }
-  | { type: 'approveTool'; toolCallId: string; approved: boolean; reason?: string }
+  | { type: 'approveTool'; toolCallId: string; approved: boolean; scope?: ApprovalScope; reason?: string; args?: Record<string, unknown> }
   | { type: 'submitPreset'; toolCallId: string; approved: boolean; values?: Record<string, unknown> }
   | { type: 'presetPick'; toolCallId: string; fieldId: string }
   | { type: 'setPluginEnabled'; toolName: string; enabled: boolean }
@@ -110,7 +124,11 @@ export type ToHost =
   | { type: 'reloadPlugins' }
   | { type: 'trustPlugin'; folder: string; assembly: string }
   | { type: 'listCheckpoints' }
-  | { type: 'resumeCheckpoint'; id: string };
+  | { type: 'resumeCheckpoint'; id: string }
+  | { type: 'steer'; text: string }
+  | { type: 'selectElements'; ids: number[] }
+  | { type: 'showElements'; ids: number[] }
+  | { type: 'isolateElements'; ids: number[] };
 
 export type PlanPayload = {
   title: string;
@@ -191,6 +209,30 @@ export type PresetPayload = {
   preview?: PreviewPayload;
 };
 
+/** The one in-chat review card (ADR-0017). Plain tools carry a summary or rows; tools with a Run form add fields. */
+export type ReviewPayload = {
+  toolCallId: string;
+  toolName: string;
+  tier: string;
+  destructive: boolean;
+  description?: string;
+  summary: string;
+  rows: PreviewRowView[];
+  warnings: string[];
+  canAlways: boolean;
+  canSession: boolean;
+  /** Raw argument JSON the card's edit box starts from. */
+  args: string;
+  fields?: PresetFieldPayload[];
+  values?: Record<string, unknown>;
+  /** True after the user edited the inputs and the host accepted them. */
+  edited?: boolean;
+};
+
+export type ChangeCategory = { category: string; added: number; modified: number; deleted: number; ids: number[] };
+
+export type ToolOutcome = 'ran' | 'denied' | 'cancelled' | 'timeout' | 'blocked' | 'error';
+
 export type PresetPickResult = {
   toolCallId: string;
   fieldId: string;
@@ -240,7 +282,16 @@ export type FromHost =
   | { type: 'quota'; quota: QuotaPayload }
   | { type: 'history'; messages: { role: string; text: string; attachments?: Attachment[] }[] }
   | { type: 'error'; text: string }
-  | { type: 'delta'; text: string };
+  | { type: 'delta'; text: string }
+  | { type: 'host_caps'; caps: string[] }
+  | { type: 'theme'; dark: boolean }
+  | { type: 'turn_start'; turnId: string; mode: string; level: string }
+  | { type: 'turn_end'; turnId: string; outcome: string; rolledBack?: boolean }
+  | { type: 'tool_start'; turnId: string; toolCallId: string; name: string; tier: string; destructive: boolean; args: string; startedAt: number }
+  | { type: 'tool_end'; toolCallId: string; ok: boolean; outcome: ToolOutcome; summary: string; text: string; ms: number; partial?: boolean }
+  | { type: 'tool_review'; review: ReviewPayload }
+  | { type: 'turn_changes'; turnId: string; added: number; modified: number; deleted: number; idsTruncated?: boolean; byCategory: ChangeCategory[] }
+  | { type: 'steer_ack'; text: string; deliveredAt?: number };
 
 declare global {
   interface Window {
@@ -263,6 +314,7 @@ export function postToHost(msg: ToHost) {
     }
   } else {
     console.log('postToHost (no webview):', msg);
+    if (playDemo(msg)) return;
     // For dev in browser, echo back mock
     if (msg.type === 'send') {
       setTimeout(() => {
@@ -284,6 +336,13 @@ export function postToHost(msg: ToHost) {
           { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/go/v1', model: 'muse-spark-1.2-contributor', apiKey: '', apiKind: 'responses', group: 'gateway', icon: '⚡' },
         ]
       };
+      const demo = new URLSearchParams(window.location.search).get('demo');
+      const caps = demo ? SCENARIOS[demo]?.caps : undefined;
+      if (caps) {
+        Object.assign(mock, { permissionLevel: 'confirm', alwaysAllowTools: ['rename_view', 'set_parameter'], selectChangedAfterTurn: true, instructions: '' });
+        setTimeout(() => emit({ type: 'host_caps', caps }), 60);
+        setTimeout(() => emit({ type: 'theme', dark: new URLSearchParams(window.location.search).get('revit') !== 'light' }), 80);
+      }
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'settings', settings: mock } })), 100);
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'quota', quota: { providerId: BUILTIN_PROVIDER_ID, limit: 100, used: 3, remaining: 97, ok: true, resetUtc: new Date(Date.now() + 86400000).toISOString() } } })), 140);
       const mockPresets: any[] = [
@@ -300,6 +359,43 @@ export function postToHost(msg: ToHost) {
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'models', providerId: (msg as any).providerId ?? (msg as any).provider?.id ?? 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner', 'gpt-4o-mini'] } })), 400);
     }
   }
+}
+
+function emit(detail: FromHost) {
+  window.dispatchEvent(new CustomEvent('host-message', { detail }));
+}
+
+function playSteps(steps: ScriptStep[]) {
+  for (const st of steps) setTimeout(() => emit(st.msg), st.at);
+}
+
+/** Browser-only mock: `?demo=<scenario>` replays a scripted host turn (see mock/scenarios.ts). */
+function playDemo(msg: ToHost): boolean {
+  const name = new URLSearchParams(window.location.search).get('demo');
+  const sc = name ? SCENARIOS[name] : undefined;
+  if (!sc) return false;
+  if (msg.type === 'send') { playSteps(sc.steps); return true; }
+  if (msg.type === 'approveTool' && sc.gate && msg.toolCallId === sc.gate.toolCallId && msg.args && sc.gate.edit) {
+    playSteps(sc.gate.edit);
+    return true;
+  }
+  if ((msg.type === 'approveTool' || msg.type === 'submitPreset') && sc.gate && msg.toolCallId === sc.gate.toolCallId) {
+    playSteps(msg.approved ? sc.gate.allow : sc.gate.deny);
+    return true;
+  }
+  if (msg.type === 'steer') {
+    emit({ type: 'steer_ack', text: msg.text, deliveredAt: Date.now() });
+    if (name === 'steer') {
+      playSteps([
+        { at: 400, msg: { type: 'tool_end', toolCallId: 's1', ok: true, outcome: 'ran', summary: 'Model summary', text: 'get_model_summary result: 1,204 elements', ms: 400 } },
+        { at: 700, msg: { type: 'assistant', text: 'Got it, I will keep the audit to walls only.' } },
+        { at: 750, msg: { type: 'turn_end', turnId: 'T1', outcome: 'done' } },
+      ]);
+    }
+    return true;
+  }
+  if (msg.type === 'cancel') return true;
+  return false;
 }
 
 export function onHostMessage(handler: (msg: FromHost) => void): () => void {

@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LoadingAI.Gate;
 
 namespace LoadingAI.Llm;
 
@@ -24,10 +25,29 @@ public sealed class AppSettings
     public Dictionary<string, bool> Plugins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// User switch in the pane. While true, the host skips L2 and L3 confirms and dismisses Revit
-    /// failure dialogs during a LoadingAI turn. The model cannot set this. Default false.
+    /// Kept for settings files and panes from before permission levels. It is true exactly when
+    /// <see cref="PermissionLevel"/> is Bypass: the host skips every confirm and dismisses Revit failure
+    /// dialogs during a LoadingAI turn. The model cannot set this. Default false.
     /// </summary>
     public bool AutoApprove { get; set; }
+
+    /// <summary>
+    /// readonly, plan, confirm, autoEdit or bypass (ADR-0017). Null means a file from before levels: read
+    /// it through <see cref="ProviderSettings.LevelOf"/>. The model cannot set this.
+    /// </summary>
+    public string? PermissionLevel { get; set; }
+
+    /// <summary>
+    /// Tools the user chose "Always allow" for. Only the host adds to this (from a review card); the pane
+    /// may remove entries. Destructive tools are ignored here at decision time.
+    /// </summary>
+    public List<string> AlwaysAllowTools { get; set; } = new();
+
+    /// <summary>After a turn that changed the model, select the added and modified elements in Revit.</summary>
+    public bool SelectChangedAfterTurn { get; set; } = true;
+
+    /// <summary>Standing instructions for the agent (style, naming, units). Injected into the system prompt.</summary>
+    public string? Instructions { get; set; }
 }
 
 /// <summary>Live copy of <see cref="AppSettings.AutoApprove"/> for call sites that do not hold settings.</summary>
@@ -130,6 +150,10 @@ public static class ProviderSettings
             : new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase);
         EnsureBuiltin(s);
         DropUpstreamRows(s);
+        s.PermissionLevel = LevelOf(s);
+        s.AutoApprove = s.PermissionLevel == PermissionLevels.Bypass;
+        s.AlwaysAllowTools = CleanNames(s.AlwaysAllowTools);
+        s.Instructions = UserInstructions.Sanitize(s.Instructions);
         // Backfill new fields for old settings
         foreach (var p in s.Providers)
         {
@@ -201,6 +225,23 @@ public static class ProviderSettings
     public static bool IsToolEnabled(AppSettings s, string toolName, bool defaultEnabled)
         => s.Plugins.TryGetValue(toolName, out var v) ? v : defaultEnabled;
 
+    /// <summary>The permission level in force: the stored level, else Bypass for an old auto-approve file, else Ask before changes.</summary>
+    public static string LevelOf(AppSettings s) => PermissionLevels.Resolve(s.PermissionLevel, s.AutoApprove);
+
+    /// <summary>Names without blanks or duplicates, in first-seen order.</summary>
+    internal static List<string> CleanNames(IEnumerable<string>? names)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<string>();
+        foreach (var n in names ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(n)) continue;
+            var t = n.Trim();
+            if (seen.Add(t)) list.Add(t);
+        }
+        return list;
+    }
+
     public static void Save(AppSettings settings)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
@@ -219,6 +260,7 @@ public static class ProviderSettings
         return new AppSettings
         {
             ActiveProviderId = DefaultLlm.Id,
+            PermissionLevel = PermissionLevels.Confirm,
             Providers = new List<ProviderConfig>
             {
                 DefaultLlm.ForSettings(),
@@ -267,7 +309,11 @@ public static class ProviderSettings
         return new AppSettings
         {
             ActiveProviderId = s.ActiveProviderId,
-            AutoApprove = s.AutoApprove,
+            AutoApprove = LevelOf(s) == PermissionLevels.Bypass,
+            PermissionLevel = LevelOf(s),
+            AlwaysAllowTools = CleanNames(s.AlwaysAllowTools),
+            SelectChangedAfterTurn = s.SelectChangedAfterTurn,
+            Instructions = s.Instructions,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Where(p => !DefaultLlm.ExposesUpstream(p)).Select(p =>
             {
@@ -287,7 +333,10 @@ public static class ProviderSettings
             ActiveProviderId = string.IsNullOrWhiteSpace(incoming.ActiveProviderId)
                 ? current.ActiveProviderId
                 : incoming.ActiveProviderId,
-            AutoApprove = incoming.AutoApprove,
+            PermissionLevel = MergeLevel(current, incoming),
+            AlwaysAllowTools = ToolAllowlist.MergeAlways(current.AlwaysAllowTools, incoming.AlwaysAllowTools),
+            SelectChangedAfterTurn = incoming.SelectChangedAfterTurn,
+            Instructions = UserInstructions.Sanitize(incoming.Instructions),
             Plugins = new Dictionary<string, bool>(
                 current.Plugins != null && current.Plugins.Count > 0
                     ? current.Plugins
@@ -317,9 +366,22 @@ public static class ProviderSettings
         if (merged.Providers.Count == 0)
             merged.Providers = current.Providers.Select(Clone).ToList();
 
+        merged.AutoApprove = merged.PermissionLevel == PermissionLevels.Bypass;
         EnsureBuiltin(merged);
         DropUpstreamRows(merged);
         return merged;
+    }
+
+    /// <summary>
+    /// A pane that sends a valid level wins. An older pane that only sends autoApprove turns Bypass on
+    /// or off and leaves the other levels as they were.
+    /// </summary>
+    private static string MergeLevel(AppSettings current, AppSettings incoming)
+    {
+        if (PermissionLevels.IsValid(incoming.PermissionLevel)) return incoming.PermissionLevel!;
+        var cur = LevelOf(current);
+        if (incoming.AutoApprove) return PermissionLevels.Bypass;
+        return cur == PermissionLevels.Bypass ? PermissionLevels.Confirm : cur;
     }
 
     public static IKeyProtector KeyProtector { get; set; } = new NoOpKeyProtector();
@@ -351,7 +413,11 @@ public static class ProviderSettings
         return new AppSettings
         {
             ActiveProviderId = s.ActiveProviderId,
-            AutoApprove = s.AutoApprove,
+            AutoApprove = LevelOf(s) == PermissionLevels.Bypass,
+            PermissionLevel = LevelOf(s),
+            AlwaysAllowTools = CleanNames(s.AlwaysAllowTools),
+            SelectChangedAfterTurn = s.SelectChangedAfterTurn,
+            Instructions = s.Instructions,
             Plugins = new Dictionary<string, bool>(s.Plugins, StringComparer.OrdinalIgnoreCase),
             Providers = s.Providers.Select(p =>
             {

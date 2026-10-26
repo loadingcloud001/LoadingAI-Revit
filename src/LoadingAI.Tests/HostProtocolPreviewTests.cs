@@ -113,22 +113,24 @@ public class HostProtocolPreviewTests
     public void ApprovalGate_PostsPreviewThenStillAwaitsTheUserDecision()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
-        var awaitPreset = Slice(src,
-            "AwaitPresetAsync(ToolEntry entry, string name, string argsJson)",
-            "AwaitL3WebAsync(");
+        var build = Slice(src,
+            "private static async Task<FromHostMessage.ReviewPayload> BuildPayloadAsync",
+            "public async Task RunPresetPickAsync");
 
-        Assert.Contains("ToolPresets.TryBuildPreview(entry.Presets, argsJson)", awaitPreset);
+        Assert.Contains("ToolPresets.TryBuildPreview(entry.Presets, p.ArgsJson)", build);
 
-        // The payload must actually reach the wire as the last PresetPayload argument. A pin that
-        // only looked for the word "preview" would still pass with the payload dropped entirely.
-        Assert.Contains("fields, values, previewPayload))", awaitPreset);
+        // The preview must actually reach the wire as part of the review payload. A pin that only
+        // looked for the word "preview" would still pass with the rows dropped entirely.
+        Assert.Matches(@"summary,\s+rows,\s+warnings,", build);
+        Assert.Matches(@"p\.ArgsJson,\s+fields,\s+values,", build);
 
         // And the user decision must still be awaited after the post, so a preview problem can
         // never become a tool that runs without one.
-        var posted = awaitPreset.IndexOf("previewPayload))", StringComparison.Ordinal);
-        var awaited = awaitPreset.IndexOf("Task.WhenAny(tcs.Task", StringComparison.Ordinal);
+        var review = Slice(src, "public async Task<ReviewResult> ReviewAsync", "private static async Task<ReviewResult> WaitAsync");
+        var posted = review.IndexOf("await PostReviewAsync(p, null);", StringComparison.Ordinal);
+        var awaited = review.IndexOf("return await WaitAsync(p);", StringComparison.Ordinal);
         Assert.True(posted >= 0 && awaited > posted,
-            "the preset post must be sent before awaiting the user decision");
+            "the review post must be sent before awaiting the user decision");
     }
 
     private static string Slice(string src, string start, string end)

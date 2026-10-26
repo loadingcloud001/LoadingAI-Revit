@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using LoadingAI.Gate;
 using LoadingAI.Llm;
 using LoadingAI.Plugins.Core;
 using LoadingAI.Progress;
@@ -26,6 +27,11 @@ internal sealed class ChatSession
     private bool _turnFailed;
     private CancellationTokenSource? _cts;
     private string _lastUserText = "";
+    private readonly ToolAllowlist _allow = new();
+    private readonly TurnChangeSet _changes = new();
+    private string _turnId = "";
+    private string _turnMode = "build";
+    private bool _turnRolledBack;
 
     public ChatSession(WebHostBridge web, ApprovalGate approvals, Action<Action> onUi)
     {
@@ -40,8 +46,13 @@ internal sealed class ChatSession
         get => _settings;
         set
         {
+            var previousModel = _settings.ActiveProviderId;
             _settings = value ?? ProviderSettings.CreateDefault();
-            AutoApproveGate.Enabled = _settings.AutoApprove;
+            AutoApproveGate.Enabled = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass;
+            if (_agent != null) _agent.CustomInstructions = _settings.Instructions;
+            // A different model is a different partner: "allow for this session" ends with the switch.
+            if (!string.Equals(previousModel, _settings.ActiveProviderId, StringComparison.OrdinalIgnoreCase))
+                _allow.ClearSession();
         }
     }
 
@@ -92,9 +103,17 @@ internal sealed class ChatSession
         }
         _registry = reg;
         if (_agent == null)
+        {
             _agent = new AgentLoop(_client, _registry);
+            _agent.OnSteerDelivered = text =>
+            {
+                var at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                try { _onUi(() => _web.Post(new FromHostMessage.SteerAck(text, at))); } catch { }
+            };
+        }
         else
             _agent.ReplaceRegistry(_registry);
+        _agent.CustomInstructions = _settings.Instructions;
         ApplyPluginLoadWarnings();
     }
 
@@ -134,7 +153,8 @@ internal sealed class ChatSession
                 tier = t.Tier,
                 description = t.Description,
                 enabledByDefault = t.EnabledByDefault,
-                enabled = ProviderSettings.IsToolEnabled(_settings, t.Name, t.EnabledByDefault)
+                enabled = ProviderSettings.IsToolEnabled(_settings, t.Name, t.EnabledByDefault),
+                destructive = t.Destructive || p.Tools.Any(e => e.Destructive && string.Equals(e.Definition.Function.Name, t.Name, StringComparison.OrdinalIgnoreCase))
             }).ToList()
         }).ToList();
         return list;
@@ -216,11 +236,41 @@ internal sealed class ChatSession
         return n;
     }
 
+    /// <summary>
+    /// A message the user sent while the agent works. It reaches the model before its next step. If no turn is
+    /// running there is nothing to steer, so the pane is told to send it as an ordinary message.
+    /// </summary>
+    public void Steer(string text)
+    {
+        var t = (text ?? "").Trim();
+        if (t.Length == 0) return;
+        if (!_isRunning || _agent == null)
+        {
+            _web.Post(new FromHostMessage.SteerAck(t));
+            return;
+        }
+        _agent.Steer(t);
+    }
+
+    private bool IsAlwaysAllowed(string toolName)
+        => _settings.AlwaysAllowTools.Contains(toolName, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Remembers "Always allow" for a tool: saved with the settings, shown and revocable in Settings → Tools.</summary>
+    private void AddAlways(string toolName)
+    {
+        if (IsAlwaysAllowed(toolName)) return;
+        _settings.AlwaysAllowTools = new List<string>(_settings.AlwaysAllowTools) { toolName };
+        try { ProviderSettings.Save(_settings); }
+        catch (Exception ex) { HostLog.Write($"Saving the always-allow list failed: {ex.Message}"); }
+        try { _onUi(() => _web.Post(new FromHostMessage.Settings(ProviderSettings.RedactForWeb(_settings)))); } catch { }
+    }
+
     public void RestoreCheckpoint(List<ChatMessage> msgs) => _agent?.RestoreHistory(msgs);
 
     public void ClearHistory()
     {
         CancelAndDeny();
+        _allow.ClearSession();
         _agent?.ClearHistory();
         try { HistoryStore.Append("system", "Cleared."); } catch { }
     }
@@ -240,6 +290,7 @@ internal sealed class ChatSession
                     return;
                 }
                 _cts?.Cancel();
+                _allow.ClearSession();
                 _agent?.ClearHistory();
                 try { HistoryStore.Append("system", "Cleared."); } catch { }
                 _web.Post(new FromHostMessage.Status("Cleared."));
@@ -367,6 +418,14 @@ internal sealed class ChatSession
             {
                 _turnWrote = false;
                 _turnFailed = false;
+                _turnRolledBack = false;
+                _turnId = Guid.NewGuid().ToString("N").Substring(0, 8);
+                _turnMode = mode;
+                var turnId = _turnId;
+                var turnOutcome = "done";
+                _changes.Reset();
+                TurnChangeTracker.Begin(_changes);
+                try { _onUi(() => _web.Post(new FromHostMessage.TurnStart(turnId, mode, ProviderSettings.LevelOf(_settings)))); } catch { }
                 try
                 {
                     var enrichedText = text;
@@ -376,7 +435,8 @@ internal sealed class ChatSession
                         enrichedText = text + "\n\n" + ctxSnap.ToPromptString(new[] { "selection", "activeView", "warnings" });
                     var userMsg = attachments.Count > 0 ? ChatMessage.FromMultimodal("user", enrichedText, attachments) : ChatMessage.FromText("user", enrichedText);
                     var effectiveMode = mode == "auto" ? null : mode;
-                    agent.AutoApprove = _settings.AutoApprove;
+                    agent.AutoApprove = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass;
+                    agent.CustomInstructions = _settings.Instructions;
                     string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                         ExecuteToolAsync,
                         trace =>
@@ -406,7 +466,9 @@ internal sealed class ChatSession
                     }
                     result = finalStrip.Visible;
 
-                    await FinishTurnGroupAsync(ShouldAssimilateTurn(result));
+                    var assimilate = ShouldAssimilateTurn(result);
+                    if (await FinishTurnGroupAsync(assimilate)) _turnRolledBack = true;
+                    if (assimilate) await ReportChangesAsync(turnId);
 
                     _onUi(() =>
                     {
@@ -432,7 +494,8 @@ internal sealed class ChatSession
                 }
                 catch (OperationCanceledException)
                 {
-                    await FinishTurnGroupAsync(assimilate: false);
+                    turnOutcome = "cancelled";
+                    if (await FinishTurnGroupAsync(assimilate: false)) _turnRolledBack = true;
                     progress.Report(ProgressSnapshot.Cancelled());
                     _onUi(() =>
                     {
@@ -442,16 +505,24 @@ internal sealed class ChatSession
                 }
                 catch (Exception ex)
                 {
-                    await FinishTurnGroupAsync(assimilate: false);
+                    turnOutcome = "error";
+                    if (await FinishTurnGroupAsync(assimilate: false)) _turnRolledBack = true;
                     progress.Report(ProgressSnapshot.Error(ex.Message));
                     _onUi(() => _web.Post(new FromHostMessage.Error(ex.Message)));
                 }
                 finally
                 {
-                    await FinishTurnGroupAsync(assimilate: false);
+                    if (await FinishTurnGroupAsync(assimilate: false)) _turnRolledBack = true;
+                    TurnChangeTracker.End();
                     BuiltinQuota.ClearTicket();
+                    var rolledBack = _turnRolledBack;
+                    var undelivered = agent.DrainUndeliveredSteers();
                     _onUi(() =>
                     {
+                        // Steer messages the turn ended before delivering go back to the pane as ordinary messages.
+                        foreach (var t in undelivered)
+                            try { _web.Post(new FromHostMessage.SteerAck(t)); } catch { }
+                        try { _web.Post(new FromHostMessage.TurnEnd(turnId, turnOutcome, rolledBack ? true : null)); } catch { }
                         _isRunning = false;
                         try { _cts?.Dispose(); _cts = null; } catch { }
                     });
@@ -460,7 +531,32 @@ internal sealed class ChatSession
         });
     }
 
+    /// <summary>
+    /// Runs one tool call for the agent. The gate (ADR-0017) decides first: the call runs, asks the user once in
+    /// chat, or is blocked. Every call is announced to the pane as a tool_start and closed with a tool_end, so the
+    /// transcript shows what happened without parsing text.
+    /// </summary>
     public async Task<string> ExecuteToolAsync(string name, string argsJson)
+    {
+        var callId = Guid.NewGuid().ToString("N").Substring(0, 8);
+        var startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        try
+        {
+            return await ExecuteToolCoreAsync(callId, startedAt, name, argsJson);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The agent loop turns the throw into "Tool error: ..."; the pane gets the matching step end.
+            EndStep(callId, false, "error", $"Tool error: {ex.Message}", startedAt);
+            throw;
+        }
+    }
+
+    private async Task<string> ExecuteToolCoreAsync(string callId, long startedAt, string name, string argsJson)
     {
         if (!_registry.TryGet(name, out var entry))
         {
@@ -468,74 +564,58 @@ internal sealed class ChatSession
                 name,
                 _registry.GetToolDefinitions().Select(d => d.Function.Name).ToList(),
                 _discovered.SelectMany(p => p.Tools.Select(t => (p.Meta.Id, t.Definition.Function.Name))).ToList());
-            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(hint))); } catch { }
-            return hint;
+            StartStep(callId, name, "L1", false, argsJson, startedAt);
+            return EndStep(callId, false, "error", hint, startedAt);
         }
 
-        argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
-        if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var validationError))
-        {
-            var invalid = $"Tool argument error: {validationError}";
-            try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(invalid))); } catch { }
-            return $"Tool argument error: {validationError}";
-        }
+        StartStep(callId, name, entry.Tier.ToString(), entry.Destructive, argsJson, startedAt);
 
-        if (ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
+        var schema = entry.Definition.Function.Parameters;
+        argsJson = ToolArgumentCoercer.Coerce(schema, argsJson);
+        if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var validationError))
+            return EndStep(callId, false, "error", $"Tool argument error: {validationError}", startedAt);
+
+        var decision = GatePolicy.Decide(new GateRequest
         {
-            var preset = await _approvals.AwaitPresetAsync(entry, name, argsJson);
-            if (!preset.approved)
+            Level = ProviderSettings.LevelOf(_settings),
+            Mode = _turnMode,
+            Tier = entry.Tier,
+            Destructive = entry.Destructive,
+            DryRun = ToolPresets.IsDryRun(argsJson),
+            HasPresets = ToolPresets.HasPresets(entry),
+            SessionAllowed = _allow.IsSessionAllowed(name),
+            AlwaysAllowed = IsAlwaysAllowed(name)
+        });
+
+        if (decision == GateDecision.Block)
+            return EndStep(callId, false, "blocked", ReviewText.BlockedResult(name), startedAt);
+
+        var edited = false;
+        if (decision == GateDecision.Ask)
+        {
+            var review = await _approvals.ReviewAsync(
+                callId, entry, name, argsJson, new ReviewContext(App.Bridge is { HasActiveTurnGroup: true }));
+            switch (review.Outcome)
             {
-                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {preset.message}"))); } catch { }
-                MarkTurnFailedIfGroupActive();
-                return preset.message;
-            }
-            argsJson = ToolPresets.Merge(argsJson, preset.valuesJson);
-            argsJson = ToolArgumentCoercer.Coerce(entry.Definition.Function.Parameters, argsJson);
-            if (!ToolArgumentValidator.Validate(entry.Definition.Function.Parameters, argsJson, out argsJson, out var presetValidationError))
-            {
-                var invalid = $"Tool argument error: {presetValidationError}";
-                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult(invalid))); } catch { }
-                return invalid;
-            }
-            // dryRun is read-only, so the write confirm is skipped. Generic arg check, not a tool-name list.
-            if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
-            {
-                var presetSummary = await ToolGuards.DescribeAsync(entry, argsJson);
-                if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, presetSummary))
-                {
-                    const string cancelled = "Cancelled by user.";
-                    try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
+                case ReviewOutcome.Denied:
                     MarkTurnFailedIfGroupActive();
-                    return cancelled;
-                }
-            }
-            else
-            {
-                try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson}"))); } catch { }
-            }
-        }
-        // L3: one host gate — Web approval (TCS) then native TaskDialog. Tools must not dialog.
-        else if (entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson) && !AutoApproveGate.Enabled)
-        {
-            var summary = await ToolGuards.DescribeAsync(entry, argsJson);
-            var denied = await _approvals.AwaitL3WebAsync(entry, name, argsJson, summary);
-            if (denied != null)
-            {
-                MarkTurnFailedIfGroupActive();
-                return denied;
+                    return EndStep(callId, false, "denied", ReviewText.DenyResult(review.Reason), startedAt);
+                case ReviewOutcome.Cancelled:
+                    MarkTurnFailedIfGroupActive();
+                    return EndStep(callId, false, "cancelled", "Cancelled by user.", startedAt);
+                case ReviewOutcome.TimedOut:
+                    MarkTurnFailedIfGroupActive();
+                    return EndStep(callId, false, "timeout", ReviewText.TimeoutResult(), startedAt);
             }
 
-            if (!await _approvals.ConfirmL3NativeAsync(name, argsJson, summary))
-            {
-                const string cancelled = "Cancelled by user.";
-                try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} {cancelled}"))); } catch { }
-                MarkTurnFailedIfGroupActive();
-                return cancelled;
-            }
-        }
-        else
-        {
-            try { _onUi(() => _web.Post(new FromHostMessage.ToolCall($"{name}: {argsJson}"))); } catch { }
+            // The Run form or an edit changed the arguments: check them against the schema again.
+            argsJson = ToolArgumentCoercer.Coerce(schema, review.ArgsJson);
+            if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var reviewedError))
+                return EndStep(callId, false, "error", $"Tool argument error: {reviewedError}", startedAt);
+            edited = review.Edited;
+
+            if (review.Scope == ApprovalScope.Session) _allow.AddSession(name);
+            else if (review.Scope == ApprovalScope.Always) AddAlways(name);
         }
 
         var dryRun = ToolPresets.IsDryRun(argsJson);
@@ -544,7 +624,7 @@ internal sealed class ChatSession
         {
             var bridge = App.Bridge;
             if (bridge == null)
-                return "Please open a model first.";
+                return EndStep(callId, false, "error", "Please open a model first.", startedAt);
             await bridge.EnsureTurnGroupAsync(_cts?.Token ?? default);
         }
 
@@ -567,8 +647,6 @@ internal sealed class ChatSession
             MarkTurnFailedIfGroupActive();
         }
 
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolResult($"{name} result: {result}"))); } catch { }
-
         if (entry.Tier != ToolTier.L1)
         {
             try
@@ -585,7 +663,46 @@ internal sealed class ChatSession
             }
             catch { }
         }
-        return result;
+
+        // The model should know the call did not run exactly as it asked.
+        if (edited)
+            result += $"\n(The user edited the inputs before allowing this call. It ran with: {argsJson})";
+
+        var ok = execution.Status is ToolExecutionStatus.Succeeded or ToolExecutionStatus.Partial;
+        var outcome = execution.Status switch
+        {
+            ToolExecutionStatus.Succeeded or ToolExecutionStatus.Partial => "ran",
+            ToolExecutionStatus.Cancelled => "cancelled",
+            _ => "error"
+        };
+        return EndStep(callId, ok, outcome, result, startedAt, execution.Status == ToolExecutionStatus.Partial);
+    }
+
+    private void StartStep(string callId, string name, string tier, bool destructive, string argsJson, long startedAt)
+    {
+        var turnId = _turnId;
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolStart(turnId, callId, name, tier, destructive, argsJson, startedAt))); } catch { }
+    }
+
+    /// <summary>Closes the step in the pane and returns the text the model reads.</summary>
+    private string EndStep(string callId, bool ok, string outcome, string text, long startedAt, bool partial = false)
+    {
+        var ms = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt);
+        var summary = FirstLine(text, 140);
+        var body = text.Length > 6000 ? text.Substring(0, 6000) + "…" : text;
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolEnd(callId, ok, outcome, summary, body, ms, partial ? true : null))); } catch { }
+        return text;
+    }
+
+    private static string FirstLine(string text, int max)
+    {
+        foreach (var raw in (text ?? "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            return line.Length > max ? line.Substring(0, max - 1) + "…" : line;
+        }
+        return "";
     }
 
     private void MarkTurnFailedIfGroupActive()
@@ -607,21 +724,54 @@ internal sealed class ChatSession
     /// <summary>
     /// Always finishes with <see cref="CancellationToken.None"/> so Cancel cannot
     /// skip rollback. No-op when the group was already assimilated or never started.
+    /// Returns true when it rolled back a group that had started.
     /// </summary>
-    private static async Task FinishTurnGroupAsync(bool assimilate)
+    private static async Task<bool> FinishTurnGroupAsync(bool assimilate)
     {
         var bridge = App.Bridge;
-        if (bridge is not { HasActiveTurnGroup: true }) return;
+        if (bridge is not { HasActiveTurnGroup: true }) return false;
         try
         {
             if (assimilate)
+            {
                 await bridge.AssimilateTurnGroupAsync(CancellationToken.None);
-            else
-                await bridge.RollbackTurnGroupAsync(CancellationToken.None);
+                return false;
+            }
+            await bridge.RollbackTurnGroupAsync(CancellationToken.None);
+            return true;
         }
         catch (Exception ex)
         {
             HostLog.Write($"Turn TransactionGroup finish from HostPage failed: {ex}");
+            return false;
         }
+    }
+
+    /// <summary>
+    /// After a turn is assimilated: post what it changed, and select the added and modified elements when the
+    /// user asked for that. The receipt is what Revit reported, not what the model claimed.
+    /// </summary>
+    private async Task ReportChangesAsync(string turnId)
+    {
+        TurnChangesSnapshot snap;
+        try { snap = _changes.Snapshot(); }
+        catch (Exception ex) { HostLog.Write($"Change snapshot failed: {ex.Message}"); return; }
+        if (snap.IsEmpty) return;
+
+        var payload = snap.ByCategory
+            .Select(c => new FromHostMessage.CategoryChangesPayload(c.Category, c.Added, c.Modified, c.Deleted, c.Ids))
+            .ToList();
+        try
+        {
+            _onUi(() => _web.Post(new FromHostMessage.TurnChanges(
+                turnId, snap.Added, snap.Modified, snap.Deleted, snap.IdsTruncated ? true : null, payload)));
+        }
+        catch { }
+
+        if (!_settings.SelectChangedAfterTurn) return;
+        var ids = snap.AllIds;
+        if (ids.Count == 0) return;
+        try { await ElementActions.SelectAsync(ids.ToList()); }
+        catch (Exception ex) { HostLog.Write($"Selecting changed elements failed: {ex.Message}"); }
     }
 }

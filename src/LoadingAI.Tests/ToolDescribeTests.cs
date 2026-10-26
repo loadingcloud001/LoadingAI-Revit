@@ -106,18 +106,6 @@ public class ToolDescribeTests
     }
 
     [Fact]
-    public void ConfirmBody_PrefersTheSummary()
-        => Assert.Equal("Set 3", ToolGuards.ConfirmBody("Set 3", "{}"));
-
-    [Fact]
-    public void ConfirmBody_FallsBackToTheArguments()
-    {
-        var body = ToolGuards.ConfirmBody(null, """{"a":1}""");
-        Assert.Contains("""{"a":1}""", body);
-        Assert.Contains("undoable transaction", body);
-    }
-
-    [Fact]
     public async Task DescribeAsync_SwallowsAThrow_AndTruncates()
     {
         var thrower = new ToolEntry { Describe = _ => throw new InvalidOperationException("boom") };
@@ -130,18 +118,13 @@ public class ToolDescribeTests
     }
 
     [Fact]
-    public void EveryToolEntryProperty_IsCopiedByOverlayTagsAndApplyConfirm()
+    public void EveryToolEntryProperty_IsCopiedByOverlayTags()
     {
         var loader = Read("src", "LoadingAI", "Plugins", "Core", "PluginLoader.cs");
         var overlay = Slice(loader, "internal static IEnumerable<ToolEntry> OverlayTags", "public static string Classify");
-        var guards = Read("src", "LoadingAI", "Tools", "ToolGuards.cs");
-        var apply = Slice(guards, "public static ToolEntry ApplyConfirm", "public static IEnumerable<ToolEntry> ApplyAll");
 
         foreach (var prop in typeof(ToolEntry).GetProperties().Where(p => p.SetMethod != null))
-        {
             Assert.True(overlay.Contains(prop.Name + " ="), "OverlayTags drops " + prop.Name);
-            Assert.True(apply.Contains(prop.Name + " ="), "ApplyConfirm drops " + prop.Name);
-        }
     }
 
     [Fact]

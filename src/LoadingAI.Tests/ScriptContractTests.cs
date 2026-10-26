@@ -124,7 +124,7 @@ public class ScriptContractTests
     [Fact]
     public void FreeAllowance_IsDescribedInThePane()
     {
-        var tsx = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var tsx = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "settings", "ModelsSection.tsx"));
         Assert.Contains("100 requests per day per device", tsx);
     }
 

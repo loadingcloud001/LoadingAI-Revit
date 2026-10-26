@@ -1,6 +1,6 @@
 # ADR-0004 — Host-owned L3 confirm
 
-- Status: Accepted
+- Status: Superseded by [ADR-0017](0017-single-in-chat-review-and-permission-levels.md)
 - Date: 2026-09-19
 - Deciders: LoadingAI architecture
 - Extends: [ADR-0002](0002-plugin-shelf-bridge-first.md)

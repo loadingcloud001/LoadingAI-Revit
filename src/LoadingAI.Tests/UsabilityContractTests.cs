@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using LoadingAI.Llm;
 using Xunit;
 
@@ -18,73 +19,86 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void HostPage_L3NativeConfirm_AppliesToEveryL3Tool()
+    public void Gate_AppliesToEveryL3Tool_ByTierNotByName()
     {
         var src = UiSrc();
         Assert.DoesNotContain("name is \"delete_elements\" or \"move_elements\"", src);
-        Assert.Contains("Confirm L3:", src);
+        Assert.DoesNotContain("Confirm L3:", src);
+        Assert.Contains("GatePolicy.Decide(", src);
+        Assert.Contains("_approvals.ReviewAsync(", src);
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        Assert.Contains("r.Tier == ToolTier.L1", policy);
+        Assert.DoesNotContain("delete_elements", policy);
     }
 
     [Fact]
-    public void HostPage_SkipsL3ConfirmForDryRun_ViaGenericArgCheck()
+    public void Gate_SkipsTheCardForDryRun_ViaGenericArgCheck()
     {
         var src = UiSrc();
 
-        // Both the preset branch and the non-preset L3 branch must honour dryRun.
-        Assert.Equal(2, CountOccurrences(src, "entry.Tier == ToolTier.L3 && !ToolPresets.IsDryRun(argsJson)"));
-        Assert.Contains("ToolPresets.IsDryRun", src, StringComparison.Ordinal);
-
-        // A generic merged-JSON check, not a tool-name allowlist.
+        // The dry-run test is the shared merged-JSON helper, not a tool-name allowlist.
+        Assert.Contains("DryRun = ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
         foreach (var name in new[] { "split_beams_by_columns", "split_floors_by_beams", "split_by_levels", "split_by_grids" })
             Assert.DoesNotContain(name, src, StringComparison.Ordinal);
 
-        // The native confirm itself is unchanged and still the single L3 gate.
-        Assert.Contains("ConfirmL3NativeAsync", src, StringComparison.Ordinal);
-        Assert.Contains("Confirm L3:", src, StringComparison.Ordinal);
-        Assert.Equal(3, CountOccurrences(src, "!AutoApproveGate.Enabled"));
+        // The policy runs a dry run at every level, before it looks at the level.
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        var dry = policy.IndexOf("if (r.DryRun) return GateDecision.Run;", StringComparison.Ordinal);
+        var level = policy.IndexOf("PermissionLevels.EffectiveFor", StringComparison.Ordinal);
+        Assert.True(dry >= 0 && dry < level);
 
-        // Dry-run already skips L3 TaskDialog; it must also skip the Confirm-options preset form.
-        Assert.Contains("ToolPresets.HasPresets(entry) && !ToolPresets.IsDryRun(argsJson)", src, StringComparison.Ordinal);
-        Assert.Contains("ToolPresets.HasPresets(entry)", src, StringComparison.Ordinal);
+        // A dry run never opens the turn group: only a real L2 or L3 write does.
+        Assert.Contains("entry.Tier == ToolTier.L3 && !dryRun", src, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void WebPane_StopAndClearUnmountTheRunPanel_AndBlockALateConfirm()
+    public void WebPane_StopAndClearUnmountTheReviewCard_AndBlockALateConfirm()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var reducer = WebFile("state", "reducer.ts");
 
-        // Review Focus 4. Stop and Clear must take the Run panel away. The panel only mounts while
-        // a preset is pending, so clearing the pending preset unmounts Cancel/Confirm with it.
-        Assert.Matches(@"const handleStop = [^\n]*setPendingPreset\(null\)", src);
-        Assert.Matches(@"const handleClear = [^\n]*setPendingPreset\(null\)", src);
-        Assert.Contains("{pendingPreset && (() => {", src, StringComparison.Ordinal);
+        // Review Focus 4. Stop and Clear must take the review card away. The card only mounts while
+        // a review is pending, so clearing the pending review unmounts Cancel/Confirm with it.
+        Assert.Contains("case 'stop': return finishTurn(s, 'cancelled');", reducer, StringComparison.Ordinal);
+        Assert.Contains("pendingReview: null", PaneSlice(reducer, "function finishTurn(", "function plainTodos("), StringComparison.Ordinal);
+        Assert.Contains("pendingReview: null", PaneSlice(reducer, "case 'clear': {", "case 'settingsLocal'"), StringComparison.Ordinal);
+        Assert.Contains("{reviewStep && pending && (", WebFile("chat", "Turn.tsx"), StringComparison.Ordinal);
 
         // And a confirm arriving after either is a no-op rather than a submission.
-        var submit = PaneSlice(src, "const handleSubmitPreset = (approved: boolean) => {", "const handlePresetPick =");
-        Assert.Contains("if (!pendingPreset) return;", submit, StringComparison.Ordinal);
+        var submit = PaneSlice(WebFile("state", "usePane.ts"), "const submitPreset = useCallback(", "const pick = useCallback(");
+        Assert.Contains("if (!pending) return;", submit, StringComparison.Ordinal);
 
-        // ADR-014: the interactive form must not live in the transcript any more. A receipt card
-        // that still bound setPresetValues would be a second, unpinned confirm surface.
-        var transcriptCard = PaneSlice(src, "if (m.role === 'preset' && m.preset) {", "if (m.role === 'approval' && m.approval) {");
-        Assert.DoesNotContain("setPresetValues", transcriptCard, StringComparison.Ordinal);
-        Assert.DoesNotContain("handleSubmitPreset", transcriptCard, StringComparison.Ordinal);
+        // ADR-014: one confirm surface. Only the review card may submit a Run form.
+        foreach (var file in Directory.GetFiles(Path.Combine(RepoRoot(), "web", "src"), "*.tsx", SearchOption.AllDirectories))
+        {
+            if (Path.GetFileName(file) == "ReviewCard.tsx") continue;
+            Assert.DoesNotContain("onSubmitPreset(true", File.ReadAllText(file), StringComparison.Ordinal);
+        }
     }
 
     [Fact]
-    public void WebPane_RunPanelReadsLiveValues_NotOnlyTheHostSnapshot()
+    public void WebPane_ReviewCardReadsLiveValues_NotOnlyTheHostSnapshot()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        var panel = PaneSlice(src, "{pendingPreset && (() => {", "ref={composerRef}");
+        var card = WebFile("chat", "ReviewCard.tsx");
+        var form = card.Substring(card.IndexOf("function PresetForm(", StringComparison.Ordinal));
 
         // The summary above the form is what a person confirms against. It has to follow the form,
         // or it can read "delete off" over a checked Delete box.
-        Assert.Contains("previewRows(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
-        Assert.Contains("previewWarnings(pendingPreset, presetValues)", panel, StringComparison.Ordinal);
+        Assert.Contains("previewRows(preset, values)", form, StringComparison.Ordinal);
+        Assert.Contains("previewWarnings(preset, values)", form, StringComparison.Ordinal);
 
         // Long forms (structure-cuts ships a seven-knob form) must not push Cancel/Confirm/Stop out
         // of reach on a docked pane.
-        Assert.Contains("overflowY", panel, StringComparison.Ordinal);
+        Assert.Contains("overflowY", form, StringComparison.Ordinal);
     }
+
+    private static string WebFile(params string[] parts)
+        => File.ReadAllText(Path.Combine(new[] { RepoRoot(), "web", "src" }.Concat(parts).ToArray()));
+
+    // Every non-test source file of the pane, for checks that do not care which file holds a string.
+    private static string WebSrc()
+        => string.Join("\n", Directory.GetFiles(Path.Combine(RepoRoot(), "web", "src"), "*.*", SearchOption.AllDirectories)
+            .Where(f => (f.EndsWith(".ts") || f.EndsWith(".tsx")) && !f.EndsWith(".test.ts"))
+            .Select(File.ReadAllText));
 
     private static string PaneSlice(string src, string start, string end)
     {
@@ -96,11 +110,12 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void ToolGuards_SkipsL3_HostOwnsTheGate()
+    public void ToolGuards_HasNoGate_HostOwnsIt()
     {
         var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("entry.Tier == ToolTier.L3", src);
-        Assert.Equal(2, CountOccurrences(src, "if (AutoApproveGate.Enabled)"));
+        Assert.DoesNotContain("AutoApproveGate", src);
+        Assert.DoesNotContain("TaskDialog", src);
+        Assert.Contains("DescribeAsync", src);
     }
 
     [Fact]
@@ -114,13 +129,17 @@ public class UsabilityContractTests
         Assert.DoesNotContain("FailureResolutionType.DeleteElements", failures);
         Assert.DoesNotContain("FailureResolutionType.CreateElements", failures);
         var session = UiSrc();
-        Assert.Contains("agent.AutoApprove = _settings.AutoApprove", session);
+        Assert.Contains("agent.AutoApprove = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass", session);
         Assert.DoesNotContain("GetProperty(\"autoApprove\")", session);
         var app = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "App.cs"));
         Assert.Contains("FailuresProcessing += AutoApproveFailures.OnFailures", app);
-        var pane = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        Assert.Contains("Auto-approve on", pane);
-        Assert.Contains("window.confirm", pane);
+        // The pane switch is Bypass: it asks once in the pane, and a stored level never restores it.
+        var permissions = WebFile("lib", "permissions.ts");
+        Assert.Contains("return level === 'bypass';", permissions);
+        Assert.Contains("if (!pick || pick.id === 'bypass') return DEFAULT_LEVEL;", permissions);
+        var pane = WebFile("App.tsx");
+        Assert.Contains("Turn on {info.label}", pane);
+        Assert.DoesNotContain("window.confirm", WebSrc());
     }
 
     [Fact]
@@ -139,31 +158,34 @@ public class UsabilityContractTests
     }
 
     [Fact]
-    public void ToolGuards_SkipsL2WrapWhenPresetsExist()
+    public void Gate_NeverAllowListsAToolThatHasARunForm()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("ToolPresets.HasPresets(entry)", src);
-        Assert.Contains("Presets = entry.Presets", src);
+        var policy = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Gate", "GatePolicy.cs"));
+        Assert.Contains("!r.HasPresets", policy);
+        Assert.Contains("!r.Destructive", policy);
+        var gate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
+        Assert.Contains("Plain = !ToolPresets.HasPresets(entry);", gate);
+        Assert.Contains("GatePolicy.CanOfferAlways(Entry.Destructive, !Plain)", gate);
     }
 
     [Fact]
-    public void HostPage_PresetMessages_SkipL3WebCardKeepNativeConfirm()
+    public void HostPage_PresetMessages_UseTheSingleReviewCard()
     {
         var src = UiSrc();
         var protocol = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Protocol", "HostProtocol.cs"));
-        Assert.Contains("new FromHostMessage.ToolPreset", src);
+        Assert.Contains("new FromHostMessage.ToolReview", src);
         Assert.Contains("ToHostMessage.SubmitPreset", src);
         Assert.Contains("ToHostMessage.PresetPick", src);
         Assert.Contains("FromHostMessage.PresetPickResult", src);
-        Assert.Contains("FromHostKind.ToolPreset", protocol);
+        Assert.Contains("FromHostKind.ToolReview", protocol);
         Assert.Contains("SubmitPreset = \"submitPreset\"", protocol);
         Assert.Contains("PresetPick = \"presetPick\"", protocol);
-        Assert.Contains("ConfirmL3NativeAsync", src);
-        Assert.Contains("Confirm L3:", src);
         Assert.Contains("ToolPresets.HasPresets(entry)", src);
         Assert.Contains("DenyAllPending", src);
-        var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("Chat preset form is the confirm", guards);
+        // ADR-0017: one card, no second surface. The old two-step posts and the native dialog are gone.
+        Assert.DoesNotContain("new FromHostMessage.ToolPreset", src);
+        Assert.DoesNotContain("new FromHostMessage.ToolApproval", src);
+        Assert.DoesNotContain("Confirm L3:", src);
     }
 
     [Fact]
@@ -178,12 +200,12 @@ public class UsabilityContractTests
         Assert.DoesNotContain("PickObjects", bridge);
         Assert.DoesNotContain("PickBox", bridge);
         Assert.DoesNotContain("Preset", bridge);
-        var web = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
-        Assert.Contains("submitPreset", web);
-        Assert.Contains("presetPick", web);
-        Assert.Contains("Confirm", web);
-        Assert.Contains("setPendingPreset(cur =>", web);
-        Assert.Contains("text.includes(cur.toolName)", web);
+        var pane = WebFile("state", "usePane.ts");
+        Assert.Contains("type: 'submitPreset'", pane);
+        Assert.Contains("type: 'presetPick'", pane);
+        Assert.Contains("Pick in Revit", WebFile("chat", "ReviewCard.tsx"));
+        // A tool result for the reviewed step closes its card.
+        Assert.Contains("s1.pendingReview.stepId === target.id", WebFile("state", "reducer.ts"));
     }
 
     [Fact]
@@ -227,10 +249,10 @@ public class UsabilityContractTests
     [Fact]
     public void GearChrome_HostsPluginToggles()
     {
-        var app = File.ReadAllText(Path.Combine(RepoRoot(), "web", "src", "App.tsx"));
+        var app = WebSrc();
         Assert.Contains("PluginShelf", app);
         Assert.Contains("listPlugins", app);
-        Assert.Contains("type === 'plugins'", app);
+        Assert.Contains("case 'plugins'", app);
         Assert.Contains("isBuiltinProvider(activeProvider", app);
         Assert.DoesNotContain("MiniMax", app);
         Assert.DoesNotContain("minimaxi", app);
@@ -268,8 +290,8 @@ public class UsabilityContractTests
         Assert.Contains("type: 'progress'", bridge);
         Assert.Contains("ProgressPayload", bridge);
         var app = File.ReadAllText(Path.Combine(root, "web", "src", "App.tsx"));
-        Assert.Contains("function ProgressBar", app);
-        Assert.Contains("msg.type === 'progress'", app);
+        Assert.Contains("status-bar", app);
+        Assert.Contains("case 'progress'", File.ReadAllText(Path.Combine(root, "web", "src", "state", "reducer.ts")));
     }
 
     [Fact]

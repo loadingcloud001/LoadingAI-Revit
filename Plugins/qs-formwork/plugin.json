@@ -31,6 +31,7 @@
       "tier": "L3",
       "description": "Report or delete formwork panels. Params: action (stats, delete_all, delete_by_type, cleanup_orphans), faceType for delete_by_type.",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "structure",
         "write"

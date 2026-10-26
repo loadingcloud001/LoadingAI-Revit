@@ -71,26 +71,30 @@ public class ApprovalSummaryTests
     }
 
     [Fact]
-    public void ChatSession_DescribesBeforeBothL3Gates()
+    public void ApprovalGate_DescribesBeforeAskingTheUser()
     {
-        var src = File.ReadAllText(Path.Combine(AdapterSource.RepoRoot(), "src", "LoadingAI", "Ui", "ChatSession.cs"));
-        var method = src.Substring(src.IndexOf("public async Task<string> ExecuteToolAsync", StringComparison.Ordinal));
+        var gate = File.ReadAllText(Path.Combine(AdapterSource.RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
+        var build = gate.Substring(gate.IndexOf("BuildPayloadAsync(PendingReview p", StringComparison.Ordinal));
+        build = build.Substring(0, build.IndexOf("public async Task RunPresetPickAsync", StringComparison.Ordinal));
 
-        var plainDescribe = method.IndexOf("var summary = await ToolGuards.DescribeAsync(entry, argsJson);", StringComparison.Ordinal);
-        var web = method.IndexOf("AwaitL3WebAsync(entry, name, argsJson, summary)", StringComparison.Ordinal);
-        Assert.True(plainDescribe >= 0 && web > plainDescribe);
-
-        Assert.Contains("ConfirmL3NativeAsync(name, argsJson, summary)", method);
-        Assert.Contains("ConfirmL3NativeAsync(name, argsJson, presetSummary)", method);
+        var describe = build.IndexOf("ToolGuards.DescribeAsync(entry, p.ArgsJson)", StringComparison.Ordinal);
+        var payload = build.IndexOf("return new FromHostMessage.ReviewPayload(", StringComparison.Ordinal);
+        Assert.True(describe >= 0 && payload > describe);
+        Assert.Matches(@"summary,\s+rows,", build);
     }
 
     [Fact]
-    public void ApprovalGate_PutsTheSummaryInBothDialogs()
+    public void ApprovalGate_RebuildsTheSummaryFromTheEditedArguments()
     {
         var gate = File.ReadAllText(Path.Combine(AdapterSource.RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
-        Assert.Contains("AwaitL3WebAsync(ToolEntry entry, string name, string argsJson, string? summary = null)", gate);
-        Assert.Contains("entry.Definition.Function.Description, summary)", gate);
-        Assert.Contains("ConfirmL3NativeAsync(string name, string argsJson, string? summary = null)", gate);
-        Assert.Contains("string.IsNullOrWhiteSpace(summary)", gate);
+        var edit = gate.Substring(gate.IndexOf("public async Task ApplyEditAsync", StringComparison.Ordinal));
+        edit = edit.Substring(0, edit.IndexOf("public async Task<ReviewResult> ReviewAsync", StringComparison.Ordinal));
+
+        // New arguments are checked against the tool's schema first; the card is then rebuilt from them,
+        // which describes the call again, and the wait stays open until Allow or Deny.
+        Assert.Contains("ToolArgumentValidator.Validate(schema, coerced", edit);
+        Assert.Contains("p.ArgsJson = normalized;", edit);
+        Assert.Contains("PostReviewAsync(p, null)", edit);
+        Assert.DoesNotContain("TrySetResult", edit);
     }
 }

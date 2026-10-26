@@ -1,12 +1,13 @@
-using Autodesk.Revit.UI;
 using LoadingAI.Llm;
-using LoadingAI.Revit;
 
 namespace LoadingAI.Tools;
 
+/// <summary>
+/// The native "Run X?" dialog this class used to add to L2 tools is gone (ADR-0017): the host asks once, in
+/// chat, through <c>ApprovalGate</c>. What remains is the read-only summary a card shows.
+/// </summary>
 public static class ToolGuards
 {
-    private const int ArgsPreviewChars = 400;
     private const int SummaryChars = 1200;
 
     /// <summary>
@@ -28,74 +29,4 @@ public static class ToolGuards
             return null;
         }
     }
-
-    /// <summary>Dialog body for the generic L2 confirm: the tool's summary, else the arguments.</summary>
-    public static string ConfirmBody(string? summary, string argsJson)
-    {
-        if (!string.IsNullOrWhiteSpace(summary)) return summary!;
-        var preview = argsJson.Length > ArgsPreviewChars ? argsJson.Substring(0, ArgsPreviewChars) + "..." : argsJson;
-        return preview + "\n\nThis will create an undoable transaction.";
-    }
-
-    public static ToolEntry ApplyConfirm(ToolEntry entry, RevitBridge bridge)
-    {
-        if (entry.Tier == ToolTier.L1 || entry.Tier == ToolTier.L3 || entry.RequiresWriteConfirm)
-            return entry;
-        // Chat preset form is the confirm; do not add a second TaskDialog.
-        if (ToolPresets.HasPresets(entry))
-            return entry;
-
-        var inner = entry.Handler;
-        var structured = entry.StructuredHandler;
-        var name = entry.Definition.Function.Name;
-        return new ToolEntry
-        {
-            Definition = entry.Definition,
-            Tier = entry.Tier,
-            RequiresWriteConfirm = true,
-            Presets = entry.Presets,
-            Tags = entry.Tags,
-            Describe = entry.Describe,
-            Handler = async json =>
-            {
-                if (AutoApproveGate.Enabled) return await inner(json);
-                var body = ConfirmBody(await DescribeAsync(entry, json), json);
-                bool ok = await bridge.RunAsync(uiApp =>
-                {
-                    var td = new TaskDialog("LoadingAI for Revit")
-                    {
-                        MainInstruction = $"Run {name}?",
-                        MainContent = body,
-                        CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                        DefaultButton = TaskDialogResult.No
-                    };
-                    return td.Show() == TaskDialogResult.Yes;
-                }, RevitBridge.UserDialogTimeout);
-                if (!ok) return "Cancelled by user.";
-                return await inner(json);
-            },
-            StructuredHandler = structured == null
-                ? null
-                : async argsJson =>
-                {
-                    if (AutoApproveGate.Enabled) return await structured(argsJson);
-                    var body = ConfirmBody(await DescribeAsync(entry, argsJson), argsJson);
-                    bool ok = await bridge.RunAsync(uiApp =>
-                    {
-                        var td = new TaskDialog("LoadingAI for Revit")
-                        {
-                            MainInstruction = $"Run {name}?",
-                            MainContent = body,
-                            CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                            DefaultButton = TaskDialogResult.No
-                        };
-                        return td.Show() == TaskDialogResult.Yes;
-                    }, RevitBridge.UserDialogTimeout);
-                    if (!ok) return ToolExecutionResult.Cancelled("Cancelled by user.");
-                    return await structured(argsJson);
-                }
-        };
-    }
-    public static IEnumerable<ToolEntry> ApplyAll(IEnumerable<ToolEntry> entries, RevitBridge bridge)
-        => entries.Select(e => ApplyConfirm(e, bridge));
 }

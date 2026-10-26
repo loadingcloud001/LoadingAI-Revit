@@ -11,9 +11,9 @@ namespace LoadingAI.Tests;
 public class HostProtocolTests
 {
     [Fact]
-    public void TryParse_AllTwentyOneToHostKinds()
+    public void TryParse_EveryToHostKind()
     {
-        Assert.Equal(21, ToHostKind.All.Count);
+        Assert.Equal(25, ToHostKind.All.Count);
 
         Assert.True(ToHostMessage.TryParse("""{"type":"send","text":"hi","mode":"plan","slash":"/plan","mentions":["Selection"]}""", out var send, out var err));
         Assert.Null(err);
@@ -50,6 +50,7 @@ public class HostProtocolTests
         var approve = Assert.IsType<ToHostMessage.ApproveTool>(ap);
         Assert.Equal("abc", approve.ToolCallId);
         Assert.True(approve.Approved);
+        Assert.Null(approve.Scope);
 
         Assert.True(ToHostMessage.TryParse("""{"type":"submitPreset","toolCallId":"p1","approved":false,"values":{"a":1}}""", out var sub, out err));
         var preset = Assert.IsType<ToHostMessage.SubmitPreset>(sub);
@@ -158,7 +159,7 @@ public class HostProtocolTests
             Assert.Contains($"type: '{kind}'", toHost);
         foreach (var kind in FromHostKind.All)
             Assert.Contains($"type: '{kind}'", fromHost);
-        Assert.Equal(21, CountOccurrences(toHost, "type: '"));
+        Assert.Equal(ToHostKind.All.Count, CountOccurrences(toHost, "type: '"));
         Assert.Equal(FromHostKind.All.Count, CountOccurrences(fromHost, "type: '"));
     }
 
@@ -171,19 +172,19 @@ public class HostProtocolTests
         Assert.DoesNotContain("case \"send\"", host);
         Assert.DoesNotContain("case \"submitPreset\"", host);
         Assert.Contains("ToHostMessage.SubmitPreset", host);
-        Assert.Contains("Confirm L3:", ui);
-        Assert.Contains("new FromHostMessage.ToolPreset", ui);
+        Assert.DoesNotContain("Confirm L3:", ui);
+        Assert.Contains("new FromHostMessage.ToolReview", ui);
         Assert.Contains("FromHostMessage.PresetPickResult", ui);
         var protocol = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Protocol", "HostProtocol.cs"));
-        Assert.Contains("FromHostKind.ToolPreset", protocol);
+        Assert.Contains("FromHostKind.ToolReview", protocol);
         foreach (var kind in FromHostKind.All)
             Assert.Contains($"\"{kind}\"", ui + File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI.Core", "Protocol", "HostProtocol.cs")));
     }
 
     [Fact]
-    public void FromHostMessage_SerializesAllTwentyFourKinds()
+    public void FromHostMessage_SerializesEveryKind()
     {
-        Assert.Equal(24, FromHostKind.All.Count);
+        Assert.Equal(33, FromHostKind.All.Count);
         var messages = new FromHostMessage[]
         {
             new FromHostMessage.Status("s"),
@@ -210,6 +211,17 @@ public class HostProtocolTests
             new FromHostMessage.History(Array.Empty<FromHostMessage.HistoryMessage>()),
             new FromHostMessage.Error("e"),
             new FromHostMessage.Delta("d"),
+            new FromHostMessage.HostCaps(new[] { "singleGate" }),
+            new FromHostMessage.Theme(true),
+            new FromHostMessage.TurnStart("t1", "build", "confirm"),
+            new FromHostMessage.TurnEnd("t1", "done"),
+            new FromHostMessage.ToolStart("t1", "c1", "tool", "L2", false, "{}", 1),
+            new FromHostMessage.ToolEnd("c1", true, "ran", "ok", "ok", 5),
+            new FromHostMessage.ToolReview(new FromHostMessage.ReviewPayload(
+                "c1", "tool", "L3", false, "d", "Run tool", Array.Empty<FromHostMessage.PreviewRowPayload>(),
+                Array.Empty<string>(), true, true, "{}")),
+            new FromHostMessage.TurnChanges("t1", 1, 0, 0, null, Array.Empty<FromHostMessage.CategoryChangesPayload>()),
+            new FromHostMessage.SteerAck("go on"),
         };
         Assert.Equal(FromHostKind.All.Count, messages.Length);
         var types = new HashSet<string>();

@@ -13,11 +13,14 @@ public class PluginHandlerContractTests
     }
 
     [Fact]
-    public void ApplyConfirm_PreservesStructuredHandler()
+    public void PluginTools_AreNotWrappedByAnyDialog_TheirHandlersRunAsWritten()
     {
-        var src = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Contains("StructuredHandler =", src);
-        Assert.Contains("await structured(argsJson)", src);
+        // ADR-0017: the host asks once, in chat, before the handler is called. Nothing wraps a handler.
+        var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
+        Assert.DoesNotContain("Handler =", guards);
+        Assert.DoesNotContain("TaskDialog", guards);
+        var loader = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Plugins", "Core", "PluginLoader.cs"));
+        Assert.DoesNotContain("ToolGuards.Apply", loader);
     }
 
     private static string RepoRoot()

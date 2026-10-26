@@ -1,9 +1,8 @@
+import { useState } from 'react';
 import { PluginInfo, PluginLoadIssue, postToHost } from '../bridge';
 import { copyText } from '../lib/clipboard';
+import { Icon } from '../ui/Icon';
 import { canTrust, diagnostics, groupAriaLabel, issueLines, sourceBadge, splitIssues, toolAriaLabel, verifiedLabel } from './pluginView';
-
-const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 8px', borderBottom: '1px solid #ececec', fontSize: 12 } as const;
-const btn = 'px-2 py-1 border bg-white text-[11px]';
 
 function tierStats(plugins: PluginInfo[], tier: string) {
   const tools = plugins.flatMap(p => p.tools).filter(t => t.tier === tier);
@@ -11,116 +10,121 @@ function tierStats(plugins: PluginInfo[], tier: string) {
   return { total: tools.length, on, allOn: tools.length > 0 && on === tools.length };
 }
 
-export function PluginShelf({ plugins, loadIssues = [] }: { plugins: PluginInfo[]; loadIssues?: PluginLoadIssue[] }) {
+/**
+ * Tool switches (view 'tools') and plugin health (view 'plugins'). Ticks post straight to the
+ * host; there is no Save step.
+ */
+export function PluginShelf({ plugins, loadIssues = [], view = 'tools' }: { plugins: PluginInfo[]; loadIssues?: PluginLoadIssue[]; view?: 'tools' | 'plugins' }) {
+  const [filter, setFilter] = useState('');
+  const [copied, setCopied] = useState(false);
+  const { failures, notices } = splitIssues(loadIssues);
+
   if ((!plugins || plugins.length === 0) && loadIssues.length === 0) {
     return (
-      <div style={{ padding: 8, fontSize: 11, color: '#6a6a6a' }}>
-        No plugins. Core tools should appear after restart.
-        <button type="button" className={`${btn} ml-2`} onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
+      <div className="muted" style={{ fontSize: 12 }}>
+        No plugins found. Core tools appear after a restart.
+        <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
       </div>
     );
   }
 
-  const { failures, notices } = splitIssues(loadIssues);
+  if (view === 'plugins') {
+    return (
+      <div>
+        <div className="row" style={{ marginBottom: 8 }}>
+          <span className="muted grow">{plugins.length} loaded{failures.length ? ` · ${failures.length} failed to load` : ''}</span>
+          <button type="button" className="btn btn-sm" onClick={() => postToHost({ type: 'reloadPlugins' })}><Icon name="refresh" size={12} />Rescan</button>
+          <button type="button" className="btn btn-sm" onClick={async () => { setCopied(await copyText(diagnostics(plugins, loadIssues))); window.setTimeout(() => setCopied(false), 1200); }}><Icon name="copy" size={12} />{copied ? 'Copied' : 'Copy diagnostics'}</button>
+        </div>
+        {failures.map((issue, i) => (
+          <div key={`${issue.pluginId || issue.folder}-${i}`} className="issue">
+            <div style={{ fontWeight: 600 }}>{issue.pluginId || issue.folder} failed to load</div>
+            <div>{issue.summary}{issue.hint ? ` — ${issue.hint}` : ''}</div>
+            {canTrust(issue) && (
+              <button type="button" className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => postToHost({ type: 'trustPlugin', folder: issue.folder, assembly: issue.assembly })}>
+                Trust this plugin…
+              </button>
+            )}
+            <details>
+              <summary style={{ cursor: 'pointer', fontSize: 11.5 }}>Details</summary>
+              {issueLines(issue).map((line, j) => <div key={j} className="mono" style={{ fontSize: 10.5, wordBreak: 'break-all' }}>{line}</div>)}
+            </details>
+          </div>
+        ))}
+        {notices.map((issue, i) => (
+          <div key={`${issue.pluginId || issue.folder}-n${i}`} className="note" style={{ margin: '0 0 6px', padding: 0 }}>
+            <b style={{ color: 'var(--text)' }}>{issue.pluginId || issue.folder}</b>: {issue.summary}. {issue.detail}
+          </div>
+        ))}
+        <div className="list">
+          {plugins.map(p => {
+            const badge = sourceBadge(p);
+            return (
+              <div key={p.id} className="list-row">
+                <div className="grow">
+                  <div className="truncate">{p.name} <span className="faint mono" style={{ fontSize: 10.5 }}>{p.id} {p.version}</span></div>
+                  <div style={{ fontSize: 11 }} className={badge.tone === 'ok' ? 'tone-ok' : 'tone-change'}>{badge.label} · {verifiedLabel(p)} · {p.tools.length} tools</div>
+                </div>
+                {p.removable && <button type="button" className="btn btn-sm" onClick={() => postToHost({ type: 'removePlugin', pluginId: p.id })}>Remove</button>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   const total = plugins.reduce((n, p) => n + p.tools.length, 0);
   const on = plugins.reduce((n, p) => n + p.tools.filter(t => t.enabled).length, 0);
-  const l1 = tierStats(plugins, 'L1');
-  const l2 = tierStats(plugins, 'L2');
-  const l3 = tierStats(plugins, 'L3');
+  const tiers = (['L1', 'L2', 'L3'] as const).map(tier => ({ tier, ...tierStats(plugins, tier) }));
   const l3On = plugins.flatMap(p => p.tools).filter(t => t.tier === 'L3' && t.enabled).map(t => t.name);
-
-  const toggleTier = (tier: string, allOn: boolean) =>
-    postToHost({ type: 'setPluginTierEnabled', tier, enabled: !allOn });
+  const f = filter.toLowerCase().trim();
+  const toggleTier = (tier: string, allOn: boolean) => postToHost({ type: 'setPluginTierEnabled', tier, enabled: !allOn });
 
   return (
     <div>
-      <div className="px-2 py-1.5 text-[11px] flex items-center gap-2" style={{ borderBottom: '1px solid #d0d0d0' }}>
-        <span className="font-semibold">Tools</span>
-        <span className="text-[10px] text-muted-foreground">{on}/{total} on</span>
-        <span className="flex-1" />
-        <button type="button" className={btn} onClick={() => postToHost({ type: 'reloadPlugins' })}>Rescan</button>
-        <button type="button" className={btn} onClick={() => { void copyText(diagnostics(plugins, loadIssues)); }}>Copy diagnostics</button>
+      <div className="row" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+        <span className="muted">{on}/{total} on</span>
+        <span className="grow" />
+        {tiers.map(t => (
+          <button key={t.tier} type="button" className={`btn btn-sm ${t.tier === 'L3' ? 'tone-change' : ''}`} onClick={() => toggleTier(t.tier, t.allOn)} title={`${t.allOn ? 'Switch off' : 'Switch on'} every ${t.tier} tool`}>
+            {t.tier} {t.on}/{t.total} · {t.allOn ? 'all off' : 'all on'}
+          </button>
+        ))}
       </div>
-      <div className="px-2 py-1.5 flex flex-wrap gap-1" style={{ borderBottom: '1px solid #d0d0d0' }}>
-        <button type="button" className={btn} onClick={() => toggleTier('L1', l1.allOn)}>L1 {l1.allOn ? 'all off' : 'all on'} · {l1.on}/{l1.total}</button>
-        <button type="button" className={btn} onClick={() => toggleTier('L2', l2.allOn)}>L2 {l2.allOn ? 'all off' : 'all on'} · {l2.on}/{l2.total}</button>
-        <button type="button" className={btn} style={{ color: '#8a1f11' }} onClick={() => toggleTier('L3', l3.allOn)}>L3 {l3.allOn ? 'all off' : 'all on'} · {l3.on}/{l3.total}</button>
+      <div className="faint" style={{ fontSize: 11.5, marginBottom: 6 }}>
+        Switches apply to chat immediately. L1 reads, L2 changes parameters and views, L3 deletes, moves, creates or saves.{' '}
+        {l3On.length > 0 ? <span className="tone-change">L3 on ({l3On.length}): {l3On.slice(0, 6).join(', ')}{l3On.length > 6 ? '…' : ''}.</span> : 'L3 (delete/move/create/save) is off by default.'}
       </div>
-      <div className="px-2 py-1 text-[10px]" style={{ color: '#6a6a6a', borderBottom: '1px solid #ececec' }}>
-        Ticks apply to chat immediately. {l3On.length > 0 ? `L3 on (${l3On.length}): ${l3On.slice(0, 8).join(', ')}${l3On.length > 8 ? '…' : ''}.` : 'L3 (delete/move/create/save) default off.'}
-      </div>
-      {failures.length > 0 && (
-        <div className="px-2 py-1.5 text-[11px]" style={{ color: '#8a1f11', background: '#fff8f6', borderBottom: '1px solid #d0d0d0' }}>
-          {failures.map((issue, i) => (
-            <div key={`${issue.pluginId || issue.folder}-${i}`} className="mb-1 last:mb-0">
-              <div className="font-semibold">{issue.pluginId || issue.folder} failed to load</div>
-              <div>{issue.summary}{issue.hint ? ` — ${issue.hint}` : ''}</div>
-              {canTrust(issue) && (
-                <button
-                  type="button"
-                  className={`${btn} mt-1`}
-                  onClick={() => postToHost({ type: 'trustPlugin', folder: issue.folder, assembly: issue.assembly })}
-                >
-                  Trust this plugin…
-                </button>
-              )}
-              <details className="mt-1">
-                <summary className="cursor-pointer text-[10px]">Details</summary>
-                {issueLines(issue).map((line, j) => <div key={j} className="font-mono text-[10px] break-all">{line}</div>)}
-              </details>
-            </div>
-          ))}
-        </div>
-      )}
-      {notices.length > 0 && (
-        <div className="px-2 py-1.5 text-[11px]" style={{ color: '#5c5c5c', background: '#f7f7f7', borderBottom: '1px solid #d0d0d0' }}>
-          {notices.map((issue, i) => (
-            <div key={`${issue.pluginId || issue.folder}-n${i}`} className="mb-1 last:mb-0">
-              <span className="font-semibold">{issue.pluginId || issue.folder}</span>: {issue.summary}. {issue.detail}
-            </div>
-          ))}
-        </div>
-      )}
+      {failures.length > 0 && <div className="issue">{failures.length} plugin{failures.length === 1 ? '' : 's'} failed to load. See the Plugins tab.</div>}
+      <input className="input" placeholder="Filter tools" value={filter} onChange={e => setFilter(e.target.value)} style={{ marginBottom: 6 }} aria-label="Filter tools" />
       {plugins.map(p => {
+        const tools = p.tools.filter(t => !f || t.name.toLowerCase().includes(f) || t.description.toLowerCase().includes(f));
+        if (!tools.length) return null;
         const allOn = p.tools.length > 0 && p.tools.every(t => t.enabled);
         const someOn = p.tools.some(t => t.enabled);
-        const badge = sourceBadge(p);
         return (
-          <div key={p.id} style={{ borderBottom: '1px solid #d0d0d0' }}>
-            <div style={{ ...row, background: '#f7f7f7' }}>
-              <div className="min-w-0">
-                <div className="truncate">{p.name} <span className="text-[10px] text-muted-foreground">{p.id} {p.version}</span></div>
-                <div className="text-[10px]" style={{ color: badge.tone === 'ok' ? '#1f6b3a' : '#8a5a11' }}>{badge.label} · {verifiedLabel(p)}</div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {p.removable && (
-                  <button type="button" className={btn} onClick={() => postToHost({ type: 'removePlugin', pluginId: p.id })}>Remove</button>
-                )}
-                <label className="flex items-center gap-1 text-[11px] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    aria-label={groupAriaLabel(p)}
-                    checked={allOn}
-                    ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
-                    onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
-                  />
-                  {allOn ? 'All on' : someOn ? 'Partial' : 'All off'}
-                </label>
-              </div>
+          <div key={p.id} className="list" style={{ marginBottom: 6 }}>
+            <div className="list-row head">
+              <span className="grow truncate" style={{ fontWeight: 600 }}>{p.name}</span>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  aria-label={groupAriaLabel(p)}
+                  checked={allOn}
+                  ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                  onChange={e => postToHost({ type: 'setPluginGroupEnabled', pluginId: p.id, enabled: e.target.checked })}
+                />
+                {allOn ? 'All on' : someOn ? 'Some on' : 'All off'}
+              </label>
             </div>
-            {p.tools.map(t => (
-              <div key={t.name} style={{ ...row, background: t.enabled ? '#fff' : '#fafafa' }}>
-                <div className="min-w-0 pr-2">
-                  <div className="font-mono text-[11px] truncate" title={t.description}>{t.name} <span style={{ color: t.tier === 'L3' ? '#8a1f11' : '#6a6a6a' }}>{t.tier}</span></div>
-                </div>
-                <label className="flex items-center gap-1 text-[11px] cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    aria-label={toolAriaLabel(t)}
-                    checked={t.enabled}
-                    onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })}
-                  />
-                  {t.enabled ? 'On' : 'Off'}
+            {tools.map(t => (
+              <div key={t.name} className="list-row" style={{ opacity: t.enabled ? 1 : 0.7 }}>
+                <span className="grow truncate mono" style={{ fontSize: 11 }} title={t.description}>{t.name}</span>
+                {t.destructive && <span className="badge badge-danger" title="Deletes or replaces elements, or writes a file. Always asks.">destructive</span>}
+                <span className={`badge ${t.tier === 'L3' ? 'badge-change' : ''}`}>{t.tier}</span>
+                <label className="toggle">
+                  <input type="checkbox" aria-label={toolAriaLabel(t)} checked={t.enabled} onChange={e => postToHost({ type: 'setPluginEnabled', toolName: t.name, enabled: e.target.checked })} />
                 </label>
               </div>
             ))}

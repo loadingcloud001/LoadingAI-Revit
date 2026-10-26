@@ -158,15 +158,15 @@ public class RevitBridgeContractTests
     }
 
     [Fact]
-    public void Source_ConfirmDialogsUseUserDialogTimeout()
+    public void Source_TheGateWaitsInThePane_NotInANativeDialog()
     {
         var gate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
-        var confirm = Slice(gate, "public async Task<bool> ConfirmL3NativeAsync", "public async Task RunPresetPickAsync");
-        Assert.Contains("RevitBridge.UserDialogTimeout", confirm);
-        Assert.Contains("catch (BridgeOperationUnknownException", confirm);
+        Assert.DoesNotContain("TaskDialog", gate);
+        Assert.DoesNotContain("UserDialogTimeout", gate);
+        Assert.Contains("TimeSpan.FromSeconds(ReviewText.ApprovalTimeoutSeconds)", gate);
 
         var guards = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Tools", "ToolGuards.cs"));
-        Assert.Equal(2, guards.Split(new[] { "RevitBridge.UserDialogTimeout" }, StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("UserDialogTimeout", guards);
     }
 
     private static string Slice(string src, string start, string end)

@@ -20,6 +20,7 @@ public class PluginDocsTests
     [Theory]
     [InlineData("0010-plugin-load-allowlist.md")]
     [InlineData("0011-plugin-trust-prompt.md")]
+    [InlineData("0017-single-in-chat-review-and-permission-levels.md")]
     public void ShippedAdrsAreAccepted(string file)
         => Assert.Contains("- Status: Accepted", Read("docs", "adr", file));
 
@@ -31,6 +32,19 @@ public class PluginDocsTests
         Assert.Contains("| [0011](0011-plugin-trust-prompt.md) | Plugin trust prompt (user-initiated allowlist write) | Accepted |", index);
         Assert.Contains("| [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Accepted |", index);
         Assert.Contains("0015-confirm-l2-parameter-writes.md", index);
+        Assert.Contains("| [0017](0017-single-in-chat-review-and-permission-levels.md) | One in-chat review and user-owned permission levels | Accepted |", index);
+        Assert.Contains("| [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Superseded by 0017 |", index);
+    }
+
+    [Fact]
+    public void Adr0017_SupersedesTheNativeConfirm_AndNamesTheNoGoRules()
+    {
+        var adr = Read("docs", "adr", "0017-single-in-chat-review-and-permission-levels.md");
+        Assert.Contains("- Supersedes: [ADR-0004]", adr);
+        Assert.Contains("Do not add a native dialog back", adr);
+        Assert.Contains("Do not let the pane add names to `alwaysAllowTools`", adr);
+        Assert.Contains("Superseded by [ADR-0017]", Read("docs", "adr", "0004-host-owned-l3-confirm.md"));
+        Assert.Contains("Amended by: [ADR-0017]", Read("docs", "adr", "0016-auto-approve.md"));
     }
 
     [Fact]

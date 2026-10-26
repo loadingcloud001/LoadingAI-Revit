@@ -81,15 +81,16 @@ public class ToolArgumentCoercerTests
     public void Source_ChatSessionCoercesBeforeEveryValidation()
     {
         var src = File.ReadAllText(Path.Combine(AdapterSource.RepoRoot(), "src", "LoadingAI", "Ui", "ChatSession.cs"));
-        var method = src.Substring(src.IndexOf("public async Task<string> ExecuteToolAsync", StringComparison.Ordinal));
+        var method = src.Substring(src.IndexOf("private async Task<string> ExecuteToolCoreAsync", StringComparison.Ordinal));
 
         var firstCoerce = method.IndexOf("argsJson = ToolArgumentCoercer.Coerce(", StringComparison.Ordinal);
         var firstValidate = method.IndexOf("ToolArgumentValidator.Validate(", StringComparison.Ordinal);
         Assert.True(firstCoerce >= 0 && firstCoerce < firstValidate);
 
-        var merge = method.IndexOf("argsJson = ToolPresets.Merge", StringComparison.Ordinal);
-        var secondCoerce = method.IndexOf("argsJson = ToolArgumentCoercer.Coerce(", merge, StringComparison.Ordinal);
-        var secondValidate = method.IndexOf("ToolArgumentValidator.Validate(", merge, StringComparison.Ordinal);
-        Assert.True(merge >= 0 && secondCoerce > merge && secondCoerce < secondValidate);
+        // After the review the form values or edited inputs are coerced, then validated again.
+        var review = method.IndexOf("_approvals.ReviewAsync", StringComparison.Ordinal);
+        var secondCoerce = method.IndexOf("argsJson = ToolArgumentCoercer.Coerce(", review, StringComparison.Ordinal);
+        var secondValidate = method.IndexOf("ToolArgumentValidator.Validate(", review, StringComparison.Ordinal);
+        Assert.True(review >= 0 && secondCoerce > review && secondCoerce < secondValidate);
     }
 }

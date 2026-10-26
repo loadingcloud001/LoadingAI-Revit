@@ -121,6 +121,7 @@
       "tier": "L3",
       "description": "Save the active Revit document. L3. Host confirms before write.",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "write"
       ]
@@ -218,6 +219,7 @@
       "tier": "L3",
       "description": "Batch set a parameter on all elements matching a category+filter.",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "write"
       ]
@@ -254,6 +256,7 @@
       "tier": "L3",
       "description": "Delete selected elements, or pass elementIds.",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "write"
       ]
@@ -394,6 +397,7 @@
       "tier": "L3",
       "description": "Import CSV (Excel) to set parameters by Id. Dry-run lists old and new values and writes nothing.",
       "enabledByDefault": false,
+      "destructive": true,
       "tags": [
         "write",
         "compat"
