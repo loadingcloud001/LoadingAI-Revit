@@ -1,6 +1,6 @@
 # Known limitations
 
-What LoadingAI does not do yet, or does only partly. This is current as of **v0.5.0**. If something
+What LoadingAI does not do yet, or does only partly. This is current as of **v0.6.0**. If something
 here bites you, [open an issue](https://github.com/loadingcloud001/LoadingAI-Revit/issues) — a
 reproduction on a small model is the most useful thing you can send.
 
@@ -13,6 +13,11 @@ reproduction on a small model is the most useful thing you can send.
 - **`qs-formwork` has not been run in Revit.** Its tests compile but have never executed. The panel
   geometry is the least-tested part of the add-in. A dry-run names the hosts and face types and
   says the panel count is not known until a real run. Check that result before you trust it.
+- **The v0.6.0 review flow has not been run in Revit yet.** The single in-chat review, the
+  permission levels, Select / Zoom to / Isolate, "Follow Revit" theme and the change counts are
+  covered by unit tests and a browser preview, but nobody has run them inside Revit. There is no
+  Revit dialog behind the review card any more, so work on a copy until you have checked it. The
+  steps are in [pane-redesign-in-revit-checklist.md](pane-redesign-in-revit-checklist.md).
 - Windows only. Needs the WebView2 Evergreen runtime.
 
 ## Structure-cut tools (`split_*`)

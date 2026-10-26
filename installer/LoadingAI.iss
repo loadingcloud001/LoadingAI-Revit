@@ -1,9 +1,9 @@
 ; LoadingAI for Revit — per-user setup. No administrator rights.
-; Compile with: ISCC.exe /DMyAppVersion=0.5.0 installer/LoadingAI.iss
+; Compile with: ISCC.exe /DMyAppVersion=0.6.0 installer/LoadingAI.iss
 ; The four year folders under payload\ are produced by scripts/stage-setup.ps1.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.0"
+  #define MyAppVersion "0.6.0"
 #endif
 
 #define AddInId "{{A7C31E4B-6D2F-4A18-9C55-2E8B0F1D6A40}"
