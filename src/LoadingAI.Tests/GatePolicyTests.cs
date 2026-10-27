@@ -114,6 +114,22 @@ public class GatePolicyTests
     [InlineData(true, true, false)]
     public void CanOfferAlways_OnlyForPlainNonDestructiveTools(bool destructive, bool presets, bool expected)
         => Assert.Equal(expected, GatePolicy.CanOfferAlways(destructive, presets));
+
+    [Fact]
+    public void NeverAllowList_IgnoresAllowLists_AndAsksAtAutoEdit()
+    {
+        // Read only only stays read only outside a typed /build, so the mode is a parameter here.
+        GateDecision D(string level, string mode = "build", bool session = false, bool always = false) => GatePolicy.Decide(new GateRequest
+        {
+            Level = level, Mode = mode, Tier = ToolTier.L2, NeverAllowList = true, SessionAllowed = session, AlwaysAllowed = always
+        });
+        Assert.Equal(GateDecision.Ask, D("confirm", session: true));
+        Assert.Equal(GateDecision.Ask, D("confirm", always: true));
+        Assert.Equal(GateDecision.Ask, D("autoEdit"));
+        Assert.Equal(GateDecision.Run, D("bypass"));
+        Assert.Equal(GateDecision.Block, D("readonly", mode: "ask"));
+        Assert.False(GatePolicy.CanOfferAlways(destructive: false, hasPresets: false, neverAllowList: true));
+    }
 }
 
 public class PermissionLevelsTests

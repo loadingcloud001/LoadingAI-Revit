@@ -581,6 +581,7 @@ internal sealed class ChatSession
             Mode = _turnMode,
             Tier = entry.Tier,
             Destructive = entry.Destructive,
+            NeverAllowList = entry.NeverAllowList,
             DryRun = ToolPresets.IsDryRun(argsJson),
             HasPresets = ToolPresets.HasPresets(entry),
             SessionAllowed = _allow.IsSessionAllowed(name),
@@ -614,8 +615,12 @@ internal sealed class ChatSession
                 return EndStep(callId, false, "error", $"Tool argument error: {reviewedError}", startedAt);
             edited = review.Edited;
 
-            if (review.Scope == ApprovalScope.Session) _allow.AddSession(name);
-            else if (review.Scope == ApprovalScope.Always) AddAlways(name);
+            // A tool on the never allow-list never enters an allow-list, whatever the card answered.
+            if (GatePolicy.CanOfferAlways(entry.Destructive, ToolPresets.HasPresets(entry), entry.NeverAllowList))
+            {
+                if (review.Scope == ApprovalScope.Session) _allow.AddSession(name);
+                else if (review.Scope == ApprovalScope.Always) AddAlways(name);
+            }
         }
 
         var dryRun = ToolPresets.IsDryRun(argsJson);

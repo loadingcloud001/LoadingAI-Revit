@@ -64,7 +64,8 @@ internal sealed class ApprovalGate
         /// <summary>Editing inputs or picking in the model is activity: the timeout starts again.</summary>
         public void Touch() => Interlocked.Exchange(ref _deadlineTicks, (DateTime.UtcNow + Idle).Ticks);
 
-        public bool CanOfferAlways => GatePolicy.CanOfferAlways(Entry.Destructive, !Plain);
+        /// <summary>Session and Always allow only for a plain, non-destructive tool that is not on the never allow-list.</summary>
+        public bool CanOfferAlways => GatePolicy.CanOfferAlways(Entry.Destructive, !Plain, Entry.NeverAllowList);
     }
 
     private readonly Dictionary<string, PendingReview> _pending = new(StringComparer.OrdinalIgnoreCase);

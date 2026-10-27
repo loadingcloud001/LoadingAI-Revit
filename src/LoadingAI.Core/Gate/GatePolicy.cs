@@ -19,6 +19,8 @@ public sealed class GateRequest
     public string? Mode { get; init; }
     public ToolTier Tier { get; init; }
     public bool Destructive { get; init; }
+    /// <summary>The tool is never allow-listed: no Session or Always allow, and it asks even at Auto-edit.</summary>
+    public bool NeverAllowList { get; init; }
     public bool DryRun { get; init; }
     public bool HasPresets { get; init; }
     public bool SessionAllowed { get; init; }
@@ -41,18 +43,19 @@ public static class GatePolicy
         var level = PermissionLevels.EffectiveFor(r.Level, r.Mode);
         if (level == PermissionLevels.ReadOnly || level == PermissionLevels.Plan) return GateDecision.Block;
         if (level == PermissionLevels.Bypass) return GateDecision.Run;
-        if (level == PermissionLevels.AutoEdit && r.Tier == ToolTier.L2 && !r.Destructive) return GateDecision.Run;
+        if (level == PermissionLevels.AutoEdit && r.Tier == ToolTier.L2 && !r.Destructive && !r.NeverAllowList) return GateDecision.Run;
 
         return IsAllowlisted(r) ? GateDecision.Run : GateDecision.Ask;
     }
 
     /// <summary>
-    /// An allow-list entry skips the card for that tool. Never for a destructive tool, and never for a
-    /// tool with a Run form: the form is where its inputs come from.
+    /// An allow-list entry skips the card for that tool. Never for a destructive tool, never for a tool
+    /// on the never allow-list, and never for a tool with a Run form: the form is where its inputs come from.
     /// </summary>
     public static bool IsAllowlisted(GateRequest r)
-        => !r.Destructive && !r.HasPresets && (r.SessionAllowed || r.AlwaysAllowed);
+        => !r.Destructive && !r.NeverAllowList && !r.HasPresets && (r.SessionAllowed || r.AlwaysAllowed);
 
     /// <summary>Whether the review card may offer "Always allow this tool".</summary>
-    public static bool CanOfferAlways(bool destructive, bool hasPresets) => !destructive && !hasPresets;
+    public static bool CanOfferAlways(bool destructive, bool hasPresets, bool neverAllowList = false)
+        => !destructive && !hasPresets && !neverAllowList;
 }

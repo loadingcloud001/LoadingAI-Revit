@@ -165,7 +165,7 @@ public class UsabilityContractTests
         Assert.Contains("!r.Destructive", policy);
         var gate = File.ReadAllText(Path.Combine(RepoRoot(), "src", "LoadingAI", "Ui", "ApprovalGate.cs"));
         Assert.Contains("Plain = !ToolPresets.HasPresets(entry);", gate);
-        Assert.Contains("GatePolicy.CanOfferAlways(Entry.Destructive, !Plain)", gate);
+        Assert.Contains("GatePolicy.CanOfferAlways(Entry.Destructive, !Plain, Entry.NeverAllowList)", gate);
     }
 
     [Fact]
