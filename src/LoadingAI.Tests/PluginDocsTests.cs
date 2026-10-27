@@ -21,6 +21,7 @@ public class PluginDocsTests
     [InlineData("0010-plugin-load-allowlist.md")]
     [InlineData("0011-plugin-trust-prompt.md")]
     [InlineData("0017-single-in-chat-review-and-permission-levels.md")]
+    [InlineData("0018-saved-notes-and-playbooks.md")]
     public void ShippedAdrsAreAccepted(string file)
         => Assert.Contains("- Status: Accepted", Read("docs", "adr", file));
 
@@ -33,7 +34,17 @@ public class PluginDocsTests
         Assert.Contains("| [0013](0013-qs-formwork-structured-results.md) | qs-formwork structured results and preset forms | Accepted |", index);
         Assert.Contains("0015-confirm-l2-parameter-writes.md", index);
         Assert.Contains("| [0017](0017-single-in-chat-review-and-permission-levels.md) | One in-chat review and user-owned permission levels | Accepted |", index);
+        Assert.Contains("| [0018](0018-saved-notes-and-playbooks.md) | Saved notes and playbooks (data, not instructions) | Accepted |", index);
         Assert.Contains("| [0004](0004-host-owned-l3-confirm.md) | Host-owned L3 confirm (web then native) | Superseded by 0017 |", index);
+    }
+
+    [Fact]
+    public void Adr0018_NamesTheNoGoRules()
+    {
+        var text = Read("docs", "adr", "0018-saved-notes-and-playbooks.md");
+        Assert.Contains("never allow-listed", text);
+        Assert.Contains("data, not instructions", text);
+        Assert.Contains("cannot approve", text);
     }
 
     [Fact]
