@@ -55,6 +55,10 @@ reproduction on a small model is the most useful thing you can send.
   dependents deleted with an element. Element ids are listed for the first 2000 per category.
 - **Rolling back a turn is all-or-nothing.** Denying one write confirmation rolls back every write
   made earlier in the same turn.
+- **Snapshots are PNG exports.** `capture_view` exports the view through Revit's image export
+  (`ImageExportOptions`) at 512 to 1600 pixels wide. A 3D view is shot from its current camera.
+  Schedules, legends and templates cannot be shot. The model only sees the picture when its provider
+  can read images (Settings → Models → "Can see images"); otherwise the tool is not offered.
 
 ## The built-in free tier
 

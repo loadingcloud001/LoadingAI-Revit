@@ -72,6 +72,15 @@ Run it on Revit 2027 against a small model with levels, walls, beams, columns an
 - [ ] A turn that adds and then deletes the same element does not count it. A turn on a linked model or a different document does not mix counts.
 - [ ] A large change (more than 2000 elements in one category) shows exact counts and the "first 2000" note.
 
+## v0.7 · View snapshot
+
+- [ ] `capture_view` of the active plan returns a thumbnail in the step and the agent describes the picture.
+- [ ] With `elementIds`, only those elements show in the shot. After the turn, the view shows everything again, and Undo has no "snapshot" entry.
+- [ ] A snapshot during a write turn: the receipt still lists the turn's changes, and one Ctrl+Z still undoes the turn.
+- [ ] A schedule view gives "Cannot take a snapshot of Schedule …".
+- [ ] Provider set to "Can see images: No" never shows `capture_view`.
+- [ ] Revit 2024 (net48): snapshot works.
+
 ## Report
 
 Write the Revit build number, the add-in commit (`git rev-parse HEAD`), and for each line above Passed, Failed (with what you saw and the log from `%AppData%\LoadingAI\logs`, secrets redacted), or Not run.
