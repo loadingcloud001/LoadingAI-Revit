@@ -122,6 +122,12 @@ public sealed record ActiveViewDetailsDto(
     IReadOnlyList<CategoryCountDto> TopCategories,
     IReadOnlyList<string> SampleIds);
 
+/// <summary>
+/// A view snapshot exported as a PNG. <see cref="Path"/> is null when the shot failed;
+/// <see cref="Error"/> then says why. <see cref="Width"/> / <see cref="Height"/> are pixels.
+/// </summary>
+public sealed record SnapshotDto(string? Path, int Width, int Height, string ViewName, string? Error = null);
+
 public sealed record RoomDto(
     string Id,
     string Number,

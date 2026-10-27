@@ -1,3 +1,4 @@
+using System.IO;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.DB.Architecture;
@@ -918,6 +919,124 @@ public sealed partial class AdapterRevitBridge
     }
 
     private const int MaxTagAll = 50;
+
+    /// <summary>
+    /// Exports a PNG of a view so the model can be looked at (P1). With ids and isolate, the elements
+    /// are isolated for the shot only: the isolate transaction sits in a group that is rolled back, so
+    /// the view and the undo list are left as they were. The tracker is told to ignore the snapshot's
+    /// own commits, so the turn receipt is not reset by that rollback.
+    /// </summary>
+    public Task<SnapshotDto> CaptureViewAsync(
+        string? view, IReadOnlyList<string>? elementIds, bool isolate, int size, CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return new SnapshotDto(null, 0, 0, "", "Please open a model first.");
+            var target = ResolveView(doc, view);
+            if (target == null && !string.IsNullOrWhiteSpace(view))
+                return new SnapshotDto(null, 0, 0, "", $"View not found: {view}.");
+            target ??= doc.ActiveView;
+            if (target == null) return new SnapshotDto(null, 0, 0, "", "No active view.");
+            if (target.IsTemplate || target is ViewSchedule || target.ViewType == ViewType.Legend
+                || target.ViewType == ViewType.ProjectBrowser
+                || target.ViewType == ViewType.SystemBrowser)
+                return new SnapshotDto(null, 0, 0, target.Name, $"Cannot take a snapshot of {target.ViewType} '{target.Name}'.");
+
+            size = Polyfills.Clamp(size, 512, 1600);
+            var dir = SnapshotFiles.DefaultDir;
+            Directory.CreateDirectory(dir);
+            var path = SnapshotFiles.NewPath(dir, DateTime.UtcNow);
+            var ids = (elementIds ?? Array.Empty<string>())
+                .Select(ParseEidOrDefault)
+                .Where(i => i != ElementId.InvalidElementId)
+                .ToList();
+
+            try
+            {
+                using (TurnChangeTracker.Suppress())
+                {
+                    TransactionGroup? group = null;
+                    try
+                    {
+                        if (isolate && ids.Count > 0)
+                        {
+                            group = new TransactionGroup(doc, "LoadingAI snapshot");
+                            group.Start();
+                            using var tx = new Transaction(doc, "LoadingAI snapshot isolate");
+                            tx.Start();
+                            target.IsolateElementsTemporary(ids);
+                            tx.Commit();
+                        }
+                        var opts = new ImageExportOptions
+                        {
+                            ExportRange = ExportRange.SetOfViews,
+                            FilePath = Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path)),
+                            HLRandWFViewsFileType = ImageFileType.PNG,
+                            ShadowViewsFileType = ImageFileType.PNG,
+                            ImageResolution = ImageResolution.DPI_150,
+                            ZoomType = ZoomFitType.FitToPage,
+                            PixelSize = size,
+                            FitDirection = FitDirectionType.Horizontal
+                        };
+                        opts.SetViewsAndSheets(new List<ElementId> { target.Id });
+                        doc.ExportImage(opts);
+                    }
+                    finally
+                    {
+                        if (group != null) { try { group.RollBack(); } catch { } group.Dispose(); }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new SnapshotDto(null, 0, 0, target.Name, $"Failed: {ex.Message}");
+            }
+
+            // Revit appends the view name to the file name; take the newest PNG with our stem.
+            var stem = Path.GetFileNameWithoutExtension(path);
+            var written = new DirectoryInfo(dir).GetFiles(stem + "*.png").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault();
+            SnapshotFiles.Prune(dir);
+            if (written == null) return new SnapshotDto(null, 0, 0, target.Name, "Revit did not write the image.");
+            var (w, h) = PngSize(written.FullName);
+            return new SnapshotDto(written.FullName, w, h, target.Name);
+        }, ct);
+    }
+
+    /// <summary>Resolves a view from an id or a name; blank means the active view.</summary>
+    private static View? ResolveView(Document doc, string? nameOrId)
+    {
+        if (string.IsNullOrWhiteSpace(nameOrId)) return null;
+        var token = nameOrId!.Trim();
+        try
+        {
+            if (doc.GetElement(AllTools.ParseEid(token)) is View byId) return byId;
+        }
+        catch { }
+        return new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+            .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>An element id, or the invalid one when the text is not an id at all.</summary>
+    private static ElementId ParseEidOrDefault(string id)
+    {
+        try { return AllTools.ParseEid(id); }
+        catch { return ElementId.InvalidElementId; }
+    }
+
+    /// <summary>The pixel size of a PNG, read from its header. (0, 0) when it cannot be read.</summary>
+    private static (int, int) PngSize(string path)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            var b = new byte[24];
+            if (fs.Read(b, 0, 24) < 24) return (0, 0);
+            int W(int o) => (int)(((uint)b[o] << 24) | ((uint)b[o + 1] << 16) | ((uint)b[o + 2] << 8) | b[o + 3]);
+            return (W(16), W(20));
+        }
+        catch { return (0, 0); }
+    }
 
     /// <summary>Where a tag for this element should sit: its point, the middle of its curve, or the middle of its box in the view.</summary>
     private static XYZ? TagPoint(Element el, View view)

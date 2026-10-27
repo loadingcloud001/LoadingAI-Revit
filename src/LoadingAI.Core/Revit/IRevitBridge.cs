@@ -200,6 +200,13 @@ public interface IRevitViewCommand
     Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
         string viewIdOrName, IReadOnlyList<PathPairDto> pairs,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Exports a PNG of a view for the model to look at (P1). With ids and isolate, the elements are isolated
+    /// for the shot only: the change is rolled back, so the view and the undo list are left as they were.
+    /// </summary>
+    Task<SnapshotDto> CaptureViewAsync(
+        string? view, IReadOnlyList<string>? elementIds, bool isolate, int size, CancellationToken ct = default);
 }
 
 /// <summary>Instance parameter writes, rename, bulk dates, and ParamExcel collect/set.</summary>

@@ -201,6 +201,17 @@ internal sealed class FakeRevitBridge : IRevitBridge
             "1001", scheduleName ?? "Wall Schedule", 3, 2, shown, rows));
     }
 
+    public List<(string? View, IReadOnlyList<string>? Ids, bool Isolate, int Size)> Captures { get; } = new();
+
+    public SnapshotDto NextSnapshot { get; set; } = new("/tmp/fake.png", 1024, 768, "Level 2");
+
+    public Task<SnapshotDto> CaptureViewAsync(
+        string? view, IReadOnlyList<string>? elementIds, bool isolate, int size, CancellationToken ct = default)
+    {
+        Captures.Add((view, elementIds, isolate, size));
+        return Task.FromResult(NextSnapshot);
+    }
+
     public Task<CommandResultDto> IsolateInViewAsync(
         IReadOnlyList<string>? elementIds = null,
         string? category = null,
