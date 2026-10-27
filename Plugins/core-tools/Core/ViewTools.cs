@@ -24,6 +24,9 @@ public static class ViewTools
         yield return CreateSetCropBox(context);
         yield return CreateCreateDimension(context);
         yield return CreateTagAll(context);
+        // capture_view is the one tool in this file that reads: it takes a picture and hands
+        // the image back to the model. It never changes the view.
+        yield return CreateCaptureView(context);
     }
 
     internal static ToolEntry CreateIsolateInView(IPluginContext context) => new()
@@ -687,6 +690,74 @@ public static class ViewTools
         var dryRun = ToolPresets.IsDryRun(json);
         var result = await context.Bridge.TagAllInActiveViewAsync(cat, dryRun);
         return FromDryOrWrite(result, dryRun);
+    }
+
+    internal static ToolEntry CreateCaptureView(IPluginContext context) => new()
+    {
+        Tier = ToolTier.L1,
+        NeedsVision = true,
+        Tags = new[] { "view", "query" },
+        Definition = new ToolDefinition
+        {
+            Function = new ToolFunction
+            {
+                Name = "capture_view",
+                Description = "Take a picture of a view (or of chosen elements, isolated for the shot) and look at it. Use it to check a result visually. It does not change the view.",
+                Parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        view = new { type = "string", description = "View name or id. Default: the active view." },
+                        elementIds = new { type = "array", items = new { type = "string" }, description = "Optional. Frame these elements. Accepts \"@rN\"." },
+                        isolate = new { type = "boolean", description = "Isolate elementIds for the shot. Default true when elementIds are given." },
+                        size = new { type = "integer", description = "Width in pixels, 512 to 1600. Default 1024." }
+                    }
+                }
+            }
+        },
+        Handler = async json => (await CaptureViewAsync(context, json)).Text,
+        StructuredHandler = json => CaptureViewAsync(context, json)
+    };
+
+    /// <summary>
+    /// A picture, not a change. The bridge writes a PNG outside the model and reports the view it
+    /// shot, so the result is a read: the image rides along on the result and a bridge error is a
+    /// failed read with no image at all.
+    /// </summary>
+    private static async Task<ToolExecutionResult> CaptureViewAsync(IPluginContext context, string json)
+    {
+        string? view = null;
+        var ids = new List<string>();
+        bool? isolate = null;
+        var size = 1024;
+        try
+        {
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            var root = d.RootElement;
+            if (root.TryGetProperty("view", out var v) && v.ValueKind == JsonValueKind.String) view = v.GetString();
+            ids = AllIds(root, "elementIds");
+            if (root.TryGetProperty("isolate", out var iso) && iso.ValueKind is JsonValueKind.True or JsonValueKind.False) isolate = iso.GetBoolean();
+            if (root.TryGetProperty("size", out var s) && s.ValueKind == JsonValueKind.Number && s.TryGetInt32(out var px)) size = px;
+        }
+        catch (Exception ex)
+        {
+            return ToolExecutionResult.Failed($"Invalid args: {ex.Message}", ToolWriteCertainty.NoWrite);
+        }
+
+        // Ids are isolated for the shot unless the caller says otherwise; the view itself is
+        // never left changed.
+        var doIsolate = isolate ?? ids.Count > 0;
+        var width = Polyfills.Clamp(size, 512, 1600);
+        var dto = await context.Bridge.CaptureViewAsync(view, ids.Count > 0 ? ids : null, doIsolate, width);
+        if (dto.Error != null || dto.Path == null)
+            return ToolExecutionResult.Failed(dto.Error ?? "Snapshot failed.", ToolWriteCertainty.NoWrite);
+
+        var what = ids.Count > 0 ? $"{ids.Count} element(s) in {dto.ViewName}" : dto.ViewName;
+        return ToolExecutionResult.Succeeded($"Snapshot of {what}, {dto.Width}×{dto.Height}. The image follows.") with
+        {
+            Images = new[] { new ToolImage(dto.Path!, "image/png", dto.Width, dto.Height) }
+        };
     }
 
     private static ToolExecutionResult FromDryOrWrite(CommandResultDto result, bool dryRun)
