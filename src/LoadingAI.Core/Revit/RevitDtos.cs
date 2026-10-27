@@ -99,7 +99,9 @@ public sealed record FindResultDto(
     int Total,
     int Offset,
     string? Error,
-    IReadOnlyList<ElementSummaryDto> Items);
+    IReadOnlyList<ElementSummaryDto> Items,
+    // Every id the filter matched, not just the page (capped at ResultSetStore.MaxTotalIds). Null from older callers.
+    IReadOnlyList<string>? AllIds = null);
 
 public sealed record ElementQuantityDto(
     string Id,

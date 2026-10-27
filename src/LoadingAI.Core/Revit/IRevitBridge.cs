@@ -13,6 +13,10 @@ namespace LoadingAI.Revit;
 public interface IRevitQuery
 {
     Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default);
+
+    /// <summary>The project index for name matching (P2). Cached by the host until the model changes.</summary>
+    Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default);
+
     Task<SelectionSummaryDto> GetSelectionSummaryAsync(CancellationToken ct = default);
     Task<ViewInfoDto?> GetActiveViewInfoAsync(CancellationToken ct = default);
     Task<IReadOnlyList<ElementSummaryDto>> FindElementsAsync(
