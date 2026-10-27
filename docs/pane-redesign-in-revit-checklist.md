@@ -81,6 +81,13 @@ Run it on Revit 2027 against a small model with levels, walls, beams, columns an
 - [ ] Provider set to "Can see images: No" never shows `capture_view`.
 - [ ] Revit 2024 (net48): snapshot works.
 
+## v0.7 · Names and result sets
+
+- [ ] "find beams on L3" makes the agent call `resolve_names`, then `find_elements_by_filter` with `Structural Framing` and `Level 3`.
+- [ ] The result says "Saved as @r1 (N elements)". "Colour them red" passes `"@r1"`, and the review card shows N elements.
+- [ ] Add a level by hand, then ask for levels: the new level is in the prompt summary on the next turn.
+- [ ] `/clear` then `@r1`: an argument error saying no sets are saved.
+
 ## Report
 
 Write the Revit build number, the add-in commit (`git rev-parse HEAD`), and for each line above Passed, Failed (with what you saw and the log from `%AppData%\LoadingAI\logs`, secrets redacted), or Not run.

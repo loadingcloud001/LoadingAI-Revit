@@ -46,6 +46,8 @@ See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/
 
 **Numbers.** Tool arguments and results use millimetres, m², m³ and degrees. Convert with `LoadingAI.Revit.ParamUnits` (or `Metric`); never pass Revit internal units across the Bridge.
 
+**Result sets.** A tool that lists elements should set `ToolExecutionResult.ResultIds` to every id it found, not just the ones its text shows. The host saves them as `@r1`, `@r2`, … and tells the model the handle. An `elementIds` or `elementId` argument may then be `"@rN"`: the host expands it to the saved ids before it checks the arguments, so a tool only ever sees real ids.
+
 Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. The review card merges form values over AI args; there is no native dialog (ADR-0017).
 
 Shipped plugins (host build copies each to `%AppData%\LoadingAI\Plugins\<id>\`):
