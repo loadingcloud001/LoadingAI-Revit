@@ -16,6 +16,15 @@
       ]
     },
     {
+      "name": "resolve_names",
+      "tier": "L1",
+      "description": "Map the user's words to exact Revit names (category, level, family, type, parameter, view, sheet).",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
       "name": "get_wall_metrics",
       "tier": "L1",
       "description": "Get wall quantities: count, total length (mm), total area (m²), total volume (m³).",

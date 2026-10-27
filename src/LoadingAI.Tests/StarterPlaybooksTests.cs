@@ -8,12 +8,11 @@ public class StarterPlaybooksTests
 {
     /// <summary>
     /// Tools the same release adds that are not in a plugin.json on this branch:
-    /// the core-tools query resolve_names and the two host tools (save_project_note,
-    /// open_playbook). A playbook may name these.
+    /// the two host tools (save_project_note, open_playbook). A playbook may name these.
     /// </summary>
     private static readonly string[] PendingTools =
     {
-        "resolve_names", "save_project_note", "open_playbook"
+        "save_project_note", "open_playbook"
     };
 
     [Fact]
