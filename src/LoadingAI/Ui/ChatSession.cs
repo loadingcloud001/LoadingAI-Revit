@@ -33,6 +33,14 @@ internal sealed class ChatSession
     private readonly ResultSetStore _sets = new();
     /// <summary>Images the tools produced this turn. The agent drains them after the round's tool results.</summary>
     private readonly List<AttachmentDto> _pendingImages = new();
+    /// <summary>Saved notes (ADR-0018). The open project's key is read at each turn start; null with no saved model.</summary>
+    private readonly NoteStore _notes = new();
+    private string? _projectKey;
+    private PlaybookCatalog _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
+    /// <summary>Host tools write files, not the model: they open no turn group and need no open model.</summary>
+    private readonly HashSet<string> _hostToolNames = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Slash commands the host handles itself. A playbook with one of these names is never run by it.</summary>
+    private static readonly HashSet<string> BuiltinSlash = new(StringComparer.OrdinalIgnoreCase) { "plan", "ask", "build", "clear", "help", "checkpoints", "resume" };
     private string _turnId = "";
     private string _turnMode = "build";
     private bool _turnRolledBack;
@@ -96,6 +104,13 @@ internal sealed class ChatSession
         RebuildRegistry();
     }
 
+    /// <summary>The four starter playbooks ship next to the add-in DLL.</summary>
+    private static string StarterPlaybookDir => Path.Combine(Path.GetDirectoryName(typeof(ChatSession).Assembly.Location) ?? "", "Playbooks");
+    public PlaybookCatalog Playbooks => _playbooks;
+    public NoteStore Notes => _notes;
+    public string? ProjectKey => _projectKey;
+    public void ReloadPlaybooks() => _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
+
     public void RebuildRegistry()
     {
         var reg = new ToolRegistry();
@@ -107,6 +122,13 @@ internal sealed class ChatSession
                 bool enabled = ProviderSettings.IsToolEnabled(_settings, entry.Definition.Function.Name, defaultEnabled);
                 if (enabled) reg.Register(entry);
             }
+        }
+        // Notes and playbooks need host state, not the bridge. save_project_note is L2, so it is on by default.
+        _hostToolNames.Clear();
+        foreach (var entry in HostTools.Create(_notes, () => _projectKey, () => _playbooks))
+        {
+            _hostToolNames.Add(entry.Definition.Function.Name);
+            if (ProviderSettings.IsToolEnabled(_settings, entry.Definition.Function.Name, true)) reg.Register(entry);
         }
         _registry = reg;
         if (_agent == null)
@@ -294,6 +316,16 @@ internal sealed class ChatSession
 
     public async Task HandleSendAsync(string text, string mode, string slash, List<string> mentions, List<AttachmentDto> attachments)
     {
+        // "/model-qa ..." sends the playbook's steps with the rest of the message, in the playbook's mode.
+        Playbook? playbook = null;
+        var slashName = slash?.TrimStart('/') ?? "";
+        if (slashName.Length > 0 && !BuiltinSlash.Contains(slashName) && (playbook = _playbooks.Get(slashName)) != null)
+        {
+            text = PlaybookParser.Compose(playbook, text);
+            if (playbook.Mode != null) mode = playbook.Mode;
+            slash = "";
+        }
+
         if (!string.IsNullOrWhiteSpace(slash))
         {
             if (slash.Equals("plan", StringComparison.OrdinalIgnoreCase)) mode = "plan";
@@ -458,7 +490,13 @@ internal sealed class ChatSession
                     agent.CustomInstructions = _settings.Instructions;
                     // What the model is likely to name: levels, categories, families. It never blocks the turn,
                     // and with no model open there is nothing to name, so the block goes.
-                    agent.PromptExtras = await CollectPromptSummaryAsync(ct);
+                    // Then the saved notes and the playbook list. Built fresh each turn, never appended to the last.
+                    _projectKey = await CollectProjectKeyAsync(ct);
+                    var notesBlock = SavedNotes.Block(_notes.List(NoteStore.GlobalKey),
+                        _projectKey == null ? Array.Empty<Note>() : _notes.List(_projectKey));
+                    agent.PromptExtras = (await CollectPromptSummaryAsync(ct) ?? "") + notesBlock + _playbooks.PromptList();
+                    // A playbook's tools stay in the catalogue every round of this turn.
+                    agent.PinnedTools = playbook?.Tools;
                     string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                         ExecuteToolAsync,
                         trace =>
@@ -534,6 +572,7 @@ internal sealed class ChatSession
                 }
                 finally
                 {
+                    agent.PinnedTools = null;
                     if (await FinishTurnGroupAsync(assimilate: false)) _turnRolledBack = true;
                     TurnChangeTracker.End();
                     BuiltinQuota.ClearTicket();
@@ -551,6 +590,20 @@ internal sealed class ChatSession
                 }
             }
         });
+    }
+
+    /// <summary>The notes key for the open model. Null with no model, or an unsaved one with no cloud id: nothing stable to key on.</summary>
+    private async Task<string?> CollectProjectKeyAsync(CancellationToken ct)
+    {
+        var bridge = App.Bridge;
+        if (bridge == null) return null;
+        try
+        {
+            var ident = await new AdapterRevitBridge(bridge).GetProjectIdentityAsync(ct);
+            return ident == null || (string.IsNullOrEmpty(ident.PathName) && string.IsNullOrEmpty(ident.CloudModelGuid))
+                ? null : NoteStore.KeyFor(ident);
+        }
+        catch { return null; }
     }
 
     /// <summary>
@@ -664,7 +717,7 @@ internal sealed class ChatSession
         }
 
         var dryRun = ToolPresets.IsDryRun(argsJson);
-        var isWrite = entry.Tier == ToolTier.L2 || (entry.Tier == ToolTier.L3 && !dryRun);
+        var isWrite = !_hostToolNames.Contains(name) && (entry.Tier == ToolTier.L2 || (entry.Tier == ToolTier.L3 && !dryRun));
         if (isWrite)
         {
             var bridge = App.Bridge;

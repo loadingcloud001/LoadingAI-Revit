@@ -201,6 +201,26 @@ public class ChatSessionContractTests
         Assert.True(summary >= 0 && summary < run);
     }
 
+    [Fact]
+    public void HostTools_WriteFiles_NotTheModel_SoTheyOpenNoTurnGroup()
+    {
+        var src = Session();
+        // save_project_note is L2, but it writes a notes file: no open model needed, no transaction group.
+        Assert.Contains("var isWrite = !_hostToolNames.Contains(name) &&", src);
+        Assert.Contains("HostTools.Create(_notes, () => _projectKey, () => _playbooks)", src);
+    }
+
+    [Fact]
+    public void PlaybookSlash_NeverShadowsABuiltinCommand_AndPinsItsTools()
+    {
+        var src = Session();
+        Assert.Contains("!BuiltinSlash.Contains(slashName) && (playbook = _playbooks.Get(slashName)) != null", src);
+        var pin = src.IndexOf("agent.PinnedTools = playbook?.Tools;", StringComparison.Ordinal);
+        var run = src.IndexOf("await agent.RunAsync", StringComparison.Ordinal);
+        Assert.True(pin >= 0 && pin < run);
+        Assert.Contains("agent.PinnedTools = null;", src);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;
