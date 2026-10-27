@@ -1,6 +1,6 @@
 # Known limitations
 
-What LoadingAI does not do yet, or does only partly. This is current as of **v0.6.0**. If something
+What LoadingAI does not do yet, or does only partly. This is current as of **v0.7.0**. If something
 here bites you, [open an issue](https://github.com/loadingcloud001/LoadingAI-Revit/issues) — a
 reproduction on a small model is the most useful thing you can send.
 
@@ -18,6 +18,10 @@ reproduction on a small model is the most useful thing you can send.
   covered by unit tests and a browser preview, but nobody has run them inside Revit. There is no
   Revit dialog behind the review card any more, so work on a copy until you have checked it. The
   steps are in [pane-redesign-in-revit-checklist.md](pane-redesign-in-revit-checklist.md).
+- **The v0.7.0 features have not been run in Revit yet.** View snapshots (`capture_view`), the
+  project index behind `resolve_names`, result sets (`@r1`), project notes and the starter
+  playbooks are covered by unit tests and a browser preview only. The steps are in the v0.7
+  sections of [pane-redesign-in-revit-checklist.md](pane-redesign-in-revit-checklist.md).
 - Windows only. Needs the WebView2 Evergreen runtime.
 
 ## Structure-cut tools (`split_*`)
