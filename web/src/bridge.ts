@@ -130,7 +130,12 @@ export type ToHost =
   | { type: 'steer'; text: string }
   | { type: 'selectElements'; ids: number[] }
   | { type: 'showElements'; ids: number[] }
-  | { type: 'isolateElements'; ids: number[] };
+  | { type: 'isolateElements'; ids: number[] }
+  | { type: 'listNotes' }
+  | { type: 'saveNote'; scope: 'project' | 'global'; id?: string; text: string }
+  | { type: 'deleteNote'; scope: 'project' | 'global'; id: string }
+  | { type: 'clearNotes'; scope: 'project' | 'global' }
+  | { type: 'listPlaybooks' };
 
 export type PlanPayload = {
   title: string;
@@ -260,6 +265,27 @@ export type QuotaPayload = {
   message?: string;
 };
 
+/** One saved note. Mirrors LoadingAI.Llm.Note as the host serialises it. */
+export type Note = { id: string; text: string; createdUtc: string; source: string };
+
+/** The notes of both scopes. hasProject is false with no open model. */
+export type NotesPayload = {
+  projectTitle?: string;
+  hasProject: boolean;
+  project: Note[];
+  global: Note[];
+  issues: string[];
+};
+
+/** One saved procedure. mode is absent when the playbook sets no mode. */
+export type PlaybookInfo = {
+  name: string;
+  description: string;
+  mode?: string;
+  source: string;
+  tools: string[];
+};
+
 export type FromHost =
   | { type: 'status'; text: string }
   | { type: 'trace'; text: string }
@@ -293,7 +319,9 @@ export type FromHost =
   | { type: 'tool_end'; toolCallId: string; ok: boolean; outcome: ToolOutcome; summary: string; text: string; ms: number; partial?: boolean; image?: string }
   | { type: 'tool_review'; review: ReviewPayload }
   | { type: 'turn_changes'; turnId: string; added: number; modified: number; deleted: number; idsTruncated?: boolean; byCategory: ChangeCategory[] }
-  | { type: 'steer_ack'; text: string; deliveredAt?: number };
+  | { type: 'steer_ack'; text: string; deliveredAt?: number }
+  | { type: 'notes'; notes: NotesPayload }
+  | { type: 'playbooks'; items: PlaybookInfo[]; issues: string[]; folder: string };
 
 declare global {
   interface Window {
@@ -359,6 +387,25 @@ export function postToHost(msg: ToHost) {
     }
     if ((msg as any).type === 'listModels') {
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'models', providerId: (msg as any).providerId ?? (msg as any).provider?.id ?? 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner', 'gpt-4o-mini'] } })), 400);
+    }
+    if (msg.type === 'listNotes') {
+      const notes: NotesPayload = {
+        hasProject: true,
+        projectTitle: 'Demo Tower',
+        project: [{ id: 'n1', text: 'Level 1 is the lobby.', createdUtc: '2026-01-02T03:04:05Z', source: 'user' }],
+        global: [{ id: 'n2', text: 'Answer in English.', createdUtc: '2026-01-02T03:05:05Z', source: 'user' }],
+        issues: [],
+      };
+      setTimeout(() => emit({ type: 'notes', notes }), 200);
+    }
+    if (msg.type === 'listPlaybooks') {
+      const items: PlaybookInfo[] = [
+        { name: 'beam-split', description: 'Split beams at columns safely: dry run, review, split, check the receipt.', mode: 'build', source: 'starter', tools: ['resolve_names', 'find_elements_by_filter', 'split_beams_by_columns', 'capture_view'] },
+        { name: 'export-package', description: 'Export the chosen sheets to PDF and DWG, and the model to IFC, into one folder.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'export_pdf', 'export_dwg', 'export_ifc'] },
+        { name: 'model-qa', description: 'Check warnings, model health and room problems, then show the worst area.', mode: 'build', source: 'starter', tools: ['get_warnings', 'get_model_health_score', 'audit_issue_set', 'get_rooms', 'capture_view'] },
+        { name: 'sheet-setup', description: 'Create sheets from a list, place a view on each and apply a view template.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'resolve_names', 'create_sheet', 'place_view_on_sheet', 'set_view_template'] },
+      ];
+      setTimeout(() => emit({ type: 'playbooks', items, issues: [], folder: 'C:/Users/you/AppData/Roaming/LoadingAI/Playbooks' }), 200);
     }
   }
 }

@@ -36,6 +36,8 @@ internal sealed class ChatSession
     /// <summary>Saved notes (ADR-0018). The open project's key is read at each turn start; null with no saved model.</summary>
     private readonly NoteStore _notes = new();
     private string? _projectKey;
+    /// <summary>The open model's title, next to its notes key. Null with no model.</summary>
+    private string? _projectTitle;
     private PlaybookCatalog _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
     /// <summary>Host tools write files, not the model: they open no turn group and need no open model.</summary>
     private readonly HashSet<string> _hostToolNames = new(StringComparer.OrdinalIgnoreCase);
@@ -109,7 +111,18 @@ internal sealed class ChatSession
     public PlaybookCatalog Playbooks => _playbooks;
     public NoteStore Notes => _notes;
     public string? ProjectKey => _projectKey;
+    /// <summary>The open model's title. Null with no model or an unsaved one.</summary>
+    public string? ProjectTitle => _projectTitle;
     public void ReloadPlaybooks() => _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
+
+    /// <summary>
+    /// Reads the open model's notes key and title. The key is otherwise only read at turn start,
+    /// so a page opened before the first turn would see no project.
+    /// </summary>
+    public async Task RefreshProjectKeyAsync(CancellationToken ct = default)
+    {
+        _projectKey = await CollectProjectKeyAsync(ct);
+    }
 
     public void RebuildRegistry()
     {
@@ -596,11 +609,14 @@ internal sealed class ChatSession
     private async Task<string?> CollectProjectKeyAsync(CancellationToken ct)
     {
         var bridge = App.Bridge;
-        if (bridge == null) return null;
+        if (bridge == null) { _projectTitle = null; return null; }
         try
         {
             var ident = await new AdapterRevitBridge(bridge).GetProjectIdentityAsync(ct);
-            return ident == null || (string.IsNullOrEmpty(ident.PathName) && string.IsNullOrEmpty(ident.CloudModelGuid))
+            // The title belongs to the same identity as the key, so it is read with it.
+            _projectTitle = ident == null || string.IsNullOrWhiteSpace(ident.Title) ? null : ident.Title;
+            if (ident == null) return null;
+            return string.IsNullOrEmpty(ident.PathName) && string.IsNullOrEmpty(ident.CloudModelGuid)
                 ? null : NoteStore.KeyFor(ident);
         }
         catch { return null; }

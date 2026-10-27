@@ -146,9 +146,9 @@ public class HostProtocolGateTests
     [Fact]
     public void KindLists_HaveNoDuplicatesAndTheNewCounts()
     {
-        Assert.Equal(25, ToHostKind.All.Count);
+        Assert.Equal(30, ToHostKind.All.Count);
         Assert.Equal(ToHostKind.All.Count, ToHostKind.All.Distinct().Count());
-        Assert.Equal(33, FromHostKind.All.Count);
+        Assert.Equal(35, FromHostKind.All.Count);
         Assert.Equal(FromHostKind.All.Count, FromHostKind.All.Distinct().Count());
     }
 }

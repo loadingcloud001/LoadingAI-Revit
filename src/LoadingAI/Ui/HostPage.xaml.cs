@@ -34,6 +34,51 @@ public partial class HostPage : Page
     {
         PostToWeb(new FromHostMessage.HostCaps(HostCapabilities.All));
         PostToWeb(new FromHostMessage.Theme(ThemeWatcher.IsDark));
+        // The playbook list travels with the caps, so the "/" suggestions work from the first keypress.
+        try { PostPlaybooks(); } catch { }
+    }
+
+    /// <summary>The saved procedures, with the folder the user's own files go in.</summary>
+    private void PostPlaybooks()
+    {
+        var folder = PlaybookCatalog.DefaultUserDir;
+        try { Directory.CreateDirectory(folder); } catch { }
+        var catalog = _session.Playbooks;
+        var items = catalog.Items
+            .Take(PlaybookCatalog.MaxListed)
+            .Select(p => new FromHostMessage.PlaybookInfo(p.Name, p.Description, p.Mode, p.Source, p.Tools))
+            .ToList();
+        PostToWeb(new FromHostMessage.Playbooks(items, catalog.Issues, folder));
+    }
+
+    /// <summary>The saved notes of both scopes: the open project's and the global ones.</summary>
+    private void PostNotes()
+    {
+        var key = _session.ProjectKey;
+        var project = key == null ? Array.Empty<Note>() : _session.Notes.List(key);
+        PostToWeb(new FromHostMessage.Notes(new FromHostMessage.NotesPayload(
+            _session.ProjectTitle,
+            key != null,
+            project,
+            _session.Notes.List(NoteStore.GlobalKey),
+            _session.Notes.Issues)));
+    }
+
+    /// <summary>
+    /// The notes key a scope means: the global one, or the open project's. Null with no saved model,
+    /// so the pane is told rather than the note written somewhere the model cannot find it again.
+    /// </summary>
+    private bool TryNoteKey(string scope, out string key)
+    {
+        var k = scope == "global" ? NoteStore.GlobalKey : _session.ProjectKey;
+        if (k == null)
+        {
+            PostToWeb(new FromHostMessage.Error("Open a saved model to keep project notes."));
+            key = "";
+            return false;
+        }
+        key = k;
+        return true;
     }
 
     private void OnRevitThemeChanged(bool dark)
@@ -537,6 +582,49 @@ public partial class HostPage : Page
                     _session.RestoreCheckpoint(msgs);
                     PostToWeb(new FromHostMessage.Status($"Resumed checkpoint {id} ({msgs.Count} messages)"));
                     PostToWeb(new FromHostMessage.History(msgs.Select(m => new FromHostMessage.HistoryMessage(m.Role, LlmJson.GetContentString(m.Content))).ToList()));
+                    break;
+
+                case ToHostMessage.ListNotes:
+                    // The project key is read at turn start, so a pane opened before the first turn has none yet.
+                    await _session.RefreshProjectKeyAsync();
+                    PostNotes();
+                    break;
+
+                case ToHostMessage.SaveNote { Scope: var scope, Id: var noteId, Text: var noteText }:
+                    {
+                        await _session.RefreshProjectKeyAsync();
+                        if (!TryNoteKey(scope, out var key)) break;
+                        try
+                        {
+                            if (string.IsNullOrWhiteSpace(noteId)) _session.Notes.Add(key, noteText, "user");
+                            else _session.Notes.Update(key, noteId!, noteText);
+                        }
+                        catch (Exception ex) { PostToWeb(new FromHostMessage.Error(ex.Message)); }
+                        PostNotes();
+                        break;
+                    }
+
+                case ToHostMessage.DeleteNote { Scope: var scope, Id: var noteId }:
+                    {
+                        await _session.RefreshProjectKeyAsync();
+                        if (!TryNoteKey(scope, out var key)) break;
+                        _session.Notes.Delete(key, noteId);
+                        PostNotes();
+                        break;
+                    }
+
+                case ToHostMessage.ClearNotes { Scope: var scope }:
+                    {
+                        await _session.RefreshProjectKeyAsync();
+                        if (!TryNoteKey(scope, out var key)) break;
+                        _session.Notes.Clear(key);
+                        PostNotes();
+                        break;
+                    }
+
+                case ToHostMessage.ListPlaybooks:
+                    _session.ReloadPlaybooks();
+                    PostPlaybooks();
                     break;
 
                 case ToHostMessage.Clear:

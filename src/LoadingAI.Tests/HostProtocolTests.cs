@@ -13,7 +13,7 @@ public class HostProtocolTests
     [Fact]
     public void TryParse_EveryToHostKind()
     {
-        Assert.Equal(25, ToHostKind.All.Count);
+        Assert.Equal(30, ToHostKind.All.Count);
 
         Assert.True(ToHostMessage.TryParse("""{"type":"send","text":"hi","mode":"plan","slash":"/plan","mentions":["Selection"]}""", out var send, out var err));
         Assert.Null(err);
@@ -76,6 +76,13 @@ public class HostProtocolTests
 
         Assert.True(ToHostMessage.TryParse("""{"type":"resumeCheckpoint","id":"cp1"}""", out var resume, out err));
         Assert.Equal("cp1", Assert.IsType<ToHostMessage.ResumeCheckpoint>(resume).Id);
+
+        var sn = Assert.IsType<ToHostMessage.SaveNote>(Parse("""{"type":"saveNote","scope":"global","id":"a1","text":"hi"}"""));
+        Assert.Equal(("global", "a1", "hi"), (sn.Scope, sn.Id, sn.Text));
+        Assert.Equal("project", Assert.IsType<ToHostMessage.DeleteNote>(Parse("""{"type":"deleteNote","scope":"x","id":"b"}""")).Scope);
+        Assert.IsType<ToHostMessage.ClearNotes>(Parse("""{"type":"clearNotes","scope":"project"}"""));
+        Assert.IsType<ToHostMessage.ListNotes>(Parse("""{"type":"listNotes"}"""));
+        Assert.IsType<ToHostMessage.ListPlaybooks>(Parse("""{"type":"listPlaybooks"}"""));
     }
 
     [Fact]
@@ -184,7 +191,7 @@ public class HostProtocolTests
     [Fact]
     public void FromHostMessage_SerializesEveryKind()
     {
-        Assert.Equal(33, FromHostKind.All.Count);
+        Assert.Equal(35, FromHostKind.All.Count);
         var messages = new FromHostMessage[]
         {
             new FromHostMessage.Status("s"),
@@ -222,6 +229,9 @@ public class HostProtocolTests
                 Array.Empty<string>(), true, true, "{}")),
             new FromHostMessage.TurnChanges("t1", 1, 0, 0, null, Array.Empty<FromHostMessage.CategoryChangesPayload>()),
             new FromHostMessage.SteerAck("go on"),
+            new FromHostMessage.Notes(new FromHostMessage.NotesPayload(
+                "Tower", true, Array.Empty<Note>(), Array.Empty<Note>(), Array.Empty<string>())),
+            new FromHostMessage.Playbooks(Array.Empty<FromHostMessage.PlaybookInfo>(), Array.Empty<string>(), "folder"),
         };
         Assert.Equal(FromHostKind.All.Count, messages.Length);
         var types = new HashSet<string>();
@@ -278,6 +288,27 @@ public class HostProtocolTests
     }
 
     [Fact]
+    public void FromHostMessage_NotesCarryTheProjectAndGlobalNotes()
+    {
+        using var doc = JsonDocument.Parse(FromHostMessage.Serialize(new FromHostMessage.Notes(
+            new FromHostMessage.NotesPayload(
+                "Tower",
+                true,
+                new[] { new Note("n1", "text", new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc), "user") },
+                Array.Empty<Note>(),
+                new[] { "issue" }))));
+        var notes = doc.RootElement.GetProperty("notes");
+        Assert.Equal("Tower", notes.GetProperty("projectTitle").GetString());
+        Assert.True(notes.GetProperty("hasProject").GetBoolean());
+        var note = notes.GetProperty("project")[0];
+        Assert.Equal("n1", note.GetProperty("id").GetString());
+        Assert.Equal("text", note.GetProperty("text").GetString());
+        Assert.Equal("user", note.GetProperty("source").GetString());
+        Assert.StartsWith("2026-01-02T03:04:05", note.GetProperty("createdUtc").GetString());
+        Assert.Equal("issue", notes.GetProperty("issues")[0].GetString());
+    }
+
+    [Fact]
     public void FromHostMessage_ProgressSerializesIndeterminate()
     {
         using var doc = JsonDocument.Parse(FromHostMessage.Serialize(new FromHostMessage.Progress(ProgressSnapshot.Thinking())));
@@ -291,6 +322,14 @@ public class HostProtocolTests
         Assert.True(ToHostMessage.TryParse(json, out var msg, out var err), err ?? json);
         Assert.Null(err);
         Assert.IsType<T>(msg);
+    }
+
+    private static ToHostMessage Parse(string json)
+    {
+        Assert.True(ToHostMessage.TryParse(json, out var msg, out var err), err ?? json);
+        Assert.Null(err);
+        Assert.NotNull(msg);
+        return msg!;
     }
 
     private static string Slice(string src, string start, string end)
