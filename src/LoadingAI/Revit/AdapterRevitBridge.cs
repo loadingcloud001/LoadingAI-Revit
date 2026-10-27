@@ -61,6 +61,24 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
     }
 
     /// <summary>
+    /// Who the open model is, in the terms that stay the same across sessions: the cloud model
+    /// GUID, the worksharing central path, or the local path plus the project information id.
+    /// The saved notes are keyed on this, so the same project finds its notes again.
+    /// </summary>
+    public Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return (ProjectIdentityDto?)null;
+            string? cloud = null, central = null;
+            try { if (doc.IsModelInCloud) cloud = doc.GetCloudModelPath().GetModelGUID().ToString(); } catch { }
+            try { if (doc.IsWorkshared) central = ModelPathUtils.ConvertModelPathToUserVisiblePath(doc.GetWorksharingCentralModelPath()); } catch { }
+            return new ProjectIdentityDto(cloud, central, doc.PathName ?? "", doc.ProjectInformation?.UniqueId ?? "", doc.Title ?? "");
+        }, ct);
+    }
+
+    /// <summary>
     /// What the model is likely to name: levels, grids, categories in use, families and types,
     /// phases, worksets, parameter names per category, views and sheets. Rebuilt only when the
     /// model changed, so the host can match names without walking the model again.

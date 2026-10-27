@@ -6,6 +6,18 @@ namespace LoadingAI.Revit;
 // No Autodesk.Revit types here on purpose: Core (netstandard2.0) must stay
 // referenceable from plugins and the LLM layer without a RevitAPI dependency.
 
+/// <summary>
+/// Who the open model is, in the terms that stay the same across sessions: the cloud model
+/// GUID when the model lives in Autodesk Construction Cloud, else the worksharing central path,
+/// else the local path plus the project information id. Used to key the saved notes.
+/// </summary>
+public sealed record ProjectIdentityDto(
+    string? CloudModelGuid,
+    string? CentralPath,
+    string PathName,
+    string ProjectInfoUniqueId,
+    string Title);
+
 public sealed record ModelSummaryDto(
     string Title,
     string Path,

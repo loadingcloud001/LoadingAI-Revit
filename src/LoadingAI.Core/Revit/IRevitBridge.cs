@@ -14,6 +14,13 @@ public interface IRevitQuery
 {
     Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Who the open model is, in the terms that stay the same across sessions (cloud model
+    /// GUID, worksharing central path, or local path plus project information id). Null when
+    /// no document is open. Used to key the saved notes per project.
+    /// </summary>
+    Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default);
+
     /// <summary>The project index for name matching (P2). Cached by the host until the model changes.</summary>
     Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default);
 

@@ -27,6 +27,11 @@ internal sealed class FakeRevitBridge : IRevitBridge
     public Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default)
         => Task.FromResult(HasActiveDocument ? ModelSummary : null);
 
+    public ProjectIdentityDto? Identity { get; set; }
+
+    public Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default)
+        => Task.FromResult(Identity);
+
     public ProjectIndex Index { get; set; } = ProjectIndex.Empty;
 
     public Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default)
