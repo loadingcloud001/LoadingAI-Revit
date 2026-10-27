@@ -41,6 +41,14 @@ public class PluginPromptTests
     }
 
     [Fact]
+    public void Prompt_TellsTheModelAboutResultSets_AndIncludesTheModelSummary()
+    {
+        var p = AgentLoop.BuildSystemPrompt(Array.Empty<ToolDefinition>(), extras: "\n# This model\nLevels: Level 1 (0 mm)\n");
+        Assert.Contains("Saved as @rN", p);
+        Assert.Contains("# This model", p);
+    }
+
+    [Fact]
     public void FailedReads_DoNotRollBackTheTurn()
     {
         var src = File.ReadAllText(Path.Combine(AdapterSource.RepoRoot(), "src", "LoadingAI", "Ui", "ChatSession.cs"));

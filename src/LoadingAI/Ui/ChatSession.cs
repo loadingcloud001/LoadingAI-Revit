@@ -29,6 +29,8 @@ internal sealed class ChatSession
     private string _lastUserText = "";
     private readonly ToolAllowlist _allow = new();
     private readonly TurnChangeSet _changes = new();
+    /// <summary>Element-id lists the tools saved this chat as @r1, @r2…; the model passes them back.</summary>
+    private readonly ResultSetStore _sets = new();
     /// <summary>Images the tools produced this turn. The agent drains them after the round's tool results.</summary>
     private readonly List<AttachmentDto> _pendingImages = new();
     private string _turnId = "";
@@ -54,7 +56,10 @@ internal sealed class ChatSession
             if (_agent != null) _agent.CustomInstructions = _settings.Instructions;
             // A different model is a different partner: "allow for this session" ends with the switch.
             if (!string.Equals(previousModel, _settings.ActiveProviderId, StringComparison.OrdinalIgnoreCase))
+            {
                 _allow.ClearSession();
+                _sets.Clear();
+            }
         }
     }
 
@@ -282,6 +287,7 @@ internal sealed class ChatSession
     {
         CancelAndDeny();
         _allow.ClearSession();
+        _sets.Clear();
         _agent?.ClearHistory();
         try { HistoryStore.Append("system", "Cleared."); } catch { }
     }
@@ -302,6 +308,7 @@ internal sealed class ChatSession
                 }
                 _cts?.Cancel();
                 _allow.ClearSession();
+                _sets.Clear();
                 _agent?.ClearHistory();
                 try { HistoryStore.Append("system", "Cleared."); } catch { }
                 _web.Post(new FromHostMessage.Status("Cleared."));
@@ -449,6 +456,9 @@ internal sealed class ChatSession
                     var effectiveMode = mode == "auto" ? null : mode;
                     agent.AutoApprove = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass;
                     agent.CustomInstructions = _settings.Instructions;
+                    // What the model is likely to name: levels, categories, families. It never blocks the turn,
+                    // and with no model open there is nothing to name, so the block goes.
+                    agent.PromptExtras = await CollectPromptSummaryAsync(ct);
                     string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                         ExecuteToolAsync,
                         trace =>
@@ -544,6 +554,19 @@ internal sealed class ChatSession
     }
 
     /// <summary>
+    /// What the model is likely to name: levels, categories, families. The adapter keeps the index and
+    /// drops it when the model changes, so this does not walk the model again. Null when there is no
+    /// model or the index cannot be read: the turn then runs without the block.
+    /// </summary>
+    private async Task<string?> CollectPromptSummaryAsync(CancellationToken ct)
+    {
+        var bridge = App.Bridge;
+        if (bridge == null) return null;
+        try { return (await new AdapterRevitBridge(bridge).GetProjectIndexAsync(ct)).ToPromptSummary(); }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// Runs one tool call for the agent. The gate (ADR-0017) decides first: the call runs, asks the user once in
     /// chat, or is blocked. Every call is announced to the pane as a tool_start and closed with a tool_end, so the
     /// transcript shows what happened without parsing text.
@@ -583,6 +606,9 @@ internal sealed class ChatSession
         StartStep(callId, name, entry.Tier.ToString(), entry.Destructive, argsJson, startedAt);
 
         var schema = entry.Definition.Function.Parameters;
+        // "@rN" stands for the ids a previous tool result saved: they are put back before the check.
+        if (!ResultSetExpander.TryExpand(argsJson, _sets, out argsJson, out var setError))
+            return EndStep(callId, false, "error", $"Tool argument error: {setError}", startedAt);
         argsJson = ToolArgumentCoercer.Coerce(schema, argsJson);
         if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var validationError))
             return EndStep(callId, false, "error", $"Tool argument error: {validationError}", startedAt);
@@ -622,7 +648,9 @@ internal sealed class ChatSession
             }
 
             // The Run form or an edit changed the arguments: check them against the schema again.
-            argsJson = ToolArgumentCoercer.Coerce(schema, review.ArgsJson);
+            if (!ResultSetExpander.TryExpand(review.ArgsJson, _sets, out var reviewedArgs, out var reviewedSetError))
+                return EndStep(callId, false, "error", $"Tool argument error: {reviewedSetError}", startedAt);
+            argsJson = ToolArgumentCoercer.Coerce(schema, reviewedArgs);
             if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var reviewedError))
                 return EndStep(callId, false, "error", $"Tool argument error: {reviewedError}", startedAt);
             edited = review.Edited;
@@ -675,6 +703,13 @@ internal sealed class ChatSession
             // changed nothing, so it must not undo the writes before it. A cancelled or unknown
             // outcome still does: the turn can no longer be trusted.
             MarkTurnFailedIfGroupActive();
+        }
+
+        // The ids the tool found are kept for the rest of the chat: the model may pass "@rN" back.
+        if (execution.ResultIds is { Count: > 0 } && execution.Status is ToolExecutionStatus.Succeeded or ToolExecutionStatus.Partial)
+        {
+            var handle = _sets.Save(execution.ResultIds);
+            if (handle != null) result += $"\nSaved as {handle} ({execution.ResultIds.Count} elements).";
         }
 
         if (entry.Tier != ToolTier.L1)
