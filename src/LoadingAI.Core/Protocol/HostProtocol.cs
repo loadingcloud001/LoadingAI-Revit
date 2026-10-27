@@ -398,7 +398,7 @@ public abstract record FromHostMessage(string Type)
     public sealed record ToolStart(string TurnId, string ToolCallId, string Name, string Tier, bool Destructive, string Args, long StartedAt)
         : FromHostMessage(FromHostKind.ToolStart);
     /// <summary>Outcome: ran, denied, cancelled, timeout, blocked or error. <c>Text</c> is what the model read.</summary>
-    public sealed record ToolEnd(string ToolCallId, bool Ok, string Outcome, string Summary, string Text, long Ms, bool? Partial = null)
+    public sealed record ToolEnd(string ToolCallId, bool Ok, string Outcome, string Summary, string Text, long Ms, bool? Partial = null, string? Image = null)
         : FromHostMessage(FromHostKind.ToolEnd);
     /// <summary>The one in-chat review card. Replaces tool_approval and tool_preset (ADR-0017).</summary>
     public sealed record ToolReview([property: JsonPropertyName("review")] ReviewPayload Payload) : FromHostMessage(FromHostKind.ToolReview);

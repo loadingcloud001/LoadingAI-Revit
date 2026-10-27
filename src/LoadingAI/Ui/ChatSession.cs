@@ -29,6 +29,8 @@ internal sealed class ChatSession
     private string _lastUserText = "";
     private readonly ToolAllowlist _allow = new();
     private readonly TurnChangeSet _changes = new();
+    /// <summary>Images the tools produced this turn. The agent drains them after the round's tool results.</summary>
+    private readonly List<AttachmentDto> _pendingImages = new();
     private string _turnId = "";
     private string _turnMode = "build";
     private bool _turnRolledBack;
@@ -113,6 +115,15 @@ internal sealed class ChatSession
         }
         else
             _agent.ReplaceRegistry(_registry);
+        _agent.DrainToolImages = () =>
+        {
+            lock (_pendingImages)
+            {
+                var list = _pendingImages.ToList();
+                _pendingImages.Clear();
+                return list;
+            }
+        };
         _agent.CustomInstructions = _settings.Instructions;
         ApplyPluginLoadWarnings();
     }
@@ -419,6 +430,7 @@ internal sealed class ChatSession
                 _turnWrote = false;
                 _turnFailed = false;
                 _turnRolledBack = false;
+                lock (_pendingImages) _pendingImages.Clear();
                 _turnId = Guid.NewGuid().ToString("N").Substring(0, 8);
                 _turnMode = mode;
                 var turnId = _turnId;
@@ -637,6 +649,19 @@ internal sealed class ChatSession
         var execution = await entry.ExecuteAsync(argsJson);
         var result = execution.Text;
 
+        // A tool that produced images: the pane gets a thumbnail, the model gets the files themselves.
+        string? thumb = null;
+        if (execution.Images is { Count: > 0 })
+        {
+            foreach (var img in execution.Images)
+            {
+                var att = ImageData.ToAttachment(img);
+                if (att == null) continue;
+                lock (_pendingImages) _pendingImages.Add(att);
+                thumb ??= att.DataUrl;
+            }
+        }
+
         if (isWrite)
         {
             if (execution.WriteCertainty == ToolWriteCertainty.Committed)
@@ -680,7 +705,7 @@ internal sealed class ChatSession
             ToolExecutionStatus.Cancelled => "cancelled",
             _ => "error"
         };
-        return EndStep(callId, ok, outcome, result, startedAt, execution.Status == ToolExecutionStatus.Partial);
+        return EndStep(callId, ok, outcome, result, startedAt, execution.Status == ToolExecutionStatus.Partial, thumb);
     }
 
     private void StartStep(string callId, string name, string tier, bool destructive, string argsJson, long startedAt)
@@ -690,12 +715,12 @@ internal sealed class ChatSession
     }
 
     /// <summary>Closes the step in the pane and returns the text the model reads.</summary>
-    private string EndStep(string callId, bool ok, string outcome, string text, long startedAt, bool partial = false)
+    private string EndStep(string callId, bool ok, string outcome, string text, long startedAt, bool partial = false, string? image = null)
     {
         var ms = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt);
         var summary = FirstLine(text, 140);
         var body = text.Length > 6000 ? text.Substring(0, 6000) + "…" : text;
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolEnd(callId, ok, outcome, summary, body, ms, partial ? true : null))); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolEnd(callId, ok, outcome, summary, body, ms, partial ? true : null, image))); } catch { }
         return text;
     }
 
