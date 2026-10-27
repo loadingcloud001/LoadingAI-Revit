@@ -107,6 +107,13 @@ public sealed class AgentLoop
     /// <summary>Copied from the user's pane switch before each run. The model does not set it.</summary>
     public bool AutoApprove { get; set; }
 
+    /// <summary>
+    /// Tool names a playbook pins for this turn. They are offered on top of the tool cap in every
+    /// round, so a step of the playbook never loses its tool. Names that are not in the registry
+    /// are ignored.
+    /// </summary>
+    public IReadOnlyCollection<string>? PinnedTools { get; set; }
+
     public void ReplaceRegistry(ToolRegistry registry) => _registry = registry;
 
     public IReadOnlyList<ChatMessage> History
@@ -217,7 +224,7 @@ public sealed class AgentLoop
             catalogQuery = catalogQuery.Where(e => e.Tier == ToolTier.L1);
         }
         var catalog = catalogQuery as IList<ToolEntry> ?? catalogQuery.ToList();
-        var selected = ToolSelector.Select(catalog, userTextForSelect);
+        var selected = ToolSelector.Select(catalog, userTextForSelect, ToolSelector.DefaultMax, PinnedTools);
         List<ToolDefinition>? tools = selected.Count == 0 ? null : selected;
         ApplySystemPrompt(mode, selected);
 
@@ -236,7 +243,7 @@ public sealed class AgentLoop
             {
                 List<ChatMessage> recallSnap;
                 lock (_historyLock) recallSnap = new List<ChatMessage>(_history);
-                selected = ToolSelector.Recall(catalog, selected, ComposeRecallText(recallSnap));
+                selected = ToolSelector.Recall(catalog, selected, ComposeRecallText(recallSnap), ToolSelector.DefaultMax, PinnedTools);
                 tools = selected.Count == 0 ? null : selected;
                 ApplySystemPrompt(mode, selected);
             }

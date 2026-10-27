@@ -20,10 +20,16 @@ public static class ToolSelector
     public static List<ToolDefinition> Select(IReadOnlyList<ToolDefinition> tools, string userText, int max = DefaultMax)
         => Select(tools, userText, null, max);
 
+    /// <summary>
+    /// Picks the tools offered for a turn. <paramref name="pinned"/> holds the tool names a
+    /// playbook asks for: they are offered on top of <paramref name="max"/>, so a pinned tool is
+    /// never dropped for want of a slot. Names that are not in the catalog are skipped.
+    /// </summary>
     public static List<ToolDefinition> Select(
         IEnumerable<LoadingAI.Tools.ToolEntry> entries,
         string userText,
-        int max = DefaultMax)
+        int max = DefaultMax,
+        IReadOnlyCollection<string>? pinned = null)
     {
         var list = entries as IList<LoadingAI.Tools.ToolEntry> ?? entries.ToList();
         var defs = list.Select(e => e.Definition).ToList();
@@ -34,7 +40,7 @@ public static class ToolSelector
             if (name.Length == 0 || e.Tags.Count == 0 || map.ContainsKey(name)) continue;
             map[name] = e.Tags;
         }
-        return Select(defs, userText, map, max);
+        return AppendPinned(Select(defs, userText, map, max), defs, pinned);
     }
 
     public static List<ToolDefinition> Select(
@@ -62,12 +68,15 @@ public static class ToolSelector
     /// Re-score dropped catalog tools against later-round text and swap the lowest
     /// non-AlwaysKeep slots. Size stays &lt;= <paramref name="max"/>. Does not raise the cap.
     /// Empty later text returns <paramref name="current"/> unchanged.
+    /// <paramref name="pinned"/> holds the tool names a playbook asks for: they survive every
+    /// round and are offered on top of the cap, like in <see cref="Select"/>.
     /// </summary>
     public static List<ToolDefinition> Recall(
         IEnumerable<LoadingAI.Tools.ToolEntry> catalog,
         IReadOnlyList<ToolDefinition> current,
         string laterText,
-        int max = DefaultMax)
+        int max = DefaultMax,
+        IReadOnlyCollection<string>? pinned = null)
     {
         var list = catalog as IList<LoadingAI.Tools.ToolEntry> ?? catalog.ToList();
         var defs = list.Select(e => e.Definition).ToList();
@@ -78,29 +87,34 @@ public static class ToolSelector
             if (name.Length == 0 || e.Tags.Count == 0 || map.ContainsKey(name)) continue;
             map[name] = e.Tags;
         }
-        return Recall(defs, current, laterText, map, max);
+        return Recall(defs, current, laterText, map, max, pinned);
     }
 
     public static List<ToolDefinition> Recall(
         IReadOnlyList<ToolDefinition> catalog,
         IReadOnlyList<ToolDefinition> current,
         string laterText,
-        int max = DefaultMax)
-        => Recall(catalog, current, laterText, null, max);
+        int max = DefaultMax,
+        IReadOnlyCollection<string>? pinned = null)
+        => Recall(catalog, current, laterText, null, max, pinned);
 
     public static List<ToolDefinition> Recall(
         IReadOnlyList<ToolDefinition> catalog,
         IReadOnlyList<ToolDefinition> current,
         string laterText,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? tagMap,
-        int max = DefaultMax)
+        int max = DefaultMax,
+        IReadOnlyCollection<string>? pinned = null)
     {
+        var pinnedNames = new HashSet<string>(
+            pinned ?? Array.Empty<string>(),
+            StringComparer.OrdinalIgnoreCase);
         if (current == null || current.Count == 0)
-            return Select(catalog, laterText ?? "", tagMap, max);
+            return AppendPinned(Select(catalog, laterText ?? "", tagMap, max), catalog, pinned);
         if (string.IsNullOrWhiteSpace(laterText))
-            return current.ToList();
+            return AppendPinned(current.ToList(), catalog, pinned);
         if (catalog.Count <= max)
-            return catalog.ToList();
+            return AppendPinned(catalog.ToList(), catalog, pinned);
 
         var later = laterText.ToLowerInvariant();
         var active = ActiveTags(later);
@@ -112,8 +126,10 @@ public static class ToolSelector
             StringComparer.OrdinalIgnoreCase);
         var guaranteed = catalog.Where(t => AlwaysKeep.Contains(t.Function.Name ?? "")).ToList();
         var remainingSlots = Math.Max(0, max - guaranteed.Count);
+        // Pinned tools are never a swap candidate: they are re-appended after the fill.
         var fill = current
-            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? ""))
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? "")
+                && !pinnedNames.Contains(t.Function.Name ?? ""))
             .ToList();
         if (fill.Count > remainingSlots)
         {
@@ -125,7 +141,9 @@ public static class ToolSelector
         }
 
         var incoming = catalog
-            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? "") && !currentNames.Contains(t.Function.Name ?? ""))
+            .Where(t => !AlwaysKeep.Contains(t.Function.Name ?? "")
+                && !pinnedNames.Contains(t.Function.Name ?? "")
+                && !currentNames.Contains(t.Function.Name ?? ""))
             .Select(t => (Tool: t, Score: Later(t)))
             .Where(x => x.Score > 0)
             .OrderByDescending(x => x.Score)
@@ -158,7 +176,33 @@ public static class ToolSelector
                 .Take(remainingSlots)
                 .ToList();
         }
-        return guaranteed.Concat(fill).ToList();
+        return AppendPinned(guaranteed.Concat(fill).ToList(), catalog, pinned);
+    }
+
+    /// <summary>
+    /// Appends the tools a playbook pins to a selection. They are offered on top of the cap, so
+    /// a pinned tool is never dropped for want of a slot. A name that is not in the catalog is
+    /// skipped.
+    /// </summary>
+    private static List<ToolDefinition> AppendPinned(
+        List<ToolDefinition> chosen,
+        IReadOnlyList<ToolDefinition> catalog,
+        IReadOnlyCollection<string>? pinned)
+    {
+        if (pinned == null || pinned.Count == 0) return chosen;
+        var chosenNames = new HashSet<string>(
+            chosen.Select(t => t.Function.Name ?? ""),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var name in pinned)
+        {
+            if (string.IsNullOrEmpty(name)) continue;
+            var tool = catalog.FirstOrDefault(t =>
+                string.Equals(t.Function.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (tool == null) continue;
+            if (!chosenNames.Add(tool.Function.Name ?? "")) continue;
+            chosen.Add(tool);
+        }
+        return chosen;
     }
 
     public static int Score(ToolDefinition t, string lowerUser)

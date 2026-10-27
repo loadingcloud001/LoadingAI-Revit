@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LoadingAI.Llm;
+using LoadingAI.Tools;
 
 namespace LoadingAI.Tests;
 
@@ -227,6 +228,37 @@ public class ToolSelectorTests
         var selected = ToolSelector.Select(tools, prompt);
         Assert.True(selected.Count <= ToolSelector.DefaultMax);
         Assert.Contains(selected, t => t.Function.Name == toolName);
+    }
+
+    [Fact]
+    public void PinnedTools_AreAlwaysOffered_OverTheCap()
+    {
+        var entries = Enumerable.Range(0, 60).Select(i => new ToolEntry
+        {
+            Definition = new ToolDefinition { Function = new ToolFunction { Name = $"tool_{i}", Description = "x" } }
+        }).ToList();
+        var picked = ToolSelector.Select(entries, "nothing relevant", ToolSelector.DefaultMax, pinned: new[] { "tool_59", "tool_58", "missing" });
+        var names = picked.Select(t => t.Function.Name).ToList();
+        Assert.Contains("tool_59", names);
+        Assert.Contains("tool_58", names);
+        Assert.True(names.Count <= ToolSelector.DefaultMax + 2);
+    }
+
+    [Fact]
+    public void Recall_KeepsPinnedTool_ThroughASwap()
+    {
+        var entries = Enumerable.Range(0, 40)
+            .Select(i => new ToolEntry { Definition = T($"noise_{i}") })
+            .Append(new ToolEntry { Definition = T("zz_export_pdf") })
+            .ToList();
+        var pinned = new[] { "noise_39" };
+        var first = ToolSelector.Select(entries, "nothing relevant", ToolSelector.DefaultMax, pinned: pinned);
+        Assert.Contains(first, t => t.Function.Name == "noise_39");
+        Assert.DoesNotContain(first, t => t.Function.Name == "zz_export_pdf");
+
+        var recalled = ToolSelector.Recall(entries, first, "export a pdf of the sheets", ToolSelector.DefaultMax, pinned);
+        Assert.Contains(recalled, t => t.Function.Name == "noise_39");
+        Assert.Contains(recalled, t => t.Function.Name == "zz_export_pdf");
     }
 
     private static List<ToolDefinition> RealSurface()
