@@ -17,10 +17,19 @@ type Props = {
   onModelsLoading: (id: string | null) => void;
 };
 
-type Form = { name: string; baseUrl: string; model: string; apiKey: string; apiKind: string; group: string; icon: string };
+type Form = { name: string; baseUrl: string; model: string; apiKey: string; apiKind: string; group: string; icon: string; supportsImages: boolean | null };
 
 function toForm(p: ProviderConfig): Form {
-  return { name: p.name, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey, apiKind: p.apiKind ?? 'openai', group: p.group ?? 'custom', icon: p.icon ?? '＋' };
+  return { name: p.name, baseUrl: p.baseUrl, model: p.model, apiKey: p.apiKey, apiKind: p.apiKind ?? 'openai', group: p.group ?? 'custom', icon: p.icon ?? '＋', supportsImages: p.supportsImages ?? null };
+}
+
+/** Auto is null; the select keeps the tri-state as a string. */
+function imagesValue(v: boolean | null): string {
+  return v === null ? 'auto' : v ? 'yes' : 'no';
+}
+
+function imagesFromValue(v: string): boolean | null {
+  return v === 'yes' ? true : v === 'no' ? false : null;
 }
 
 function connected(p: ProviderConfig): boolean {
@@ -46,7 +55,7 @@ export function ModelsSection({ settings, catalog, quota, test, models, modelsLo
   if (!settings) return <div className="muted">Loading settings…</div>;
 
   const fromForm = (base: ProviderConfig): ProviderConfig => form
-    ? { ...base, name: form.name.trim() || base.name, baseUrl: form.baseUrl.trim().replace(/\/$/, '') || base.baseUrl, model: form.model.trim() || base.model, apiKey: form.apiKey.trim(), apiKind: form.apiKind, group: form.group, icon: form.icon }
+    ? { ...base, name: form.name.trim() || base.name, baseUrl: form.baseUrl.trim().replace(/\/$/, '') || base.baseUrl, model: form.model.trim() || base.model, apiKey: form.apiKey.trim(), apiKind: form.apiKind, group: form.group, icon: form.icon, supportsImages: form.supportsImages }
     : base;
 
   const use = (id: string) => { onSave({ ...settings, activeProviderId: id }); setMessage('Model switched.'); };
@@ -137,6 +146,15 @@ export function ModelsSection({ settings, catalog, quota, test, models, modelsLo
                         ? <ModelSelector models={list.map(id => ({ id, name: id, provider: p.name } as any))} value={form.model} onChange={(id: string) => setForm({ ...form, model: id })} placeholder="Search models…" storageKey={`oms-${p.id}`} />
                         : <div className="list">{list.map(id => <button key={id} type="button" className="menu-item mono" style={{ fontSize: 11 }} aria-selected={form.model === id} onClick={() => setForm({ ...form, model: id })}>{id}</button>)}</div>
                     )}
+                    <label className="field">
+                      <span>Can see images</span>
+                      <select className="select" value={imagesValue(form.supportsImages)} onChange={e => setForm({ ...form, supportsImages: imagesFromValue(e.target.value) })}>
+                        <option value="auto">Auto</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                      <span className="faint" style={{ fontSize: 11 }}>Auto guesses from the model name. Snapshots are only offered when this is on.</span>
+                    </label>
                     <label className="field">
                       <span>API key</span>
                       <input className="input mono" type="password" autoComplete="off" value={form.apiKey} placeholder={form.baseUrl.includes('localhost') ? 'Leave empty for a local server' : 'sk-…'} onChange={e => setForm({ ...form, apiKey: e.target.value })} />

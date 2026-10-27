@@ -8,6 +8,8 @@ export type ProviderConfig = {
   apiKind?: string;
   group?: string;
   icon?: string;
+  /** True when the model can read images, false when it cannot, null/undefined to guess from the model name. */
+  supportsImages?: boolean | null;
 };
 
 export type ProviderPreset = {
@@ -288,7 +290,7 @@ export type FromHost =
   | { type: 'turn_start'; turnId: string; mode: string; level: string }
   | { type: 'turn_end'; turnId: string; outcome: string; rolledBack?: boolean }
   | { type: 'tool_start'; turnId: string; toolCallId: string; name: string; tier: string; destructive: boolean; args: string; startedAt: number }
-  | { type: 'tool_end'; toolCallId: string; ok: boolean; outcome: ToolOutcome; summary: string; text: string; ms: number; partial?: boolean }
+  | { type: 'tool_end'; toolCallId: string; ok: boolean; outcome: ToolOutcome; summary: string; text: string; ms: number; partial?: boolean; image?: string }
   | { type: 'tool_review'; review: ReviewPayload }
   | { type: 'turn_changes'; turnId: string; added: number; modified: number; deleted: number; idsTruncated?: boolean; byCategory: ChangeCategory[] }
   | { type: 'steer_ack'; text: string; deliveredAt?: number };
@@ -330,8 +332,8 @@ export function postToHost(msg: ToHost) {
         providers: [
           { id: BUILTIN_PROVIDER_ID, name: BUILTIN_PROVIDER_NAME, baseUrl: '', model: BUILTIN_PROVIDER_NAME, apiKey: '••••••••', apiKind: 'openai', group: 'cloud', icon: '✦' },
           { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◆' },
-          { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◉' },
-          { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama', apiKind: 'openai', group: 'local', icon: '⬢' },
+          { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '', apiKind: 'openai', group: 'cloud', icon: '◉', supportsImages: true },
+          { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKey: 'ollama', apiKind: 'openai', group: 'local', icon: '⬢', supportsImages: false },
           { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4', apiKey: '', apiKind: 'openai', group: 'gateway', icon: '◎' },
           { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/go/v1', model: 'muse-spark-1.2-contributor', apiKey: '', apiKind: 'responses', group: 'gateway', icon: '⚡' },
         ]

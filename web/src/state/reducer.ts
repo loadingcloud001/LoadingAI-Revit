@@ -107,6 +107,7 @@ function normalizeSettings(raw: any): AppSettings | null {
     apiKind: p.apiKind ?? p.ApiKind ?? 'openai',
     group: p.group ?? p.Group ?? 'custom',
     icon: p.icon ?? p.Icon ?? '＋',
+    supportsImages: supportsImagesOf(p.supportsImages !== undefined ? p.supportsImages : p.SupportsImages),
   }));
   const level = raw.permissionLevel ?? raw.PermissionLevel;
   const always = raw.alwaysAllowTools ?? raw.AlwaysAllowTools;
@@ -124,6 +125,14 @@ function normalizeSettings(raw: any): AppSettings | null {
 }
 
 const LEVEL_IDS = ['readonly', 'plan', 'confirm', 'autoEdit', 'bypass'];
+
+/** The "can see images" switch is a tri-state: true, false, or null/undefined for Auto. */
+function supportsImagesOf(v: unknown): boolean | null | undefined {
+  if (v === true) return true;
+  if (v === false) return false;
+  if (v === null) return null;
+  return undefined;
+}
 
 function normalizePresets(raw: any): ProviderPreset[] {
   if (!Array.isArray(raw)) return [];
@@ -354,6 +363,7 @@ function reduceHost(s: PaneState, msg: FromHost, at?: number): PaneState {
         resultText: msg.text,
         ms: msg.ms,
         partial: msg.partial,
+        image: msg.image,
         endedAt: now(at),
         review: target.review ? { ...target.review, decided } : undefined,
       };

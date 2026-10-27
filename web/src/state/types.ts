@@ -41,6 +41,8 @@ export type Step = {
   ms?: number;
   /** Some of the work was done and some failed. */
   partial?: boolean;
+  /** Snapshot data URL from tool_end (P1). */
+  image?: string;
   startedAt: number;
   endedAt?: number;
 };
