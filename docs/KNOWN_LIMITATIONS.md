@@ -60,6 +60,17 @@ reproduction on a small model is the most useful thing you can send.
   Schedules, legends and templates cannot be shot. The model only sees the picture when its provider
   can read images (Settings → Models → "Can see images"); otherwise the tool is not offered.
 
+## Notes and playbooks
+
+- **Project notes follow the model's identity.** The key is the cloud model id, else the central
+  file path, else the local path and project information. A "Save As" copy, or a new unsaved model,
+  starts with no project notes; notes for all projects still apply.
+- **A playbook is plain text.** The agent follows it as instructions, and can still deviate from it.
+  Its review cards are the same as for any other request.
+- **A playbook's own tools are always offered** while it runs, even when the tool picker would not
+  otherwise have chosen them.
+- **Result sets (`@r1`, `@r2`, …) last for the chat.** `/clear` or switching model forgets them.
+
 ## The built-in free tier
 
 - Up to 100 requests per day per device. The device id is generated on your machine, so the

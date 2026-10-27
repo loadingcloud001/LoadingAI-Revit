@@ -33,6 +33,8 @@ Plugins/hello/
 ```
 
 - `"destructive": true` on a tool (optional, default false) marks one that deletes or replaces elements, or writes a file. The review card for it never offers "Always allow" or "Allow for this session", Auto-edit still asks for it, and Settings shows a **destructive** badge. Leave it off for ordinary parameter, view and creation tools. See ADR-0017.
+- `ToolEntry.NeverAllowList` (code, default false) marks a tool whose every call must be reviewed: no Session or Always allow, and Auto-edit still asks. `save_project_note` uses it (ADR-0018).
+- `ToolEntry.NeedsVision` (code, default false) marks a tool whose result is an image for the model to look at. It is only offered when the provider can read images. `capture_view` uses it; return the picture in `ToolExecutionResult.Images`.
 - `verified:true` = merged via PR and reviewed.
 - `verified:false` = built outside the repo, shown in **Settings** as unverified. Display-only: this field is **not** the load gate, the DLL hash is. `"verified":true` on an unknown hash still refuses to load.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggling needs no restart. **Rescan** in Settings picks up a new or changed plugin on Revit 2025+; on Revit 2024 (net48) a DLL that is already loaded stays in memory until Revit restarts. **Remove** marks the folder and deletes it; if the DLL is locked the folder is skipped and purged at the next scan.

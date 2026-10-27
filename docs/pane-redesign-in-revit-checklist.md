@@ -88,6 +88,18 @@ Run it on Revit 2027 against a small model with levels, walls, beams, columns an
 - [ ] Add a level by hand, then ask for levels: the new level is in the prompt summary on the next turn.
 - [ ] `/clear` then `@r1`: an argument error saying no sets are saved.
 
+## v0.7 · Memory and playbooks
+
+- [ ] "Remember that beams on this job are UB sections" shows a `save_project_note` card with the exact text and no caret (no Session or Always). Allow saves it, and Settings → Memory lists it with an "agent" badge.
+- [ ] A new chat answers a beam question using the note.
+- [ ] Deny the card: nothing is saved.
+- [ ] Auto-edit still shows the note card.
+- [ ] Edit and delete a note in Settings. "Clear all" asks in the pane first.
+- [ ] An unsaved new model: Settings says "Open a saved model…", and a global note still works.
+- [ ] `/` lists the four starters. `/model-qa` runs and changes nothing. `/beam-split` does a dry run, then shows one L3 card.
+- [ ] Copy `model-qa.md` to `%AppData%\LoadingAI\Playbooks`, change its description, and reopen Settings: yours wins. A file with a broken header shows under issues.
+- [ ] The installed folder has `LoadingAI\Playbooks\*.md` (Setup exe and zip).
+
 ## Report
 
 Write the Revit build number, the add-in commit (`git rev-parse HEAD`), and for each line above Passed, Failed (with what you saw and the log from `%AppData%\LoadingAI\logs`, secrets redacted), or Not run.
