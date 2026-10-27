@@ -71,6 +71,12 @@ public sealed class AgentLoop
     public Action<string>? OnSteerDelivered { get; set; }
 
     /// <summary>
+    /// The host hands over the images a tool produced in the round that just ended. The loop adds them
+    /// as one user message after the tool results, because providers reject images inside a tool message.
+    /// </summary>
+    public Func<IReadOnlyList<AttachmentDto>>? DrainToolImages { get; set; }
+
+    /// <summary>
     /// Queues a message the user sent while the agent works. It is added to the conversation before the
     /// next model call, after the tool result in flight, so the model reads it at its next step.
     /// </summary>
@@ -203,6 +209,8 @@ public sealed class AgentLoop
         try { HistoryStore.Append("user", userTextForSelect); HistoryStore.Trim(); } catch { }
 
         IEnumerable<ToolEntry> catalogQuery = _registry.Entries;
+        // A provider that cannot see images never gets a tool that only returns images.
+        if (!VisionSupport.Supports(provider)) catalogQuery = catalogQuery.Where(e => !e.NeedsVision);
         if (string.Equals(mode, "ask", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase))
         {
@@ -383,6 +391,20 @@ public sealed class AgentLoop
                         Name = tc.Function.Name,
                         Content = toolResult
                     });
+                    ChatHistoryTrimmer.Trim(_history);
+                }
+            }
+
+            // Images a tool produced ride along as one user message: providers reject them in a tool message.
+            IReadOnlyList<AttachmentDto> images = Array.Empty<AttachmentDto>();
+            try { images = DrainToolImages?.Invoke() ?? Array.Empty<AttachmentDto>(); } catch { }
+            if (images.Count > 0 && VisionSupport.Supports(provider))
+            {
+                var snap = ChatMessage.FromMultimodal("user", "[Snapshot from capture_view]", images);
+                snap.IsSnapshot = true;
+                lock (_historyLock)
+                {
+                    _history.Add(snap);
                     ChatHistoryTrimmer.Trim(_history);
                 }
             }

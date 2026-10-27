@@ -49,6 +49,9 @@ public sealed class ChatMessage
     [JsonPropertyName("tool_call_id")] public string? ToolCallId { get; set; }
     [JsonPropertyName("name")] public string? Name { get; set; }
 
+    /// <summary>A host-added image message after tool results (P1). Never sent as a field.</summary>
+    [JsonIgnore] public bool IsSnapshot { get; set; }
+
     public static ChatMessage FromText(string role, string text) => new() { Role = role, Content = text };
     public static ChatMessage FromMultimodal(string role, string text, IReadOnlyList<AttachmentDto> images)
     {
