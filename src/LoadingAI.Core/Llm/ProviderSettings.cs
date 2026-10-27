@@ -16,6 +16,9 @@ public sealed class ProviderConfig
     public string ApiKind { get; set; } = "openai";
     public string Group { get; set; } = "custom";
     public string? Icon { get; set; }
+
+    /// <summary>Null: guessed from the model name (<see cref="VisionSupport"/>). The user sets it in Settings → Models.</summary>
+    public bool? SupportsImages { get; set; }
 }
 
 public sealed class AppSettings
@@ -439,6 +442,6 @@ public static class ProviderSettings
     internal static ProviderConfig Clone(ProviderConfig p) => new()
     {
         Id = p.Id, Name = p.Name, BaseUrl = p.BaseUrl, Model = p.Model, ApiKey = p.ApiKey,
-        ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon
+        ApiKind = p.ApiKind, Group = p.Group, Icon = p.Icon, SupportsImages = p.SupportsImages
     };
 }
