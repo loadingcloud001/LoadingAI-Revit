@@ -65,6 +65,8 @@ public static class QueryTools
             Presets = entry.Presets,
             Tags = entry.Tags,
             Describe = entry.Describe,
+            NeedsVision = entry.NeedsVision,
+            NeverAllowList = entry.NeverAllowList,
             Handler = inner,
             StructuredHandler = async json =>
             {

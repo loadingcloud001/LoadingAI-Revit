@@ -612,6 +612,8 @@ public static class PluginLoader
                 StructuredHandler = e.StructuredHandler,
                 RequiresWriteConfirm = e.RequiresWriteConfirm,
                 Destructive = isDestructive,
+                NeedsVision = e.NeedsVision,
+                NeverAllowList = e.NeverAllowList,
                 Tier = e.Tier,
                 Presets = e.Presets,
                 Describe = e.Describe,
