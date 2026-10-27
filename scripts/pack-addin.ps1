@@ -51,6 +51,10 @@ if (-not (Test-Path (Join-Path $Web "index.html"))) {
 }
 Copy-Item $Web (Join-Path $Stage "LoadingAI\Web\dist") -Recurse
 
+# The four starter playbooks ship read-only in <install>\Playbooks.
+$Playbooks = Join-Path $Root "src\LoadingAI\Playbooks"
+if (Test-Path $Playbooks) { Copy-Item $Playbooks (Join-Path $Stage "LoadingAI\Playbooks") -Recurse }
+
 foreach ($p in @("core-tools", "export-tools", "view-tools", "modeling-tools", "structure-cuts", "qs-formwork", "opening-tools")) {
     $pluginRoot = Join-Path $Root "Plugins\$p"
     $bin = Join-Path $pluginRoot "bin\$Configuration"

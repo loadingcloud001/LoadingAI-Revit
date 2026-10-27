@@ -119,6 +119,14 @@
     <Message Text="Copied Web/dist to $(RevitAddinDir)Web\dist\" Importance="high" />
   </Target>
 
+  <!-- The four starter playbooks ship read-only in <addin>\Playbooks. The user's own
+       playbooks live in %AppData%\LoadingAI\Playbooks and override a starter by name. -->
+  <Target Name="CopyPlaybooks" AfterTargets="CopyAddin" Condition="'$(SkipCopyAddin)' != 'true'">
+    <ItemGroup><_Playbooks Include="$(MSBuildProjectDirectory)\Playbooks\*.md" /></ItemGroup>
+    <Copy SourceFiles="@(_Playbooks)" DestinationFolder="$(RevitAddinDir)Playbooks" SkipUnchangedFiles="true" />
+    <Message Text="Copied the starter playbooks to $(RevitAddinDir)Playbooks\" Importance="high" />
+  </Target>
+
   <ItemGroup>
     <EmbeddedResource Include="Resources\Ribbon32.png" LogicalName="LoadingAI.Resources.Ribbon32.png" />
     <EmbeddedResource Include="Resources\Ribbon16.png" LogicalName="LoadingAI.Resources.Ribbon16.png" />
