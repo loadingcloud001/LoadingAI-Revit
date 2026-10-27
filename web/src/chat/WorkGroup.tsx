@@ -25,7 +25,7 @@ function decisionText(step: Step): string | null {
   return d === 'allowed' ? 'allowed' : d === 'denied' ? 'denied' : d === 'timeout' ? 'timed out' : 'cancelled';
 }
 
-function StepRow({ step, onRetry }: { step: Step; onRetry?: (step: Step) => void }) {
+function StepRow({ step, onRetry, onZoom }: { step: Step; onRetry?: (step: Step) => void; onZoom?: (src: string) => void }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const icon = stateIcon(step);
@@ -51,6 +51,11 @@ function StepRow({ step, onRetry }: { step: Step; onRetry?: (step: Step) => void
         <span className="step-sum truncate">{summary}</span>
       </button>
       <span className="step-meta">{ms}</span>
+      {step.image && (
+        <button type="button" className="snap-thumb" aria-label="Open snapshot" onClick={() => onZoom?.(step.image!)}>
+          <img src={step.image} alt={`Snapshot: ${step.resultText?.split('\n')[0] ?? step.name}`} />
+        </button>
+      )}
       {open && (
         <div className="step-detail">
           <h4>Input</h4>
@@ -82,8 +87,15 @@ function TodoRow({ todo }: { todo: TodoPayload }) {
 export function WorkGroup({ turn, forceOpen, onRetryStep, children }: { turn: Turn; forceOpen: boolean; onRetryStep?: (step: Step) => void; children?: React.ReactNode }) {
   const running = turn.outcome === 'running';
   const [open, setOpen] = useState(running);
+  const [zoom, setZoom] = useState<string | null>(null);
   useEffect(() => { if (running || forceOpen) setOpen(true); }, [running, forceOpen]);
   useEffect(() => { if (!running) setOpen(false); }, [running]);
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoom]);
   const stats = turnStats(turn);
   const hasWork = turn.steps.length > 0 || !!turn.reasoning || turn.todos.length > 0;
   if (!hasWork && !children) return null;
@@ -109,10 +121,15 @@ export function WorkGroup({ turn, forceOpen, onRetryStep, children }: { turn: Tu
           {turn.todos.length > 0 && !turn.plan && (
             <div className="steps" style={{ marginBottom: 2 }}>{turn.todos.map(t => <TodoRow key={t.id} todo={t} />)}</div>
           )}
-          <div className="steps">{turn.steps.map(s => <StepRow key={s.id} step={s} onRetry={onRetryStep} />)}</div>
+          <div className="steps">{turn.steps.map(s => <StepRow key={s.id} step={s} onRetry={onRetryStep} onZoom={setZoom} />)}</div>
         </>
       )}
       {children}
+      {zoom && (
+        <div className="snap-overlay" role="dialog" aria-label="Snapshot" onClick={() => setZoom(null)}>
+          <img src={zoom} alt="Snapshot" />
+        </div>
+      )}
     </div>
   );
 }

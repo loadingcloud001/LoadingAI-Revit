@@ -1,6 +1,6 @@
 # Known limitations
 
-What LoadingAI does not do yet, or does only partly. This is current as of **v0.6.0**. If something
+What LoadingAI does not do yet, or does only partly. This is current as of **v0.7.0**. If something
 here bites you, [open an issue](https://github.com/loadingcloud001/LoadingAI-Revit/issues) — a
 reproduction on a small model is the most useful thing you can send.
 
@@ -18,6 +18,10 @@ reproduction on a small model is the most useful thing you can send.
   covered by unit tests and a browser preview, but nobody has run them inside Revit. There is no
   Revit dialog behind the review card any more, so work on a copy until you have checked it. The
   steps are in [pane-redesign-in-revit-checklist.md](pane-redesign-in-revit-checklist.md).
+- **The v0.7.0 features have not been run in Revit yet.** View snapshots (`capture_view`), the
+  project index behind `resolve_names`, result sets (`@r1`), project notes and the starter
+  playbooks are covered by unit tests and a browser preview only. The steps are in the v0.7
+  sections of [pane-redesign-in-revit-checklist.md](pane-redesign-in-revit-checklist.md).
 - Windows only. Needs the WebView2 Evergreen runtime.
 
 ## Structure-cut tools (`split_*`)
@@ -55,6 +59,21 @@ reproduction on a small model is the most useful thing you can send.
   dependents deleted with an element. Element ids are listed for the first 2000 per category.
 - **Rolling back a turn is all-or-nothing.** Denying one write confirmation rolls back every write
   made earlier in the same turn.
+- **Snapshots are PNG exports.** `capture_view` exports the view through Revit's image export
+  (`ImageExportOptions`) at 512 to 1600 pixels wide. A 3D view is shot from its current camera.
+  Schedules, legends and templates cannot be shot. The model only sees the picture when its provider
+  can read images (Settings → Models → "Can see images"); otherwise the tool is not offered.
+
+## Notes and playbooks
+
+- **Project notes follow the model's identity.** The key is the cloud model id, else the central
+  file path, else the local path and project information. A "Save As" copy, or a new unsaved model,
+  starts with no project notes; notes for all projects still apply.
+- **A playbook is plain text.** The agent follows it as instructions, and can still deviate from it.
+  Its review cards are the same as for any other request.
+- **A playbook's own tools are always offered** while it runs, even when the tool picker would not
+  otherwise have chosen them.
+- **Result sets (`@r1`, `@r2`, …) last for the chat.** `/clear` or switching model forgets them.
 
 ## The built-in free tier
 

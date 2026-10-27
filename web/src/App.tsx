@@ -5,7 +5,7 @@ import type { TurnHandlers } from './chat/Turn';
 import { Composer } from './composer/Composer';
 import { quotaLine } from './lib/copy';
 import { levelInfo, needsWarning, nextLevel, warningText } from './lib/permissions';
-import { SettingsPage, ThemePref } from './settings/SettingsPage';
+import { SettingsPage, Tab, ThemePref } from './settings/SettingsPage';
 import { lastTurnOf, liveStatus, turnAnnouncement } from './state/selectors';
 import type { PermissionLevel } from './state/types';
 import { usePane } from './state/usePane';
@@ -18,6 +18,11 @@ function readTheme(): ThemePref | null {
     const v = window.localStorage.getItem(THEME_KEY);
     return v === 'light' || v === 'system' || v === 'dark' ? v : null;
   } catch { return null; }
+}
+
+/** `?demo=memory` opens the settings on the Memory page, where the mock host has sample notes. */
+function demoTab(): Tab | undefined {
+  return new URLSearchParams(window.location.search).get('demo') === 'memory' ? 'memory' : undefined;
 }
 
 /**
@@ -43,7 +48,7 @@ function useTheme(hostDark: boolean | null, followsRevit: boolean): [ThemePref, 
 }
 
 export default function App() {
-  const [page, setPage] = useState<'chat' | 'settings'>('chat');
+  const [page, setPage] = useState<'chat' | 'settings'>(demoTab() ? 'settings' : 'chat');
   const openSettingsRef = useRef(() => setPage('settings'));
   const pane = usePane({ openSettings: () => openSettingsRef.current() });
   const { state } = pane;
@@ -86,6 +91,7 @@ export default function App() {
           caps={pane.caps}
           level={pane.level}
           theme={theme}
+          initialTab={demoTab()}
           onBack={() => setPage('chat')}
           onSave={pane.saveSettings}
           onLevel={pickLevel}
@@ -149,6 +155,7 @@ export default function App() {
         caps={pane.caps}
         providers={state.settings?.providers ?? []}
         activeProvider={activeProvider}
+        playbooks={state.playbooks.items}
         queue={pane.queue}
         draft={draft}
         onSubmit={pane.submit}

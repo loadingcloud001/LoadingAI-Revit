@@ -151,6 +151,76 @@ public class ChatSessionContractTests
         Assert.Contains("TurnChangeTracker.End();", src);
     }
 
+    [Fact]
+    public void ExecuteTool_ExpandsTheResultSetsBeforeTheArgumentsAreChecked()
+    {
+        var src = Session();
+        var start = src.IndexOf(CoreMethod, StringComparison.Ordinal);
+        var expand = src.IndexOf("ResultSetExpander.TryExpand", start, StringComparison.Ordinal);
+        var coerce = src.IndexOf("ToolArgumentCoercer.Coerce(", start, StringComparison.Ordinal);
+        Assert.True(expand >= 0 && expand < coerce);
+        // The edited arguments of the review card are expanded too.
+        Assert.Contains("ResultSetExpander.TryExpand(review.ArgsJson", src);
+    }
+
+    [Fact]
+    public void ExecuteTool_SavesTheResultIds_AndTellsTheModelTheHandle()
+    {
+        var src = Session();
+        var start = src.IndexOf(CoreMethod, StringComparison.Ordinal);
+        var execute = src.IndexOf("await entry.ExecuteAsync", start, StringComparison.Ordinal);
+        var save = src.IndexOf("_sets.Save(", start, StringComparison.Ordinal);
+        Assert.True(execute >= 0 && save > execute);
+        // The model is told the handle, so it can pass "@rN" back instead of repeating the ids.
+        Assert.Contains("Saved as {handle}", src);
+    }
+
+    [Fact]
+    public void Clear_EmptiesTheSavedResultSetsWithTheSessionAllowList()
+    {
+        var src = Session();
+        var count = 0;
+        var at = src.IndexOf("_allow.ClearSession();", StringComparison.Ordinal);
+        while (at >= 0)
+        {
+            count++;
+            var sets = src.IndexOf("_sets.Clear();", at, StringComparison.Ordinal);
+            var next = src.IndexOf("_allow.ClearSession();", at + 1, StringComparison.Ordinal);
+            Assert.True(sets >= 0 && (next < 0 || sets < next));
+            at = next;
+        }
+        Assert.True(count >= 2);
+    }
+
+    [Fact]
+    public void TurnStart_SetsTheModelSummaryBeforeTheRun()
+    {
+        var src = Session();
+        var summary = src.IndexOf("CollectPromptSummaryAsync(ct)", StringComparison.Ordinal);
+        var run = src.IndexOf("await agent.RunAsync", StringComparison.Ordinal);
+        Assert.True(summary >= 0 && summary < run);
+    }
+
+    [Fact]
+    public void HostTools_WriteFiles_NotTheModel_SoTheyOpenNoTurnGroup()
+    {
+        var src = Session();
+        // save_project_note is L2, but it writes a notes file: no open model needed, no transaction group.
+        Assert.Contains("var isWrite = !_hostToolNames.Contains(name) &&", src);
+        Assert.Contains("HostTools.Create(_notes, () => _projectKey, () => _playbooks)", src);
+    }
+
+    [Fact]
+    public void PlaybookSlash_NeverShadowsABuiltinCommand_AndPinsItsTools()
+    {
+        var src = Session();
+        Assert.Contains("!BuiltinSlash.Contains(slashName) && (playbook = _playbooks.Get(slashName)) != null", src);
+        var pin = src.IndexOf("agent.PinnedTools = playbook?.Tools;", StringComparison.Ordinal);
+        var run = src.IndexOf("await agent.RunAsync", StringComparison.Ordinal);
+        Assert.True(pin >= 0 && pin < run);
+        Assert.Contains("agent.PinnedTools = null;", src);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

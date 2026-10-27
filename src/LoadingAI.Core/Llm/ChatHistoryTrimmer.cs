@@ -11,7 +11,7 @@ public static class ChatHistoryTrimmer
     {
         if (history.Count == 0) return;
 
-        var lastUser = history.FindLastIndex(m => m.Role == "user");
+        var lastUser = history.FindLastIndex(m => m.Role == "user" && !m.IsSnapshot);
         for (int i = 0; i < history.Count; i++)
         {
             var msg = history[i];
@@ -22,18 +22,15 @@ public static class ChatHistoryTrimmer
                 msg.Content = text.Substring(0, cap) + "\n[omitted]";
         }
 
-        var lastMulti = -1;
-        for (int i = history.Count - 1; i >= 0; i--)
-        {
+        // The newest image messages stay; older ones lose their images but keep their text.
+        const int KeepImageMessages = 2;
+        var keepImages = new HashSet<int>();
+        for (int i = history.Count - 1; i >= 0 && keepImages.Count < KeepImageMessages; i--)
             if (history[i].Role == "user" && LlmJson.IsMultimodal(history[i].Content))
-            {
-                lastMulti = i;
-                break;
-            }
-        }
+                keepImages.Add(i);
         for (int i = 0; i < history.Count; i++)
         {
-            if (i == lastMulti) continue;
+            if (keepImages.Contains(i)) continue;
             if (LlmJson.IsMultimodal(history[i].Content))
                 history[i].Content = LlmJson.StripImages(history[i].Content);
         }

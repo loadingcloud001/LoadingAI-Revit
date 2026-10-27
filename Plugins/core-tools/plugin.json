@@ -1,7 +1,7 @@
 {
   "id": "core-tools",
   "name": "Core Tools",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "license": "MIT",
   "author": "LoadingAI for Revit",
   "entryAssembly": "LoadingAI.Plugins.CoreTools.dll",
@@ -10,6 +10,15 @@
       "name": "get_model_summary",
       "tier": "L1",
       "description": "Get summary of the active Revit model: title, path, view count, wall/door/window instance counts.",
+      "enabledByDefault": true,
+      "tags": [
+        "query"
+      ]
+    },
+    {
+      "name": "resolve_names",
+      "tier": "L1",
+      "description": "Map the user's words to exact Revit names (category, level, family, type, parameter, view, sheet).",
       "enabledByDefault": true,
       "tags": [
         "query"
@@ -51,6 +60,16 @@
       "tags": [
         "query",
         "view"
+      ]
+    },
+    {
+      "name": "capture_view",
+      "tier": "L1",
+      "description": "Take a picture of a view or of chosen elements for the model to look at.",
+      "enabledByDefault": true,
+      "tags": [
+        "view",
+        "query"
       ]
     },
     {

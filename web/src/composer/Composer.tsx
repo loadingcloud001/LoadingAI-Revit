@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Attachment, ProviderConfig } from '../bridge';
+import type { Attachment, PlaybookInfo, ProviderConfig } from '../bridge';
 import { filterMentions } from '../cli/mentions';
-import { filterCommands } from '../cli/slashCommands';
+import { filterCommandsWith } from '../cli/slashCommands';
 import type { HostCaps } from '../lib/permissions';
 import type { QueueState } from '../lib/queue';
 import type { PermissionLevel } from '../state/types';
@@ -36,6 +36,8 @@ type Props = {
   caps: HostCaps;
   providers: ProviderConfig[];
   activeProvider: ProviderConfig | null;
+  /** The saved procedures the host knows about; they are offered after the built-in commands. */
+  playbooks: PlaybookInfo[];
   queue: QueueState;
   draft: { text: string; nonce: number } | null;
   onSubmit: (text: string, attachments: Attachment[]) => boolean;
@@ -89,7 +91,7 @@ export function Composer(p: Props) {
     }
   }, [attachments.length, p]);
 
-  const items = menu ? (menu.kind === 'slash' ? filterCommands(menu.query).map(c => ({ id: c.name, label: c.label, hint: c.description })) : filterMentions(menu.query).map(m => ({ id: m.id, label: m.label, hint: m.description }))) : [];
+  const items = menu ? (menu.kind === 'slash' ? filterCommandsWith(menu.query, p.playbooks).map(c => ({ id: c.name, label: c.label, hint: c.description })) : filterMentions(menu.query).map(m => ({ id: m.id, label: m.label, hint: m.description }))) : [];
 
   const commit = (id: string) => {
     if (!menu) return;

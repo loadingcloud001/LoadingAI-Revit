@@ -190,6 +190,17 @@ describe('structured turns: the single in-chat review', () => {
   });
 });
 
+describe('snapshot thumbnails', () => {
+  it('keeps the snapshot thumbnail from tool_end on the step', () => {
+    const s = run(initialState(), host([
+      { type: 'turn_start', turnId: 't1', mode: 'build', level: 'confirm' },
+      { type: 'tool_start', turnId: 't1', toolCallId: 'c1', name: 'capture_view', tier: 'L1', destructive: false, args: '{}', startedAt: 1 },
+      { type: 'tool_end', toolCallId: 'c1', ok: true, outcome: 'ran', summary: 'Snapshot of Level 2', text: 'Snapshot of Level 2', ms: 5, image: 'data:image/png;base64,AA' },
+    ]));
+    expect(lastTurn(s).steps[0].image).toBe('data:image/png;base64,AA');
+  });
+});
+
 describe('errors and steering', () => {
   it('a bare Cancelled with no running turn is not an error note, other errors still are', () => {
     const idle = initialState();
@@ -222,6 +233,15 @@ describe('settings from the host', () => {
     expect(s.alwaysAllowTools).toEqual([]);
     expect(s.selectChangedAfterTurn).toBe(true);
     expect(s.instructions).toBe('');
+  });
+});
+
+describe('memory from the host', () => {
+  it('stores notes and playbooks from the host', () => {
+    let s = run(initialState(), host([{ type: 'notes', notes: { projectTitle: 'Tower', hasProject: true, project: [{ id: 'a', text: 'UB beams', createdUtc: '2026-10-27T00:00:00Z', source: 'agent' }], global: [], issues: [] } }]));
+    s = run(s, host([{ type: 'playbooks', items: [{ name: 'model-qa', description: 'd', source: 'starter', tools: [] }], issues: [], folder: 'C:/x' }]));
+    expect(s.notes?.project[0].text).toBe('UB beams');
+    expect(s.playbooks.items[0].name).toBe('model-qa');
   });
 });
 

@@ -29,6 +29,20 @@ internal sealed class ChatSession
     private string _lastUserText = "";
     private readonly ToolAllowlist _allow = new();
     private readonly TurnChangeSet _changes = new();
+    /// <summary>Element-id lists the tools saved this chat as @r1, @r2…; the model passes them back.</summary>
+    private readonly ResultSetStore _sets = new();
+    /// <summary>Images the tools produced this turn. The agent drains them after the round's tool results.</summary>
+    private readonly List<AttachmentDto> _pendingImages = new();
+    /// <summary>Saved notes (ADR-0018). The open project's key is read at each turn start; null with no saved model.</summary>
+    private readonly NoteStore _notes = new();
+    private string? _projectKey;
+    /// <summary>The open model's title, next to its notes key. Null with no model.</summary>
+    private string? _projectTitle;
+    private PlaybookCatalog _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
+    /// <summary>Host tools write files, not the model: they open no turn group and need no open model.</summary>
+    private readonly HashSet<string> _hostToolNames = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Slash commands the host handles itself. A playbook with one of these names is never run by it.</summary>
+    private static readonly HashSet<string> BuiltinSlash = new(StringComparer.OrdinalIgnoreCase) { "plan", "ask", "build", "clear", "help", "checkpoints", "resume" };
     private string _turnId = "";
     private string _turnMode = "build";
     private bool _turnRolledBack;
@@ -52,7 +66,10 @@ internal sealed class ChatSession
             if (_agent != null) _agent.CustomInstructions = _settings.Instructions;
             // A different model is a different partner: "allow for this session" ends with the switch.
             if (!string.Equals(previousModel, _settings.ActiveProviderId, StringComparison.OrdinalIgnoreCase))
+            {
                 _allow.ClearSession();
+                _sets.Clear();
+            }
         }
     }
 
@@ -89,6 +106,24 @@ internal sealed class ChatSession
         RebuildRegistry();
     }
 
+    /// <summary>The four starter playbooks ship next to the add-in DLL.</summary>
+    private static string StarterPlaybookDir => Path.Combine(Path.GetDirectoryName(typeof(ChatSession).Assembly.Location) ?? "", "Playbooks");
+    public PlaybookCatalog Playbooks => _playbooks;
+    public NoteStore Notes => _notes;
+    public string? ProjectKey => _projectKey;
+    /// <summary>The open model's title. Null with no model or an unsaved one.</summary>
+    public string? ProjectTitle => _projectTitle;
+    public void ReloadPlaybooks() => _playbooks = PlaybookCatalog.Load(StarterPlaybookDir, PlaybookCatalog.DefaultUserDir);
+
+    /// <summary>
+    /// Reads the open model's notes key and title. The key is otherwise only read at turn start,
+    /// so a page opened before the first turn would see no project.
+    /// </summary>
+    public async Task RefreshProjectKeyAsync(CancellationToken ct = default)
+    {
+        _projectKey = await CollectProjectKeyAsync(ct);
+    }
+
     public void RebuildRegistry()
     {
         var reg = new ToolRegistry();
@@ -100,6 +135,13 @@ internal sealed class ChatSession
                 bool enabled = ProviderSettings.IsToolEnabled(_settings, entry.Definition.Function.Name, defaultEnabled);
                 if (enabled) reg.Register(entry);
             }
+        }
+        // Notes and playbooks need host state, not the bridge. save_project_note is L2, so it is on by default.
+        _hostToolNames.Clear();
+        foreach (var entry in HostTools.Create(_notes, () => _projectKey, () => _playbooks))
+        {
+            _hostToolNames.Add(entry.Definition.Function.Name);
+            if (ProviderSettings.IsToolEnabled(_settings, entry.Definition.Function.Name, true)) reg.Register(entry);
         }
         _registry = reg;
         if (_agent == null)
@@ -113,6 +155,15 @@ internal sealed class ChatSession
         }
         else
             _agent.ReplaceRegistry(_registry);
+        _agent.DrainToolImages = () =>
+        {
+            lock (_pendingImages)
+            {
+                var list = _pendingImages.ToList();
+                _pendingImages.Clear();
+                return list;
+            }
+        };
         _agent.CustomInstructions = _settings.Instructions;
         ApplyPluginLoadWarnings();
     }
@@ -271,12 +322,23 @@ internal sealed class ChatSession
     {
         CancelAndDeny();
         _allow.ClearSession();
+        _sets.Clear();
         _agent?.ClearHistory();
         try { HistoryStore.Append("system", "Cleared."); } catch { }
     }
 
     public async Task HandleSendAsync(string text, string mode, string slash, List<string> mentions, List<AttachmentDto> attachments)
     {
+        // "/model-qa ..." sends the playbook's steps with the rest of the message, in the playbook's mode.
+        Playbook? playbook = null;
+        var slashName = slash?.TrimStart('/') ?? "";
+        if (slashName.Length > 0 && !BuiltinSlash.Contains(slashName) && (playbook = _playbooks.Get(slashName)) != null)
+        {
+            text = PlaybookParser.Compose(playbook, text);
+            if (playbook.Mode != null) mode = playbook.Mode;
+            slash = "";
+        }
+
         if (!string.IsNullOrWhiteSpace(slash))
         {
             if (slash.Equals("plan", StringComparison.OrdinalIgnoreCase)) mode = "plan";
@@ -291,6 +353,7 @@ internal sealed class ChatSession
                 }
                 _cts?.Cancel();
                 _allow.ClearSession();
+                _sets.Clear();
                 _agent?.ClearHistory();
                 try { HistoryStore.Append("system", "Cleared."); } catch { }
                 _web.Post(new FromHostMessage.Status("Cleared."));
@@ -419,6 +482,7 @@ internal sealed class ChatSession
                 _turnWrote = false;
                 _turnFailed = false;
                 _turnRolledBack = false;
+                lock (_pendingImages) _pendingImages.Clear();
                 _turnId = Guid.NewGuid().ToString("N").Substring(0, 8);
                 _turnMode = mode;
                 var turnId = _turnId;
@@ -437,6 +501,15 @@ internal sealed class ChatSession
                     var effectiveMode = mode == "auto" ? null : mode;
                     agent.AutoApprove = ProviderSettings.LevelOf(_settings) == PermissionLevels.Bypass;
                     agent.CustomInstructions = _settings.Instructions;
+                    // What the model is likely to name: levels, categories, families. It never blocks the turn,
+                    // and with no model open there is nothing to name, so the block goes.
+                    // Then the saved notes and the playbook list. Built fresh each turn, never appended to the last.
+                    _projectKey = await CollectProjectKeyAsync(ct);
+                    var notesBlock = SavedNotes.Block(_notes.List(NoteStore.GlobalKey),
+                        _projectKey == null ? Array.Empty<Note>() : _notes.List(_projectKey));
+                    agent.PromptExtras = (await CollectPromptSummaryAsync(ct) ?? "") + notesBlock + _playbooks.PromptList();
+                    // A playbook's tools stay in the catalogue every round of this turn.
+                    agent.PinnedTools = playbook?.Tools;
                     string result = await agent.RunAsync(provider, userMsg, effectiveMode,
                         ExecuteToolAsync,
                         trace =>
@@ -512,6 +585,7 @@ internal sealed class ChatSession
                 }
                 finally
                 {
+                    agent.PinnedTools = null;
                     if (await FinishTurnGroupAsync(assimilate: false)) _turnRolledBack = true;
                     TurnChangeTracker.End();
                     BuiltinQuota.ClearTicket();
@@ -529,6 +603,36 @@ internal sealed class ChatSession
                 }
             }
         });
+    }
+
+    /// <summary>The notes key for the open model. Null with no model, or an unsaved one with no cloud id: nothing stable to key on.</summary>
+    private async Task<string?> CollectProjectKeyAsync(CancellationToken ct)
+    {
+        var bridge = App.Bridge;
+        if (bridge == null) { _projectTitle = null; return null; }
+        try
+        {
+            var ident = await new AdapterRevitBridge(bridge).GetProjectIdentityAsync(ct);
+            // The title belongs to the same identity as the key, so it is read with it.
+            _projectTitle = ident == null || string.IsNullOrWhiteSpace(ident.Title) ? null : ident.Title;
+            if (ident == null) return null;
+            return string.IsNullOrEmpty(ident.PathName) && string.IsNullOrEmpty(ident.CloudModelGuid)
+                ? null : NoteStore.KeyFor(ident);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// What the model is likely to name: levels, categories, families. The adapter keeps the index and
+    /// drops it when the model changes, so this does not walk the model again. Null when there is no
+    /// model or the index cannot be read: the turn then runs without the block.
+    /// </summary>
+    private async Task<string?> CollectPromptSummaryAsync(CancellationToken ct)
+    {
+        var bridge = App.Bridge;
+        if (bridge == null) return null;
+        try { return (await new AdapterRevitBridge(bridge).GetProjectIndexAsync(ct)).ToPromptSummary(); }
+        catch { return null; }
     }
 
     /// <summary>
@@ -571,6 +675,9 @@ internal sealed class ChatSession
         StartStep(callId, name, entry.Tier.ToString(), entry.Destructive, argsJson, startedAt);
 
         var schema = entry.Definition.Function.Parameters;
+        // "@rN" stands for the ids a previous tool result saved: they are put back before the check.
+        if (!ResultSetExpander.TryExpand(argsJson, _sets, out argsJson, out var setError))
+            return EndStep(callId, false, "error", $"Tool argument error: {setError}", startedAt);
         argsJson = ToolArgumentCoercer.Coerce(schema, argsJson);
         if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var validationError))
             return EndStep(callId, false, "error", $"Tool argument error: {validationError}", startedAt);
@@ -581,6 +688,7 @@ internal sealed class ChatSession
             Mode = _turnMode,
             Tier = entry.Tier,
             Destructive = entry.Destructive,
+            NeverAllowList = entry.NeverAllowList,
             DryRun = ToolPresets.IsDryRun(argsJson),
             HasPresets = ToolPresets.HasPresets(entry),
             SessionAllowed = _allow.IsSessionAllowed(name),
@@ -609,17 +717,23 @@ internal sealed class ChatSession
             }
 
             // The Run form or an edit changed the arguments: check them against the schema again.
-            argsJson = ToolArgumentCoercer.Coerce(schema, review.ArgsJson);
+            if (!ResultSetExpander.TryExpand(review.ArgsJson, _sets, out var reviewedArgs, out var reviewedSetError))
+                return EndStep(callId, false, "error", $"Tool argument error: {reviewedSetError}", startedAt);
+            argsJson = ToolArgumentCoercer.Coerce(schema, reviewedArgs);
             if (!ToolArgumentValidator.Validate(schema, argsJson, out argsJson, out var reviewedError))
                 return EndStep(callId, false, "error", $"Tool argument error: {reviewedError}", startedAt);
             edited = review.Edited;
 
-            if (review.Scope == ApprovalScope.Session) _allow.AddSession(name);
-            else if (review.Scope == ApprovalScope.Always) AddAlways(name);
+            // A tool on the never allow-list never enters an allow-list, whatever the card answered.
+            if (GatePolicy.CanOfferAlways(entry.Destructive, ToolPresets.HasPresets(entry), entry.NeverAllowList))
+            {
+                if (review.Scope == ApprovalScope.Session) _allow.AddSession(name);
+                else if (review.Scope == ApprovalScope.Always) AddAlways(name);
+            }
         }
 
         var dryRun = ToolPresets.IsDryRun(argsJson);
-        var isWrite = entry.Tier == ToolTier.L2 || (entry.Tier == ToolTier.L3 && !dryRun);
+        var isWrite = !_hostToolNames.Contains(name) && (entry.Tier == ToolTier.L2 || (entry.Tier == ToolTier.L3 && !dryRun));
         if (isWrite)
         {
             var bridge = App.Bridge;
@@ -631,6 +745,19 @@ internal sealed class ChatSession
         ProgressReporter.Current.Report($"Running {name}");
         var execution = await entry.ExecuteAsync(argsJson);
         var result = execution.Text;
+
+        // A tool that produced images: the pane gets a thumbnail, the model gets the files themselves.
+        string? thumb = null;
+        if (execution.Images is { Count: > 0 })
+        {
+            foreach (var img in execution.Images)
+            {
+                var att = ImageData.ToAttachment(img);
+                if (att == null) continue;
+                lock (_pendingImages) _pendingImages.Add(att);
+                thumb ??= att.DataUrl;
+            }
+        }
 
         if (isWrite)
         {
@@ -645,6 +772,13 @@ internal sealed class ChatSession
             // changed nothing, so it must not undo the writes before it. A cancelled or unknown
             // outcome still does: the turn can no longer be trusted.
             MarkTurnFailedIfGroupActive();
+        }
+
+        // The ids the tool found are kept for the rest of the chat: the model may pass "@rN" back.
+        if (execution.ResultIds is { Count: > 0 } && execution.Status is ToolExecutionStatus.Succeeded or ToolExecutionStatus.Partial)
+        {
+            var handle = _sets.Save(execution.ResultIds);
+            if (handle != null) result += $"\nSaved as {handle} ({execution.ResultIds.Count} elements).";
         }
 
         if (entry.Tier != ToolTier.L1)
@@ -675,7 +809,7 @@ internal sealed class ChatSession
             ToolExecutionStatus.Cancelled => "cancelled",
             _ => "error"
         };
-        return EndStep(callId, ok, outcome, result, startedAt, execution.Status == ToolExecutionStatus.Partial);
+        return EndStep(callId, ok, outcome, result, startedAt, execution.Status == ToolExecutionStatus.Partial, thumb);
     }
 
     private void StartStep(string callId, string name, string tier, bool destructive, string argsJson, long startedAt)
@@ -685,12 +819,12 @@ internal sealed class ChatSession
     }
 
     /// <summary>Closes the step in the pane and returns the text the model reads.</summary>
-    private string EndStep(string callId, bool ok, string outcome, string text, long startedAt, bool partial = false)
+    private string EndStep(string callId, bool ok, string outcome, string text, long startedAt, bool partial = false, string? image = null)
     {
         var ms = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt);
         var summary = FirstLine(text, 140);
         var body = text.Length > 6000 ? text.Substring(0, 6000) + "…" : text;
-        try { _onUi(() => _web.Post(new FromHostMessage.ToolEnd(callId, ok, outcome, summary, body, ms, partial ? true : null))); } catch { }
+        try { _onUi(() => _web.Post(new FromHostMessage.ToolEnd(callId, ok, outcome, summary, body, ms, partial ? true : null, image))); } catch { }
         return text;
     }
 

@@ -6,6 +6,18 @@ namespace LoadingAI.Revit;
 // No Autodesk.Revit types here on purpose: Core (netstandard2.0) must stay
 // referenceable from plugins and the LLM layer without a RevitAPI dependency.
 
+/// <summary>
+/// Who the open model is, in the terms that stay the same across sessions: the cloud model
+/// GUID when the model lives in Autodesk Construction Cloud, else the worksharing central path,
+/// else the local path plus the project information id. Used to key the saved notes.
+/// </summary>
+public sealed record ProjectIdentityDto(
+    string? CloudModelGuid,
+    string? CentralPath,
+    string PathName,
+    string ProjectInfoUniqueId,
+    string Title);
+
 public sealed record ModelSummaryDto(
     string Title,
     string Path,
@@ -99,7 +111,9 @@ public sealed record FindResultDto(
     int Total,
     int Offset,
     string? Error,
-    IReadOnlyList<ElementSummaryDto> Items);
+    IReadOnlyList<ElementSummaryDto> Items,
+    // Every id the filter matched, not just the page (capped at ResultSetStore.MaxTotalIds). Null from older callers.
+    IReadOnlyList<string>? AllIds = null);
 
 public sealed record ElementQuantityDto(
     string Id,
@@ -121,6 +135,12 @@ public sealed record ActiveViewDetailsDto(
     int VisibleElementCount,
     IReadOnlyList<CategoryCountDto> TopCategories,
     IReadOnlyList<string> SampleIds);
+
+/// <summary>
+/// A view snapshot exported as a PNG. <see cref="Path"/> is null when the shot failed;
+/// <see cref="Error"/> then says why. <see cref="Width"/> / <see cref="Height"/> are pixels.
+/// </summary>
+public sealed record SnapshotDto(string? Path, int Width, int Height, string ViewName, string? Error = null);
 
 public sealed record RoomDto(
     string Id,

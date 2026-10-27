@@ -1,3 +1,4 @@
+using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using LoadingAI.Gate;
 using LoadingAI.Llm;
@@ -12,6 +13,10 @@ public class App : IExternalApplication
 {
     public static readonly Guid PaneId = new("A7B2C3D4-E5F6-4A1B-9C2D-3E4F5A6B7C8D");
     public static RevitBridge? Bridge { get; private set; }
+
+    /// <summary>The project index goes stale when the model changes; kept in a field so it can come off again.</summary>
+    private static readonly EventHandler<DocumentChangedEventArgs> IndexStaleHandler =
+        (_, _) => AdapterRevitBridge.MarkIndexStale();
 
     private static BitmapImage? LoadIcon(string name)
     {
@@ -34,6 +39,8 @@ public class App : IExternalApplication
         application.ControlledApplication.FailuresProcessing += AutoApproveFailures.OnFailures;
         // What a turn changed, for the receipt in the pane (ADR-0017). Reads only.
         application.ControlledApplication.DocumentChanged += TurnChangeTracker.OnDocumentChanged;
+        // Anything added, deleted or changed may rename what the project index holds.
+        application.ControlledApplication.DocumentChanged += IndexStaleHandler;
         ThemeWatcher.Attach(application);
 
         // UIApplication not available at UIControlledApplication stage; it will be set
@@ -75,6 +82,7 @@ public class App : IExternalApplication
     {
         application.ControlledApplication.FailuresProcessing -= AutoApproveFailures.OnFailures;
         application.ControlledApplication.DocumentChanged -= TurnChangeTracker.OnDocumentChanged;
+        application.ControlledApplication.DocumentChanged -= IndexStaleHandler;
         ThemeWatcher.Detach(application);
         Bridge?.Dispose();
         Bridge = null;

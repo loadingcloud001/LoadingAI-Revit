@@ -35,13 +35,19 @@ public static class ToHostKind
     public const string SelectElements = "selectElements";
     public const string ShowElements = "showElements";
     public const string IsolateElements = "isolateElements";
+    public const string ListNotes = "listNotes";
+    public const string SaveNote = "saveNote";
+    public const string DeleteNote = "deleteNote";
+    public const string ClearNotes = "clearNotes";
+    public const string ListPlaybooks = "listPlaybooks";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Send, Clear, Cancel, SaveSettings, RequestSettings, GetCatalog, TestProvider, ListModels,
         ListPlugins, ApproveTool, SubmitPreset, PresetPick, SetPluginEnabled, SetPluginGroupEnabled,
         SetPluginTierEnabled, SaveToolSettings, RemovePlugin, ReloadPlugins, TrustPlugin, ListCheckpoints, ResumeCheckpoint,
-        Steer, SelectElements, ShowElements, IsolateElements
+        Steer, SelectElements, ShowElements, IsolateElements,
+        ListNotes, SaveNote, DeleteNote, ClearNotes, ListPlaybooks
     };
 }
 
@@ -84,13 +90,16 @@ public static class FromHostKind
     public const string ToolReview = "tool_review";
     public const string TurnChanges = "turn_changes";
     public const string SteerAck = "steer_ack";
+    public const string Notes = "notes";
+    public const string Playbooks = "playbooks";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Status, Trace, ToolCall, ToolResult, ToolApproval, ToolPreset, PresetPickResult, Plan, Todo,
         Progress, Context, Checkpoints, Reasoning, Suggestions, Assistant, Settings, Catalog, TestResult,
         Models, Plugins, Quota, History, Error, Delta,
-        HostCaps, Theme, TurnStart, TurnEnd, ToolStart, ToolEnd, ToolReview, TurnChanges, SteerAck
+        HostCaps, Theme, TurnStart, TurnEnd, ToolStart, ToolEnd, ToolReview, TurnChanges, SteerAck,
+        Notes, Playbooks
     };
 }
 
@@ -149,6 +158,20 @@ public abstract record ToHostMessage(string Kind)
     public sealed record SelectElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.SelectElements);
     public sealed record ShowElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.ShowElements);
     public sealed record IsolateElements(IReadOnlyList<long> Ids) : ToHostMessage(ToHostKind.IsolateElements);
+
+    /// <summary>The saved notes: the project's and the global ones.</summary>
+    public sealed record ListNotes() : ToHostMessage(ToHostKind.ListNotes);
+    /// <summary>
+    /// A note to save. <c>Scope</c> is project or global (anything else means project).
+    /// With an <c>Id</c> the note is edited, without one a new note is added.
+    /// </summary>
+    public sealed record SaveNote(string Scope, string? Id, string Text) : ToHostMessage(ToHostKind.SaveNote);
+    /// <summary>One note to delete. <c>Scope</c> is project or global (anything else means project).</summary>
+    public sealed record DeleteNote(string Scope, string Id) : ToHostMessage(ToHostKind.DeleteNote);
+    /// <summary>Every note of one scope. <c>Scope</c> is project or global (anything else means project).</summary>
+    public sealed record ClearNotes(string Scope) : ToHostMessage(ToHostKind.ClearNotes);
+    /// <summary>The saved procedures: the starters and the user's own.</summary>
+    public sealed record ListPlaybooks() : ToHostMessage(ToHostKind.ListPlaybooks);
 
     /// <summary>
     /// Unknown <c>type</c> yields <c>true</c> with <c>message == null</c> (ignored, same as the old switch).
@@ -245,6 +268,21 @@ public abstract record ToHostMessage(string Kind)
                 case ToHostKind.IsolateElements:
                     message = new IsolateElements(ReadIds(root));
                     return true;
+                case ToHostKind.ListNotes:
+                    message = new ListNotes();
+                    return true;
+                case ToHostKind.SaveNote:
+                    message = new SaveNote(ReadScope(root), ReadString(root, "id"), ReadString(root, "text") ?? "");
+                    return true;
+                case ToHostKind.DeleteNote:
+                    message = new DeleteNote(ReadScope(root), ReadString(root, "id") ?? "");
+                    return true;
+                case ToHostKind.ClearNotes:
+                    message = new ClearNotes(ReadScope(root));
+                    return true;
+                case ToHostKind.ListPlaybooks:
+                    message = new ListPlaybooks();
+                    return true;
                 default:
                     return true;
             }
@@ -313,6 +351,10 @@ public abstract record ToHostMessage(string Kind)
 
     private static string? ReadString(JsonElement root, string name)
         => root.TryGetProperty(name, out var el) ? el.GetString() : null;
+
+    /// <summary>The note scope off the wire: global or project. Anything else means project.</summary>
+    private static string ReadScope(JsonElement root)
+        => ReadString(root, "scope") == "global" ? "global" : "project";
 
     private static bool ReadTrue(JsonElement root, string name)
         => root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.True;
@@ -398,7 +440,7 @@ public abstract record FromHostMessage(string Type)
     public sealed record ToolStart(string TurnId, string ToolCallId, string Name, string Tier, bool Destructive, string Args, long StartedAt)
         : FromHostMessage(FromHostKind.ToolStart);
     /// <summary>Outcome: ran, denied, cancelled, timeout, blocked or error. <c>Text</c> is what the model read.</summary>
-    public sealed record ToolEnd(string ToolCallId, bool Ok, string Outcome, string Summary, string Text, long Ms, bool? Partial = null)
+    public sealed record ToolEnd(string ToolCallId, bool Ok, string Outcome, string Summary, string Text, long Ms, bool? Partial = null, string? Image = null)
         : FromHostMessage(FromHostKind.ToolEnd);
     /// <summary>The one in-chat review card. Replaces tool_approval and tool_preset (ADR-0017).</summary>
     public sealed record ToolReview([property: JsonPropertyName("review")] ReviewPayload Payload) : FromHostMessage(FromHostKind.ToolReview);
@@ -411,6 +453,12 @@ public abstract record FromHostMessage(string Type)
         IReadOnlyList<CategoryChangesPayload> ByCategory) : FromHostMessage(FromHostKind.TurnChanges);
     /// <summary><c>DeliveredAt</c> is absent when the turn ended before the message could be delivered.</summary>
     public sealed record SteerAck(string Text, long? DeliveredAt = null) : FromHostMessage(FromHostKind.SteerAck);
+
+    /// <summary>The saved notes: the open project's ones and the global ones (ADR-0018).</summary>
+    public sealed record Notes([property: JsonPropertyName("notes")] NotesPayload Payload) : FromHostMessage(FromHostKind.Notes);
+    /// <summary>The saved procedures, with the folder the user's own files go in.</summary>
+    public sealed record Playbooks(IReadOnlyList<PlaybookInfo> Items, IReadOnlyList<string> Issues, string Folder)
+        : FromHostMessage(FromHostKind.Playbooks);
 
     public sealed record CategoryChangesPayload(string Category, int Added, int Modified, int Deleted, IReadOnlyList<long> Ids);
 
@@ -490,6 +538,20 @@ public abstract record FromHostMessage(string Type)
         bool Ok,
         string? Message);
     public sealed record HistoryMessage(string Role, string Text, object? Attachments = null);
+
+    /// <summary>
+    /// The notes of both scopes. <c>HasProject</c> is false with no open model, so the pane knows
+    /// that the project notes are empty rather than lost.
+    /// </summary>
+    public sealed record NotesPayload(
+        string? ProjectTitle,
+        bool HasProject,
+        IReadOnlyList<Note> Project,
+        IReadOnlyList<Note> Global,
+        IReadOnlyList<string> Issues);
+
+    /// <summary>One saved procedure. <c>Mode</c> is absent when the playbook sets no mode.</summary>
+    public sealed record PlaybookInfo(string Name, string Description, string? Mode, string Source, IReadOnlyList<string> Tools);
 
     public static Quota QuotaOf(QuotaStatus quota, string? providerId)
         => new(new QuotaPayload(

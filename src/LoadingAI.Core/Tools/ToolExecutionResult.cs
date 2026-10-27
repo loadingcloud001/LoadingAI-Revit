@@ -28,6 +28,12 @@ public sealed record ToolExecutionResult(
     int ChangedCount = 0,
     int FailedCount = 0)
 {
+    /// <summary>Images for the model to look at. The host sends them after the round's tool results.</summary>
+    public IReadOnlyList<ToolImage>? Images { get; init; }
+
+    /// <summary>Element ids this call found. The host saves them as a result set (@rN).</summary>
+    public IReadOnlyList<string>? ResultIds { get; init; }
+
     public bool IsSafeToAssimilate =>
         (Status == ToolExecutionStatus.Succeeded && WriteCertainty is ToolWriteCertainty.NoWrite or ToolWriteCertainty.Committed)
         || (Status == ToolExecutionStatus.Partial && WriteCertainty == ToolWriteCertainty.Committed);

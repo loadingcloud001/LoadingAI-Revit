@@ -27,6 +27,16 @@ internal sealed class FakeRevitBridge : IRevitBridge
     public Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default)
         => Task.FromResult(HasActiveDocument ? ModelSummary : null);
 
+    public ProjectIdentityDto? Identity { get; set; }
+
+    public Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default)
+        => Task.FromResult(Identity);
+
+    public ProjectIndex Index { get; set; } = ProjectIndex.Empty;
+
+    public Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default)
+        => Task.FromResult(Index);
+
     public Task<SelectionSummaryDto> GetSelectionSummaryAsync(CancellationToken ct = default)
         => Task.FromResult(HasActiveDocument
             ? Selection
@@ -199,6 +209,17 @@ internal sealed class FakeRevitBridge : IRevitBridge
             rows.Add(new[] { "W-1", "200" });
         return Task.FromResult<ScheduleDataDto?>(new ScheduleDataDto(
             "1001", scheduleName ?? "Wall Schedule", 3, 2, shown, rows));
+    }
+
+    public List<(string? View, IReadOnlyList<string>? Ids, bool Isolate, int Size)> Captures { get; } = new();
+
+    public SnapshotDto NextSnapshot { get; set; } = new("/tmp/fake.png", 1024, 768, "Level 2");
+
+    public Task<SnapshotDto> CaptureViewAsync(
+        string? view, IReadOnlyList<string>? elementIds, bool isolate, int size, CancellationToken ct = default)
+    {
+        Captures.Add((view, elementIds, isolate, size));
+        return Task.FromResult(NextSnapshot);
     }
 
     public Task<CommandResultDto> IsolateInViewAsync(

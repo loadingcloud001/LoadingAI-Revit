@@ -72,3 +72,4 @@ Status moves forward only: Proposed → Accepted → Superseded. Never delete; n
 | [0015](0015-confirm-l2-parameter-writes.md) | Confirm L2 parameter writes with a summary | Accepted |
 | [0016](0016-auto-approve.md) | User-owned auto-approve skips confirms during a turn | Accepted (amended by 0017) |
 | [0017](0017-single-in-chat-review-and-permission-levels.md) | One in-chat review and user-owned permission levels | Accepted |
+| [0018](0018-saved-notes-and-playbooks.md) | Saved notes and playbooks (data, not instructions) | Accepted |

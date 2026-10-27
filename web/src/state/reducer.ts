@@ -21,6 +21,8 @@ export function initialState(): PaneState {
     models: {},
     modelsLoading: null,
     caps: [],
+    notes: undefined,
+    playbooks: { items: [], issues: [], folder: '' },
     hostDark: null,
     seq: 0,
   };
@@ -107,6 +109,7 @@ function normalizeSettings(raw: any): AppSettings | null {
     apiKind: p.apiKind ?? p.ApiKind ?? 'openai',
     group: p.group ?? p.Group ?? 'custom',
     icon: p.icon ?? p.Icon ?? '＋',
+    supportsImages: supportsImagesOf(p.supportsImages !== undefined ? p.supportsImages : p.SupportsImages),
   }));
   const level = raw.permissionLevel ?? raw.PermissionLevel;
   const always = raw.alwaysAllowTools ?? raw.AlwaysAllowTools;
@@ -124,6 +127,14 @@ function normalizeSettings(raw: any): AppSettings | null {
 }
 
 const LEVEL_IDS = ['readonly', 'plan', 'confirm', 'autoEdit', 'bypass'];
+
+/** The "can see images" switch is a tri-state: true, false, or null/undefined for Auto. */
+function supportsImagesOf(v: unknown): boolean | null | undefined {
+  if (v === true) return true;
+  if (v === false) return false;
+  if (v === null) return null;
+  return undefined;
+}
 
 function normalizePresets(raw: any): ProviderPreset[] {
   if (!Array.isArray(raw)) return [];
@@ -354,6 +365,7 @@ function reduceHost(s: PaneState, msg: FromHost, at?: number): PaneState {
         resultText: msg.text,
         ms: msg.ms,
         partial: msg.partial,
+        image: msg.image,
         endedAt: now(at),
         review: target.review ? { ...target.review, decided } : undefined,
       };
@@ -459,6 +471,15 @@ function reduceHost(s: PaneState, msg: FromHost, at?: number): PaneState {
       return addNote(s1, 'system', list.length ? list.map(c => `${c.id}  ${c.preview ?? ''}`).join('\n') : 'No checkpoints.');
     }
     case 'suggestions': return { ...s, suggestions: Array.isArray(msg.suggestions) ? msg.suggestions : [] };
+    case 'notes': return { ...s, notes: msg.notes };
+    case 'playbooks': return {
+      ...s,
+      playbooks: {
+        items: Array.isArray(msg.items) ? msg.items : [],
+        issues: Array.isArray(msg.issues) ? msg.issues : [],
+        folder: String(msg.folder ?? ''),
+      },
+    };
     case 'testResult': {
       const models = msg.models && Array.isArray(msg.models) && msg.providerId ? { ...s.models, [msg.providerId]: msg.models } : s.models;
       return { ...s, models, providerTest: { id: msg.providerId ?? '', ok: !!msg.ok, message: String(msg.message ?? ''), loading: false } };

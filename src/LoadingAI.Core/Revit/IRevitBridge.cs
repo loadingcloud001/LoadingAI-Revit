@@ -13,6 +13,17 @@ namespace LoadingAI.Revit;
 public interface IRevitQuery
 {
     Task<ModelSummaryDto?> GetModelSummaryAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Who the open model is, in the terms that stay the same across sessions (cloud model
+    /// GUID, worksharing central path, or local path plus project information id). Null when
+    /// no document is open. Used to key the saved notes per project.
+    /// </summary>
+    Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default);
+
+    /// <summary>The project index for name matching (P2). Cached by the host until the model changes.</summary>
+    Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default);
+
     Task<SelectionSummaryDto> GetSelectionSummaryAsync(CancellationToken ct = default);
     Task<ViewInfoDto?> GetActiveViewInfoAsync(CancellationToken ct = default);
     Task<IReadOnlyList<ElementSummaryDto>> FindElementsAsync(
@@ -200,6 +211,13 @@ public interface IRevitViewCommand
     Task<PathOfTravelResultDto?> CreatePathOfTravelAsync(
         string viewIdOrName, IReadOnlyList<PathPairDto> pairs,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Exports a PNG of a view for the model to look at (P1). With ids and isolate, the elements are isolated
+    /// for the shot only: the change is rolled back, so the view and the undo list are left as they were.
+    /// </summary>
+    Task<SnapshotDto> CaptureViewAsync(
+        string? view, IReadOnlyList<string>? elementIds, bool isolate, int size, CancellationToken ct = default);
 }
 
 /// <summary>Instance parameter writes, rename, bulk dates, and ParamExcel collect/set.</summary>

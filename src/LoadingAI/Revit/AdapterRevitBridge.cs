@@ -27,6 +27,15 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
     /// <summary>Exports write whole models to disk, so they get a longer leash than <see cref="RevitBridge.DefaultTimeout"/>.</summary>
     private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
 
+    // The project index for name matching (P2). Only the active document is indexed, so one
+    // cache is enough; the model changing drops it, because a rename can change what it holds.
+    private static ProjectIndex? _index;
+    private static string? _indexDocKey;
+    private static volatile bool _indexStale = true;
+
+    /// <summary>Called from Application.DocumentChanged: anything added, deleted or changed may rename what the index holds.</summary>
+    public static void MarkIndexStale() => _indexStale = true;
+
     public AdapterRevitBridge(RevitBridge bridge) => _bridge = bridge;
 
     public bool HasActiveDocument => _bridge.HasActiveDocument;
@@ -48,6 +57,88 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
                 Count(BuiltInCategory.OST_Walls),
                 Count(BuiltInCategory.OST_Doors),
                 Count(BuiltInCategory.OST_Windows));
+        }, ct);
+    }
+
+    /// <summary>
+    /// Who the open model is, in the terms that stay the same across sessions: the cloud model
+    /// GUID, the worksharing central path, or the local path plus the project information id.
+    /// The saved notes are keyed on this, so the same project finds its notes again.
+    /// </summary>
+    public Task<ProjectIdentityDto?> GetProjectIdentityAsync(CancellationToken ct = default)
+    {
+        return _bridge.RunAsync(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return (ProjectIdentityDto?)null;
+            string? cloud = null, central = null;
+            try { if (doc.IsModelInCloud) cloud = doc.GetCloudModelPath().GetModelGUID().ToString(); } catch { }
+            try { if (doc.IsWorkshared) central = ModelPathUtils.ConvertModelPathToUserVisiblePath(doc.GetWorksharingCentralModelPath()); } catch { }
+            return new ProjectIdentityDto(cloud, central, doc.PathName ?? "", doc.ProjectInformation?.UniqueId ?? "", doc.Title ?? "");
+        }, ct);
+    }
+
+    /// <summary>
+    /// What the model is likely to name: levels, grids, categories in use, families and types,
+    /// phases, worksets, parameter names per category, views and sheets. Rebuilt only when the
+    /// model changed, so the host can match names without walking the model again.
+    /// </summary>
+    public Task<ProjectIndex> GetProjectIndexAsync(CancellationToken ct = default)
+    {
+        return _bridge.RunAsync<ProjectIndex>(uiApp =>
+        {
+            var doc = uiApp.ActiveUIDocument?.Document;
+            if (doc == null) return ProjectIndex.Empty;
+            var key = doc.GetHashCode().ToString() + "|" + doc.PathName;
+            if (!_indexStale && _index != null && _indexDocKey == key) return _index;
+
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Select(l => new IndexLevel(l.Name, Math.Round(Metric.FtToMm(l.Elevation)))).ToList();
+            var grids = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Select(g => g.Name).ToList();
+            var counts = new Dictionary<string, int>();
+            var paramsByCat = new Dictionary<string, HashSet<string>>();
+            foreach (var el in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                var cat = el.Category;
+                if (cat == null) continue;
+                if (cat.CategoryType != CategoryType.Model && cat.CategoryType != CategoryType.Annotation) continue;
+                counts[cat.Name] = counts.TryGetValue(cat.Name, out var c) ? c + 1 : 1;
+                if (!paramsByCat.TryGetValue(cat.Name, out var set))
+                {
+                    // Parameter names from the first instance per category, plus its type: enough for matching.
+                    set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (Parameter p in el.Parameters) set.Add(p.Definition.Name);
+                    if (doc.GetElement(el.GetTypeId()) is ElementType et)
+                        foreach (Parameter p in et.Parameters) set.Add(p.Definition.Name);
+                    paramsByCat[cat.Name] = set;
+                }
+            }
+            var families = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
+                .GroupBy(s => (s.Category?.Name ?? "", s.FamilyName))
+                .Select(g => new IndexFamily(g.Key.Item1, g.Key.Item2, g.Select(s => s.Name).OrderBy(n => n).ToList()))
+                .Concat(new FilteredElementCollector(doc).WhereElementIsElementType()
+                    .Where(t => t is not FamilySymbol && t.Category != null)
+                    .GroupBy(t => (t.Category?.Name ?? "", (t as ElementType)?.FamilyName ?? ""))
+                    .Select(g => new IndexFamily(g.Key.Item1, g.Key.Item2, g.Select(t => t.Name).OrderBy(n => n).ToList())))
+                .ToList();
+            var phases = doc.Phases.Cast<Phase>().Select(p => p.Name).ToList();
+            var worksets = doc.IsWorkshared
+                ? new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).Select(w => w.Name).ToList()
+                : new List<string>();
+            var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                .Where(v => !v.IsTemplate && v is not ViewSheet).Select(v => v.Name).ToList();
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                .Select(s => $"{s.SheetNumber} {s.Name}").ToList();
+
+            var index = new ProjectIndex(levels, grids,
+                counts.Select(kv => new IndexCategory(kv.Key, kv.Value)).ToList(),
+                families, phases, worksets,
+                paramsByCat.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value.OrderBy(n => n).ToList()),
+                views, sheets);
+            _index = index;
+            _indexDocKey = key;
+            _indexStale = false;
+            return index;
         }, ct);
     }
 
@@ -639,7 +730,9 @@ public sealed partial class AdapterRevitBridge : IRevitBridge
                 (e as FamilyInstance)?.Symbol?.Family?.Name ?? "",
                 (doc.GetElement(e.GetTypeId()) as ElementType)?.Name ?? e.GetType().Name,
                 e.Name)).ToList();
-            return new FindResultDto(total, offset, null, page);
+            // Every id the filter matched, so a later step can act on all of them, not just the page.
+            var allIds = elements.Take(ResultSetStore.MaxTotalIds).Select(e => e.Id.ToString()).ToList();
+            return new FindResultDto(total, offset, null, page, AllIds: allIds);
         }, ct);
     }
 

@@ -99,6 +99,14 @@ public sealed class ToolEntry
     /// tool in plugin.json (<c>"destructive": true</c>) and applied at load.
     /// </summary>
     public bool Destructive { get; init; }
+    /// <summary>The tool returns images. It is not offered to a provider that cannot see images.</summary>
+    public bool NeedsVision { get; init; }
+    /// <summary>
+    /// The review card never offers Session or Always allow, and Auto-edit still asks (like
+    /// <see cref="Destructive"/>), but the step has no destructive badge. Used for writes that
+    /// persist into later prompts, such as save_project_note (ADR-0018).
+    /// </summary>
+    public bool NeverAllowList { get; init; }
     public ToolTier Tier { get; init; } = ToolTier.L1;
     /// <summary>
     /// Opt-in pre-execute form. Empty (the default) keeps today’s path for existing plugins.

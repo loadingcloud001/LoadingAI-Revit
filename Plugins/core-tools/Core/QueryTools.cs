@@ -18,6 +18,7 @@ public static class QueryTools
         var entries = new[]
         {
             CreateGetModelSummary(context),
+            CreateResolveNames(context),
             CreateGetWallMetrics(context),
             CreateGetSelectionSummary(context),
             CreateGetActiveViewInfo(context),
@@ -57,6 +58,8 @@ public static class QueryTools
     /// </summary>
     private static ToolEntry AsQuery(ToolEntry entry)
     {
+        if (entry.StructuredHandler != null) return entry; // the tool already classifies its own result
+
         var inner = entry.Handler;
         return new ToolEntry
         {
@@ -65,6 +68,8 @@ public static class QueryTools
             Presets = entry.Presets,
             Tags = entry.Tags,
             Describe = entry.Describe,
+            NeedsVision = entry.NeedsVision,
+            NeverAllowList = entry.NeverAllowList,
             Handler = inner,
             StructuredHandler = async json =>
             {
@@ -78,16 +83,27 @@ public static class QueryTools
                     return ToolExecutionResult.Failed($"Failed: {ex.Message}", ToolWriteCertainty.NoWrite);
                 }
 
-                if (text.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
-                    || text.StartsWith("Invalid args:", StringComparison.OrdinalIgnoreCase)
-                    || text.StartsWith("Invalid arguments:", StringComparison.OrdinalIgnoreCase)
-                    || text.StartsWith("Please open a model", StringComparison.OrdinalIgnoreCase)
-                    || text.StartsWith("Please select elements", StringComparison.OrdinalIgnoreCase))
-                    return ToolExecutionResult.Failed(text, ToolWriteCertainty.NoWrite);
-
-                return ToolExecutionResult.Succeeded(text, ToolWriteCertainty.NoWrite);
+                return QueryResult(text);
             },
         };
+    }
+
+    /// <summary>
+    /// Classifies the text of a read: a query that reached nothing is a failed read, everything
+    /// else succeeded. The ids the query found ride along on the result, so the host can keep them
+    /// as a result set. <c>NoWrite</c> rather than <c>NotCommitted</c>: a read opens no
+    /// transaction to commit or roll back.
+    /// </summary>
+    private static ToolExecutionResult QueryResult(string text, IReadOnlyList<string>? ids = null)
+    {
+        if (text.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("Invalid args:", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("Invalid arguments:", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("Please open a model", StringComparison.OrdinalIgnoreCase)
+            || text.StartsWith("Please select elements", StringComparison.OrdinalIgnoreCase))
+            return ToolExecutionResult.Failed(text, ToolWriteCertainty.NoWrite);
+
+        return ToolExecutionResult.Succeeded(text, ToolWriteCertainty.NoWrite) with { ResultIds = ids };
     }
 
     internal static ToolEntry CreateGetModelSummary(IPluginContext context)
@@ -115,6 +131,90 @@ public static class QueryTools
                 catch (Exception ex) { return $"Failed to read model: {ex.Message}"; }
             }
         };
+    }
+
+    /// <summary>
+    /// The model's word to the model's exact names. The model asks for "the beams on L3"; Revit
+    /// calls them "Structural Framing" and "Level 3". This tool maps one to the other, so the
+    /// model never has to guess a name it then hands to a query.
+    /// </summary>
+    internal static ToolEntry CreateResolveNames(IPluginContext context) => new()
+    {
+        Tier = ToolTier.L1,
+        Tags = new[] { "query" },
+        Definition = new ToolDefinition
+        {
+            Function = new ToolFunction
+            {
+                Name = "resolve_names",
+                Description = "Map the user's words to exact Revit names (category, level, family, type, parameter, view, sheet). Call it before using a name you are not sure of.",
+                Parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        category = new { type = "string" }, level = new { type = "string" }, family = new { type = "string" },
+                        type = new { type = "string" }, parameter = new { type = "string" }, view = new { type = "string" }, sheet = new { type = "string" },
+                        parameterCategory = new { type = "string", description = "Optional. Category whose parameter names to search." }
+                    }
+                }
+            }
+        },
+        Handler = async json => (await RunResolveNames(context, json)).Text,
+        StructuredHandler = json => RunResolveNames(context, json)
+    };
+
+    private static async Task<ToolExecutionResult> RunResolveNames(IPluginContext context, string json)
+    {
+        try
+        {
+            // Every term the model gave, parsed once: category, level, family, type, parameter,
+            // view, sheet and the optional parameterCategory.
+            var terms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            TryRead(json, d =>
+            {
+                foreach (var p in d.EnumerateObject())
+                    if (p.Value.ValueKind == JsonValueKind.String) terms[p.Name] = p.Value.GetString() ?? "";
+            });
+
+            var idx = await context.Bridge.GetProjectIndexAsync();
+            var lines = new List<string>();
+
+            void Add(string key, NameKind kind, IEnumerable<string> names)
+            {
+                if (!terms.TryGetValue(key, out var term) || string.IsNullOrWhiteSpace(term)) return;
+                var hits = NameResolver.Match(term, names, kind);
+                lines.Add(hits.Count == 0
+                    ? $"{key} \"{term}\" → no match"
+                    : $"{key} \"{term}\" → " + string.Join(" | ", hits.Select(h => h.Exact ? h.Name : $"{h.Name} ({h.Score:0.00})")));
+            }
+
+            Add("category", NameKind.Category, idx.Categories.Select(c => c.Name));
+            Add("level", NameKind.Level, idx.Levels.Select(l => l.Name));
+            Add("family", NameKind.Family, idx.Families.Select(f => f.Family));
+            Add("type", NameKind.Type, idx.Families.SelectMany(f => f.Types));
+
+            // A parameter name only means something inside a category, so the model may name one.
+            var parameterNames = idx.Parameters.Values.SelectMany(v => v).Distinct();
+            if (terms.TryGetValue("parameterCategory", out var parameterCategory)
+                && !string.IsNullOrWhiteSpace(parameterCategory)
+                && idx.Parameters.TryGetValue(parameterCategory, out var own))
+                parameterNames = own;
+            Add("parameter", NameKind.Parameter, parameterNames);
+
+            Add("view", NameKind.View, idx.Views);
+            Add("sheet", NameKind.Sheet, idx.Sheets);
+
+            return lines.Count == 0
+                ? ToolExecutionResult.Failed(
+                    "Give at least one of category, level, family, type, parameter, view or sheet.",
+                    ToolWriteCertainty.NoWrite)
+                : ToolExecutionResult.Succeeded(string.Join("\n", lines), ToolWriteCertainty.NoWrite);
+        }
+        catch (Exception ex)
+        {
+            return ToolExecutionResult.Failed($"Failed: {ex.Message}", ToolWriteCertainty.NoWrite);
+        }
     }
 
     internal static ToolEntry CreateGetWallMetrics(IPluginContext context)
@@ -180,18 +280,26 @@ public static class QueryTools
                     Parameters = new { type = "object", properties = new { }, required = Array.Empty<string>() }
                 }
             },
-            Handler = async _ =>
-            {
-                var dto = await context.Bridge.GetSelectionSummaryAsync();
-                if (dto.ElementCount == 0) return "Please select elements first. (0 selected)";
-                var s = $"Selected: {dto.ElementCount} element(s)\nBy category:\n";
-                s += string.Join("\n", dto.CategoryNames.Select(c => $"  {c}"));
-                var sample = dto.ElementIds.Take(10);
-                s += "\nSample (first 10):\n" + string.Join("\n", sample);
-                if (dto.ElementIds.Count > 10) s += $"\n... and {dto.ElementCount - 10} more.";
-                return s;
-            }
+            Handler = async json => (await RunSelectionSummary(context, json)).Text,
+            StructuredHandler = json => RunSelectionSummary(context, json)
         };
+    }
+
+    /// <summary>The selection, and the ids in it, so the host can keep them as a result set.</summary>
+    private static async Task<ToolExecutionResult> RunSelectionSummary(IPluginContext context, string json)
+    {
+        try
+        {
+            var dto = await context.Bridge.GetSelectionSummaryAsync();
+            if (dto.ElementCount == 0) return QueryResult("Please select elements first. (0 selected)");
+            var s = $"Selected: {dto.ElementCount} element(s)\nBy category:\n";
+            s += string.Join("\n", dto.CategoryNames.Select(c => $"  {c}"));
+            var sample = dto.ElementIds.Take(10);
+            s += "\nSample (first 10):\n" + string.Join("\n", sample);
+            if (dto.ElementIds.Count > 10) s += $"\n... and {dto.ElementCount - 10} more.";
+            return QueryResult(s, dto.ElementIds);
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateGetActiveViewInfo(IPluginContext context)
@@ -264,30 +372,37 @@ public static class QueryTools
                     }
                 }
             },
-            Handler = async json =>
-            {
-                string? cat = null;
-                int limit = 100;
-                TryRead(json, d =>
-                {
-                    if (d.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
-                    if (d.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
-                });
-                limit = Polyfills.Clamp(limit, 1, 500);
-                try
-                {
-                    var dto = await context.Bridge.GetVisibleElementsInViewAsync(cat, limit);
-                    if (dto == null) return "Please open a model first.";
-                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
-                    var s = $"Visible in '{dto.ViewName}': {dto.Count} instance(s)";
-                    if (!string.IsNullOrWhiteSpace(dto.Category)) s += $" (category {dto.Category})";
-                    s += $"\nSample: {string.Join(", ", dto.SampleIds)}";
-                    if (dto.Count > dto.SampleIds.Count) s += $" ... and {dto.Count - dto.SampleIds.Count} more.";
-                    return s;
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }
+            Handler = async json => (await RunVisibleElementsInView(context, json)).Text,
+            StructuredHandler = json => RunVisibleElementsInView(context, json)
         };
+    }
+
+    /// <summary>
+    /// What the active view shows. The ids are the sample the text lists, not every visible
+    /// element, so the result set is the sample and nothing more.
+    /// </summary>
+    private static async Task<ToolExecutionResult> RunVisibleElementsInView(IPluginContext context, string json)
+    {
+        string? cat = null;
+        int limit = 100;
+        TryRead(json, d =>
+        {
+            if (d.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) cat = c.GetString();
+            if (d.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+        });
+        limit = Polyfills.Clamp(limit, 1, 500);
+        try
+        {
+            var dto = await context.Bridge.GetVisibleElementsInViewAsync(cat, limit);
+            if (dto == null) return QueryResult("Please open a model first.");
+            if (!string.IsNullOrEmpty(dto.Error)) return QueryResult(dto.Error!);
+            var s = $"Visible in '{dto.ViewName}': {dto.Count} instance(s)";
+            if (!string.IsNullOrWhiteSpace(dto.Category)) s += $" (category {dto.Category})";
+            s += $"\nSample: {string.Join(", ", dto.SampleIds)}";
+            if (dto.Count > dto.SampleIds.Count) s += $" ... and {dto.Count - dto.SampleIds.Count} more.";
+            return QueryResult(s, dto.SampleIds);
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateFindElementsByFilter(IPluginContext context)
@@ -317,39 +432,47 @@ public static class QueryTools
                     }
                 }
             },
-            Handler = async json =>
-            {
-                string category = "";
-                string? paramName = null, op = "=", value = null;
-                int limit = 100, offset = 0;
-                try
-                {
-                    using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                    category = d.RootElement.GetProperty("category").GetString() ?? "";
-                    if (d.RootElement.TryGetProperty("paramName", out var pn) && pn.ValueKind == JsonValueKind.String) paramName = pn.GetString();
-                    if (d.RootElement.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String) op = o.GetString();
-                    if (d.RootElement.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String) value = v.GetString();
-                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
-                    if (d.RootElement.TryGetProperty("offset", out var off) && off.ValueKind == JsonValueKind.Number) offset = off.GetInt32();
-                }
-                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                limit = Polyfills.Clamp(limit, 1, 500);
-                offset = Math.Max(0, offset);
-                try
-                {
-                    var dto = await context.Bridge.FindElementsFilteredAsync(category, paramName, op, value, limit, offset);
-                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
-                    var s = $"Found {dto.Total} {category} instance(s)";
-                    if (!string.IsNullOrWhiteSpace(paramName)) s += $" where {paramName} {op} '{value}'";
-                    s += $" (showing {dto.Items.Count} from offset {dto.Offset}):\n";
-                    s += string.Join("\n", dto.Items.Select(e => $"{e.Id} \"{e.Name}\" cat:{e.Category}"));
-                    if (dto.Total > dto.Offset + dto.Items.Count)
-                        s += $"\n... {dto.Total - dto.Offset - dto.Items.Count} more. Use offset {dto.Offset + limit}.";
-                    return s;
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }
+            Handler = async json => (await RunFindElementsByFilter(context, json)).Text,
+            StructuredHandler = json => RunFindElementsByFilter(context, json)
         };
+    }
+
+    /// <summary>
+    /// The elements the filter matched. The text shows one page; the ids are every match, so the
+    /// host can keep the whole set even when the model asked for a page of it.
+    /// </summary>
+    private static async Task<ToolExecutionResult> RunFindElementsByFilter(IPluginContext context, string json)
+    {
+        string category = "";
+        string? paramName = null, op = "=", value = null;
+        int limit = 100, offset = 0;
+        try
+        {
+            using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+            category = d.RootElement.GetProperty("category").GetString() ?? "";
+            if (d.RootElement.TryGetProperty("paramName", out var pn) && pn.ValueKind == JsonValueKind.String) paramName = pn.GetString();
+            if (d.RootElement.TryGetProperty("op", out var o) && o.ValueKind == JsonValueKind.String) op = o.GetString();
+            if (d.RootElement.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String) value = v.GetString();
+            if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+            if (d.RootElement.TryGetProperty("offset", out var off) && off.ValueKind == JsonValueKind.Number) offset = off.GetInt32();
+        }
+        catch (Exception ex) { return QueryResult($"Invalid args: {ex.Message}"); }
+        limit = Polyfills.Clamp(limit, 1, 500);
+        offset = Math.Max(0, offset);
+        try
+        {
+            var dto = await context.Bridge.FindElementsFilteredAsync(category, paramName, op, value, limit, offset);
+            if (!string.IsNullOrEmpty(dto.Error)) return QueryResult(dto.Error!);
+            var s = $"Found {dto.Total} {category} instance(s)";
+            if (!string.IsNullOrWhiteSpace(paramName)) s += $" where {paramName} {op} '{value}'";
+            s += $" (showing {dto.Items.Count} from offset {dto.Offset}):\n";
+            s += string.Join("\n", dto.Items.Select(e => $"{e.Id} \"{e.Name}\" cat:{e.Category}"));
+            if (dto.Total > dto.Offset + dto.Items.Count)
+                s += $"\n... {dto.Total - dto.Offset - dto.Items.Count} more. Use offset {dto.Offset + limit}.";
+            var ids = dto.AllIds ?? dto.Items.Select(i => i.Id).ToList();
+            return QueryResult(s, ids);
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateGetElementDetails(IPluginContext context)
@@ -411,34 +534,42 @@ public static class QueryTools
                     Parameters = new { type = "object", properties = new { limit = new { type = "integer", description = "Max warnings, default 20" } }, required = Array.Empty<string>() }
                 }
             },
-            Handler = async json =>
-            {
-                int limit = 20;
-                TryRead(json, d =>
-                {
-                    if (d.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
-                });
-                limit = Polyfills.Clamp(limit, 1, 100);
-                try
-                {
-                    if (!context.Bridge.HasActiveDocument)
-                        return "Please open a model first.";
-                    var warnings = await context.Bridge.GetWarningsAsync();
-                    if (warnings.Count == 0) return "No warnings.";
-                    var total = warnings.Sum(w => w.Count);
-                    var s = $"Warnings: {total} in {warnings.Count} kind(s)\n";
-                    int i = 0;
-                    foreach (var w in warnings.OrderByDescending(x => x.Count).Take(limit))
-                    {
-                        var ids = w.FailingElementIds.Count > 0 ? $" (e.g. ids: {string.Join(", ", w.FailingElementIds)})" : "";
-                        s += $"{++i}. x{w.Count} {w.Description}{ids}\n";
-                    }
-                    if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more kind(s).";
-                    return s;
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }
+            Handler = async json => (await RunWarnings(context, json)).Text,
+            StructuredHandler = json => RunWarnings(context, json)
         };
+    }
+
+    /// <summary>
+    /// The document warnings, and the ids of the elements that failed them, so the model can look
+    /// at those elements instead of searching for them again.
+    /// </summary>
+    private static async Task<ToolExecutionResult> RunWarnings(IPluginContext context, string json)
+    {
+        int limit = 20;
+        TryRead(json, d =>
+        {
+            if (d.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+        });
+        limit = Polyfills.Clamp(limit, 1, 100);
+        try
+        {
+            if (!context.Bridge.HasActiveDocument)
+                return QueryResult("Please open a model first.");
+            var warnings = await context.Bridge.GetWarningsAsync();
+            if (warnings.Count == 0) return QueryResult("No warnings.");
+            var total = warnings.Sum(w => w.Count);
+            var s = $"Warnings: {total} in {warnings.Count} kind(s)\n";
+            int i = 0;
+            foreach (var w in warnings.OrderByDescending(x => x.Count).Take(limit))
+            {
+                var ids = w.FailingElementIds.Count > 0 ? $" (e.g. ids: {string.Join(", ", w.FailingElementIds)})" : "";
+                s += $"{++i}. x{w.Count} {w.Description}{ids}\n";
+            }
+            if (warnings.Count > limit) s += $"... and {warnings.Count - limit} more kind(s).";
+            var failing = warnings.SelectMany(w => w.FailingElementIds).Distinct().ToList();
+            return QueryResult(s, failing);
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateGetRooms(IPluginContext context)
@@ -873,33 +1004,43 @@ public static class QueryTools
                     }
                 }
             },
-            Handler = async json =>
-            {
-                string c1, c2;
-                int lim = 20;
-                try
-                {
-                    using var d = JsonDocument.Parse(json);
-                    c1 = d.RootElement.GetProperty("category1").GetString() ?? "";
-                    c2 = d.RootElement.GetProperty("category2").GetString() ?? "";
-                    if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number)
-                        lim = l.GetInt32();
-                }
-                catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                lim = Polyfills.Clamp(lim, 1, 100);
-                try
-                {
-                    var dto = await context.Bridge.GetClashByBoundingBoxAsync(c1, c2, lim);
-                    if (dto == null) return "Please open a model first.";
-                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
-                    if (dto.ClashCount == 0)
-                        return $"No clashes found between {dto.Category1} and {dto.Category2} (sampled 200 each).";
-                    var lines = string.Join("\n", dto.Clashes.Select(p => $"{p.IdA}({p.CategoryA}) <-> {p.IdB}({p.CategoryB})"));
-                    return $"Bounding-box overlaps ({dto.ClashCount}{(dto.ClashCount >= lim ? ", limit reached" : "")}), first 200 of each category:\n{lines}";
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }
+            Handler = async json => (await RunClashByBb(context, json)).Text,
+            StructuredHandler = json => RunClashByBb(context, json)
         };
+    }
+
+    /// <summary>
+    /// The overlapping pairs, and both ids of every pair, so the host can keep the clashing
+    /// elements as a result set.
+    /// </summary>
+    private static async Task<ToolExecutionResult> RunClashByBb(IPluginContext context, string json)
+    {
+        string c1, c2;
+        int lim = 20;
+        try
+        {
+            using var d = JsonDocument.Parse(json);
+            c1 = d.RootElement.GetProperty("category1").GetString() ?? "";
+            c2 = d.RootElement.GetProperty("category2").GetString() ?? "";
+            if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number)
+                lim = l.GetInt32();
+        }
+        catch (Exception ex) { return QueryResult($"Invalid args: {ex.Message}"); }
+        lim = Polyfills.Clamp(lim, 1, 100);
+        try
+        {
+            var dto = await context.Bridge.GetClashByBoundingBoxAsync(c1, c2, lim);
+            if (dto == null) return QueryResult("Please open a model first.");
+            if (!string.IsNullOrEmpty(dto.Error)) return QueryResult(dto.Error!);
+            if (dto.ClashCount == 0)
+                return QueryResult($"No clashes found between {dto.Category1} and {dto.Category2} (sampled 200 each).");
+            var lines = string.Join("\n", dto.Clashes.Select(p => $"{p.IdA}({p.CategoryA}) <-> {p.IdB}({p.CategoryB})"));
+            var ids = dto.Clashes.SelectMany(p => new[] { p.IdA, p.IdB }).Distinct().ToList();
+            return QueryResult(
+                $"Bounding-box overlaps ({dto.ClashCount}{(dto.ClashCount >= lim ? ", limit reached" : "")}), first 200 of each category:\n{lines}",
+                ids);
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateGetModelHealthScore(IPluginContext context)
@@ -958,41 +1099,48 @@ public static class QueryTools
                     }
                 }
             },
-            Handler = async json =>
-            {
-                try
-                {
-                    string? category = null, parameter = null;
-                    var limit = 40;
-                    try
-                    {
-                        using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-                        if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) category = c.GetString();
-                        if (d.RootElement.TryGetProperty("parameter", out var p) && p.ValueKind == JsonValueKind.String) parameter = p.GetString();
-                        if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
-                    }
-                    catch (Exception ex) { return $"Invalid args: {ex.Message}"; }
-                    var dto = await context.Bridge.GetIssueAuditAsync(category, parameter, limit);
-                    if (dto == null) return "Please open a model first.";
-                    if (!string.IsNullOrEmpty(dto.Error)) return dto.Error;
-                    var sb = new StringBuilder();
-                    sb.AppendLine("Issue check. No model changes.");
-                    sb.AppendLine($"Views not on a sheet: {dto.ViewsNotOnSheet}");
-                    sb.AppendLine($"Views with no template: {dto.ViewsMissingTemplate}");
-                    sb.AppendLine($"Duplicate sheet numbers: {dto.DuplicateSheetNumbers}");
-                    sb.AppendLine($"Duplicate marks: {dto.DuplicateMarks}");
-                    sb.AppendLine($"Unplaced or zero-area rooms: {dto.RoomProblems}");
-                    sb.AppendLine($"Imported CAD: {dto.ImportedCad}");
-                    sb.AppendLine($"In-place families: {dto.InPlaceFamilies}");
-                    if (!string.IsNullOrWhiteSpace(parameter))
-                        sb.AppendLine($"Missing {parameter}: {dto.MissingParameters}");
-                    foreach (var item in dto.Items)
-                        sb.AppendLine($"{item.Kind} {item.Id} {item.Name} {item.Detail}".Trim());
-                    return sb.ToString().TrimEnd();
-                }
-                catch (Exception ex) { return $"Failed: {ex.Message}"; }
-            }
+            Handler = async json => (await RunAuditIssueSet(context, json)).Text,
+            StructuredHandler = json => RunAuditIssueSet(context, json)
         };
+    }
+
+    /// <summary>
+    /// The issue list, and the ids of the items it names, so the host can keep them as a result
+    /// set and the model can go straight to them.
+    /// </summary>
+    private static async Task<ToolExecutionResult> RunAuditIssueSet(IPluginContext context, string json)
+    {
+        try
+        {
+            string? category = null, parameter = null;
+            var limit = 40;
+            try
+            {
+                using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                if (d.RootElement.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String) category = c.GetString();
+                if (d.RootElement.TryGetProperty("parameter", out var p) && p.ValueKind == JsonValueKind.String) parameter = p.GetString();
+                if (d.RootElement.TryGetProperty("limit", out var l) && l.ValueKind == JsonValueKind.Number) limit = l.GetInt32();
+            }
+            catch (Exception ex) { return QueryResult($"Invalid args: {ex.Message}"); }
+            var dto = await context.Bridge.GetIssueAuditAsync(category, parameter, limit);
+            if (dto == null) return QueryResult("Please open a model first.");
+            if (!string.IsNullOrEmpty(dto.Error)) return QueryResult(dto.Error!);
+            var sb = new StringBuilder();
+            sb.AppendLine("Issue check. No model changes.");
+            sb.AppendLine($"Views not on a sheet: {dto.ViewsNotOnSheet}");
+            sb.AppendLine($"Views with no template: {dto.ViewsMissingTemplate}");
+            sb.AppendLine($"Duplicate sheet numbers: {dto.DuplicateSheetNumbers}");
+            sb.AppendLine($"Duplicate marks: {dto.DuplicateMarks}");
+            sb.AppendLine($"Unplaced or zero-area rooms: {dto.RoomProblems}");
+            sb.AppendLine($"Imported CAD: {dto.ImportedCad}");
+            sb.AppendLine($"In-place families: {dto.InPlaceFamilies}");
+            if (!string.IsNullOrWhiteSpace(parameter))
+                sb.AppendLine($"Missing {parameter}: {dto.MissingParameters}");
+            foreach (var item in dto.Items)
+                sb.AppendLine($"{item.Kind} {item.Id} {item.Name} {item.Detail}".Trim());
+            return QueryResult(sb.ToString().TrimEnd(), dto.Items.Select(i => i.Id).ToList());
+        }
+        catch (Exception ex) { return QueryResult($"Failed: {ex.Message}"); }
     }
 
     internal static ToolEntry CreateSyncInfo(IPluginContext context)

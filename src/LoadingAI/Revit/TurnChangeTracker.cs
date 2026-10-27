@@ -14,6 +14,9 @@ internal static class TurnChangeTracker
 {
     private static TurnChangeSet? _current;
 
+    /// <summary>How many snapshots are running; their own commits are not turn changes.</summary>
+    private static int _suppress;
+
     public static void Begin(TurnChangeSet set)
     {
         set.Reset();
@@ -22,8 +25,22 @@ internal static class TurnChangeTracker
 
     public static void End() => Volatile.Write(ref _current, null);
 
+    /// <summary>While a view snapshot runs, its own isolate commit and group rollback are not turn changes.</summary>
+    public static IDisposable Suppress()
+    {
+        Interlocked.Increment(ref _suppress);
+        return new Release();
+    }
+
+    private sealed class Release : IDisposable
+    {
+        private int _done;
+        public void Dispose() { if (Interlocked.Exchange(ref _done, 1) == 0) Interlocked.Decrement(ref _suppress); }
+    }
+
     public static void OnDocumentChanged(object? sender, DocumentChangedEventArgs e)
     {
+        if (Volatile.Read(ref _suppress) > 0) return;
         var set = Volatile.Read(ref _current);
         if (set == null) return;
         try

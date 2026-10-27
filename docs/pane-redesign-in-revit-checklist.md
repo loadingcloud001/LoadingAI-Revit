@@ -72,6 +72,34 @@ Run it on Revit 2027 against a small model with levels, walls, beams, columns an
 - [ ] A turn that adds and then deletes the same element does not count it. A turn on a linked model or a different document does not mix counts.
 - [ ] A large change (more than 2000 elements in one category) shows exact counts and the "first 2000" note.
 
+## v0.7 · View snapshot
+
+- [ ] `capture_view` of the active plan returns a thumbnail in the step and the agent describes the picture.
+- [ ] With `elementIds`, only those elements show in the shot. After the turn, the view shows everything again, and Undo has no "snapshot" entry.
+- [ ] A snapshot during a write turn: the receipt still lists the turn's changes, and one Ctrl+Z still undoes the turn.
+- [ ] A schedule view gives "Cannot take a snapshot of Schedule …".
+- [ ] Provider set to "Can see images: No" never shows `capture_view`.
+- [ ] Revit 2024 (net48): snapshot works.
+
+## v0.7 · Names and result sets
+
+- [ ] "find beams on L3" makes the agent call `resolve_names`, then `find_elements_by_filter` with `Structural Framing` and `Level 3`.
+- [ ] The result says "Saved as @r1 (N elements)". "Colour them red" passes `"@r1"`, and the review card shows N elements.
+- [ ] Add a level by hand, then ask for levels: the new level is in the prompt summary on the next turn.
+- [ ] `/clear` then `@r1`: an argument error saying no sets are saved.
+
+## v0.7 · Memory and playbooks
+
+- [ ] "Remember that beams on this job are UB sections" shows a `save_project_note` card with the exact text and no caret (no Session or Always). Allow saves it, and Settings → Memory lists it with an "agent" badge.
+- [ ] A new chat answers a beam question using the note.
+- [ ] Deny the card: nothing is saved.
+- [ ] Auto-edit still shows the note card.
+- [ ] Edit and delete a note in Settings. "Clear all" asks in the pane first.
+- [ ] An unsaved new model: Settings says "Open a saved model…", and a global note still works.
+- [ ] `/` lists the four starters. `/model-qa` runs and changes nothing. `/beam-split` does a dry run, then shows one L3 card.
+- [ ] Copy `model-qa.md` to `%AppData%\LoadingAI\Playbooks`, change its description, and reopen Settings: yours wins. A file with a broken header shows under issues.
+- [ ] The installed folder has `LoadingAI\Playbooks\*.md` (Setup exe and zip).
+
 ## Report
 
 Write the Revit build number, the add-in commit (`git rev-parse HEAD`), and for each line above Passed, Failed (with what you saw and the log from `%AppData%\LoadingAI\logs`, secrets redacted), or Not run.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AppSettings, ApprovalScope, Attachment, BUILTIN_PROVIDER_NAME, isBuiltinProvider, onHostMessage, postToHost, providersOnly, ProviderConfig } from '../bridge';
 import { parseInput } from '../cli/inputParser';
-import { SLASH_COMMANDS } from '../cli/slashCommands';
+import { SLASH_COMMANDS, playbookCommand } from '../cli/slashCommands';
 import { autoApproveFor, HostCaps, modeFor, resolveLevel } from '../lib/permissions';
 import { EMPTY_QUEUE, editItem, enqueue, onTurnEnd, QueueState, removeItem, resume } from '../lib/queue';
 import { initialState, reduce } from './reducer';
@@ -115,6 +115,15 @@ export function usePane(opts: { openSettings: () => void }) {
     if (isBuiltinProvider(active.id) && q && q.ok !== false && q.remaining <= 0) {
       note(`${BUILTIN_PROVIDER_NAME} free requests are used up for today${q.resetUtc ? ` (resets ${new Date(q.resetUtc).toLocaleTimeString()})` : ''}. Add your own API key in Settings → Models.`, 'error');
       return false;
+    }
+    // A playbook is a command of its own: the host reads the file and sends the steps with the
+    // rest of the line as the note for this run.
+    const pb = playbookCommand(raw, s.playbooks.items);
+    if (pb) {
+      const pbMode = pb.mode ?? modeFor(level);
+      dispatch({ type: 'send', text: raw.trim(), mode: pbMode, attachments: attachments.length ? attachments : undefined, at: Date.now() });
+      postToHost({ type: 'send', text: pb.extra, attachments: attachments.length ? attachments : undefined, mode: pbMode, slash: pb.name, mentions: parsed.mentions });
+      return true;
     }
     const mode = parsed.effectiveMode ?? modeFor(level);
     dispatch({ type: 'send', text: raw.trim() || '(image)', mode, attachments: attachments.length ? attachments : undefined, at: Date.now() });

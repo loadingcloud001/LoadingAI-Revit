@@ -23,7 +23,18 @@ const args = (o: unknown) => JSON.stringify(o);
 
 const splitArgs = args({ level: 'Level 2', dryRun: false, minFraction: 0.02 });
 
+/** A tiny 64x48 PNG, so the snapshot demo has a thumbnail to show without shipping an asset. */
+const SNAPSHOT_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAWklEQVR42u3ZsQkAIAwEwIwiFg7ldE7nHO4gCkoOvn64lPkotX2dAAAAAAC4AuhjPpUdwJELHekBAAAAAAAAAAAAAAAAAAAAAAAAAADIA/j7vW6hAQAAAEgBWIJD8XzuN00pAAAAAElFTkSuQmCC';
+
 export const SCENARIOS: Record<string, Scenario> = {
+  /** The Memory page: the pane opens Settings → Memory, where the mock host has sample notes. */
+  memory: {
+    label: 'Memory: notes and playbooks',
+    prompt: '',
+    caps: ALL_CAPS,
+    steps: [],
+  },
+
   l1: {
     label: 'L1 read: wall metrics',
     prompt: 'How long are the walls on Level 2?',
@@ -158,6 +169,19 @@ export const SCENARIOS: Record<string, Scenario> = {
     steps: [
       { at: 0, msg: { type: 'quota', quota: { providerId: 'loadingai', limit: 100, used: 93, remaining: 7, ok: true } } },
       { at: 300, msg: { type: 'assistant', text: 'Hello! What should we do in this model?' } },
+    ],
+  },
+
+  snapshot: {
+    label: 'Snapshot thumbnail on a step',
+    prompt: 'Capture the Level 2 view',
+    caps: ALL_CAPS,
+    steps: [
+      { at: 0, msg: { type: 'turn_start', turnId: 'T1', mode: 'build', level: 'bypass' } },
+      { at: 200, msg: { type: 'tool_start', turnId: 'T1', toolCallId: 'v1', name: 'capture_view', tier: 'L1', destructive: false, args: args({ level: 'Level 2' }), startedAt: 200 } },
+      { at: 700, msg: { type: 'tool_end', toolCallId: 'v1', ok: true, outcome: 'ran', summary: 'Snapshot of Level 2', text: 'Snapshot of Level 2', ms: 500, image: SNAPSHOT_PNG } },
+      { at: 800, msg: { type: 'assistant', text: 'Here is the current Level 2 view.' } },
+      { at: 850, msg: { type: 'turn_end', turnId: 'T1', outcome: 'done' } },
     ],
   },
 };

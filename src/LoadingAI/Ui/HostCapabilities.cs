@@ -25,6 +25,10 @@ internal static class HostCapabilities
         // theme: follow Revit's UI theme.
         "theme",
         // Standing instructions in the system prompt.
-        "instructions"
+        "instructions",
+        // The Memory page: the saved notes of the project and the global ones.
+        "memory",
+        // The saved procedures: the starters and the user's own folder.
+        "playbooks"
     };
 }

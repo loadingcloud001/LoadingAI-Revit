@@ -1,7 +1,7 @@
 import type {
   AppSettings, ApprovalPayload, Attachment, ChangeCategory, ChatMode, CheckpointInfo, ContextPayload, FromHost,
-  PlanPayload, PluginInfo, PluginLoadIssue, PresetPayload, ProgressPayload, ProviderPreset, QuotaPayload, ReviewPayload,
-  TodoPayload, ToolOutcome,
+  NotesPayload, PlanPayload, PlaybookInfo, PluginInfo, PluginLoadIssue, PresetPayload, ProgressPayload, ProviderPreset,
+  QuotaPayload, ReviewPayload, TodoPayload, ToolOutcome,
 } from '../bridge';
 
 /** The five user-owned permission levels (spec, ADR-0017). The model can never set this. */
@@ -41,6 +41,8 @@ export type Step = {
   ms?: number;
   /** Some of the work was done and some failed. */
   partial?: boolean;
+  /** Snapshot data URL from tool_end (P1). */
+  image?: string;
   startedAt: number;
   endedAt?: number;
 };
@@ -119,6 +121,10 @@ export type PaneState = {
   modelsLoading: string | null;
   /** What the host announced it can do (host_caps). Empty for a host that announced nothing. */
   caps: string[];
+  /** The saved notes of both scopes, once the host has listed them. */
+  notes?: NotesPayload;
+  /** The saved procedures, with the folder the person's own files go in. */
+  playbooks: { items: PlaybookInfo[]; issues: string[]; folder: string };
   /** Revit's UI theme, once the host has said (theme). */
   hostDark: boolean | null;
   seq: number;

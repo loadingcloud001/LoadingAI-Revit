@@ -30,12 +30,17 @@ public class ChatHistoryTrimmerTests
     }
 
     [Fact]
-    public void StripsOldImages_KeepsLatestUserImage()
+    public void StripsOldImages_KeepsTheNewestTwoUserImages()
     {
         var oldImg = new List<ChatContentPart>
         {
             new() { Type = "text", Text = "old" },
             new() { Type = "image_url", ImageUrl = new ChatImageUrl { Url = "data:image/png;base64,OLD" } }
+        };
+        var midImg = new List<ChatContentPart>
+        {
+            new() { Type = "text", Text = "mid" },
+            new() { Type = "image_url", ImageUrl = new ChatImageUrl { Url = "data:image/png;base64,MID" } }
         };
         var newImg = new List<ChatContentPart>
         {
@@ -47,13 +52,15 @@ public class ChatHistoryTrimmerTests
             new() { Role = "system", Content = "sys" },
             new() { Role = "user", Content = oldImg },
             new() { Role = "assistant", Content = "ok" },
+            new() { Role = "user", Content = midImg },
             new() { Role = "user", Content = newImg }
         };
         ChatHistoryTrimmer.Trim(history);
         Assert.False(LlmJson.IsMultimodal(history[1].Content));
         Assert.Contains("omitted", LlmJson.GetContentString(history[1].Content));
         Assert.True(LlmJson.IsMultimodal(history[3].Content));
-        Assert.Contains("new", LlmJson.GetContentString(history[3].Content));
+        Assert.True(LlmJson.IsMultimodal(history[4].Content));
+        Assert.Contains("new", LlmJson.GetContentString(history[4].Content));
     }
 
     private static ChatMessage CallRound(int i) => new()
@@ -106,5 +113,33 @@ public class ChatHistoryTrimmerTests
 
         Assert.EndsWith("[omitted]", LlmJson.GetContentString(history[2].Content));
         Assert.Equal(5000, LlmJson.GetContentString(history[4].Content).Length);
+    }
+
+    [Fact]
+    public void KeepsTheNewestTwoImageMessages_AndSnapshotsDoNotCountAsTheUserTurn()
+    {
+        var img = new List<AttachmentDto> { new("a", "a.png", "image/png", "data:image/png;base64,AA") };
+        var h = new List<ChatMessage>
+        {
+            ChatMessage.FromText("system", "s"),
+            ChatMessage.FromMultimodal("user", "first", img),
+            ChatMessage.FromText("user", "split the beams"),
+            new() { Role = "tool", ToolCallId = "1", Name = "x", Content = new string('r', 5000) },
+            Snap(img), Snap(img), Snap(img),
+        };
+        ChatHistoryTrimmer.Trim(h);
+        Assert.False(LlmJson.IsMultimodal(h[1].Content));  // old user image stripped
+        Assert.False(LlmJson.IsMultimodal(h[4].Content));  // oldest snapshot stripped
+        Assert.True(LlmJson.IsMultimodal(h[5].Content));
+        Assert.True(LlmJson.IsMultimodal(h[6].Content));
+        // The tool result after the real user turn keeps the current-turn cap, not the 2000 cap.
+        Assert.True(LlmJson.GetContentString(h[3].Content).Length > ChatHistoryTrimmer.MaxToolResultChars);
+
+        static ChatMessage Snap(List<AttachmentDto> i)
+        {
+            var m = ChatMessage.FromMultimodal("user", "[Snapshot from capture_view]", i);
+            m.IsSnapshot = true;
+            return m;
+        }
     }
 }

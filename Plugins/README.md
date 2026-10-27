@@ -33,6 +33,8 @@ Plugins/hello/
 ```
 
 - `"destructive": true` on a tool (optional, default false) marks one that deletes or replaces elements, or writes a file. The review card for it never offers "Always allow" or "Allow for this session", Auto-edit still asks for it, and Settings shows a **destructive** badge. Leave it off for ordinary parameter, view and creation tools. See ADR-0017.
+- `ToolEntry.NeverAllowList` (code, default false) marks a tool whose every call must be reviewed: no Session or Always allow, and Auto-edit still asks. `save_project_note` uses it (ADR-0018).
+- `ToolEntry.NeedsVision` (code, default false) marks a tool whose result is an image for the model to look at. It is only offered when the provider can read images. `capture_view` uses it; return the picture in `ToolExecutionResult.Images`.
 - `verified:true` = merged via PR and reviewed.
 - `verified:false` = built outside the repo, shown in **Settings** as unverified. Display-only: this field is **not** the load gate, the DLL hash is. `"verified":true` on an unknown hash still refuses to load.
 - Enabling/disabling is per-tool in `%AppData%\LoadingAI\settings.json` `plugins:{toolName:bool}`; toggling needs no restart. **Rescan** in Settings picks up a new or changed plugin on Revit 2025+; on Revit 2024 (net48) a DLL that is already loaded stays in memory until Revit restarts. **Remove** marks the folder and deletes it; if the DLL is locked the folder is skipped and purged at the next scan.
@@ -45,6 +47,8 @@ See `src/LoadingAI.Core/Plugins/IRevitToolPlugin.cs` and `Plugins/example.hello/
 **What the gate is and is not.** The allowlist stops accidents and third-party drop-ins. It is not a defence against software already running as you: the shipped-hash file and `plugin-allowlist.json` are user-writable, only the entry DLL is hashed, and a trusted DLL runs in-process with your permissions. `verified` in `plugin.json` is the author's own claim; Settings shows **Verified** only for a shipped plugin.
 
 **Numbers.** Tool arguments and results use millimetres, m², m³ and degrees. Convert with `LoadingAI.Revit.ParamUnits` (or `Metric`); never pass Revit internal units across the Bridge.
+
+**Result sets.** A tool that lists elements should set `ToolExecutionResult.ResultIds` to every id it found, not just the ones its text shows. The host saves them as `@r1`, `@r2`, … and tells the model the handle. An `elementIds` or `elementId` argument may then be `"@rN"`: the host expands it to the saved ids before it checks the arguments, so a tool only ever sees real ids.
 
 Optional **presets**: set `ToolEntry.Presets` to show a chat form before execute (select / number / pick-elements / pick-box). Empty (default) keeps the current L1/L2/L3 path — existing plugins need no change. Pick is host-owned; do not add pick APIs to `IRevitBridge` or call `Selection.PickObjects` from the plugin. The review card merges form values over AI args; there is no native dialog (ADR-0017).
 

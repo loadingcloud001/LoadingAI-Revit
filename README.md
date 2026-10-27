@@ -8,13 +8,13 @@ language; a language model reads the model, answers, and — only when you appro
 > "Split these beams where they meet the columns. Dry run first."
 > "Export the active sheet set to PDF."
 
-It is not a generic coding agent. Every action is a typed Revit tool (87 of them, in seven plugins)
+It is not a generic coding agent. Every action is a typed Revit tool (93 of them: 91 in seven plugins, and two for notes and playbooks)
 that runs inside a Revit transaction on Revit's own thread, so a bad answer from the model cannot do
 more than the tools allow.
 
 MIT licensed. Free to use with the built-in provider, or bring your own key.
 
-> **Status: early release (v0.6.0).** Revit 2027 is the only version it has been run in so far. See
+> **Status: early release (v0.7.0).** Revit 2027 is the only version it has been run in so far. See
 > [Known limitations](docs/KNOWN_LIMITATIONS.md) before you point it at a model you care about, and
 > work on a copy.
 
@@ -28,6 +28,7 @@ MIT licensed. Free to use with the built-in provider, or bring your own key.
 | **Structure** | Split beams by columns, floors by beams, anything by levels or grids; cut openings from clashes |
 | **Export** | PDF, DWG, IFC, purge unused |
 | **Quantity takeoff** | Formwork setup and panels |
+| **Look and name** | Take a picture of a view to check a result (`capture_view`, for models that can read images); map your words to the model's exact names (`resolve_names`) |
 
 Tools are grouped into plugins under [`Plugins/`](Plugins/README.md). You can switch individual tools
 on and off in the pane, and [write your own plugin](CONTRIBUTING.md).
@@ -99,8 +100,25 @@ folder from `%AppData%\Autodesk\Revit\Addins\<year>\`.
 - Type a request. `/ask` answers without editing, `/plan` proposes steps, `/build` carries them out.
   The default is `/build`.
 - Tool lengths are millimetres, areas m², volumes m³.
+- A tool that finds elements saves them as `@r1`, `@r2`, … for the rest of the chat, so "colour
+  them red" acts on exactly what the last search found.
 - To uninstall, delete the `.addin` file and the `LoadingAI` folder from the Addins directory, and
   optionally `%AppData%\LoadingAI`.
+
+## Memory and playbooks
+
+- **Notes.** When you tell the agent a fact about the job ("beams on this job are UB sections"), it
+  may offer to remember it. It always asks first, with the exact text, and a note can never be
+  allowed for the session or always. Notes are read at the start of every chat: project notes for the
+  open model, and notes for all projects. See and edit them in **Settings → Memory**. They live in
+  `%AppData%\LoadingAI\memory`, one file per project.
+- **Playbooks** are saved procedures in plain Markdown. Type `/` to see them and `/model-qa` (plus an
+  optional note, such as `/model-qa only Level 2`) to run one. Four starters ship with the add-in:
+  `model-qa`, `sheet-setup`, `beam-split` and `export-package`.
+- **Write your own** in `%AppData%\LoadingAI\Playbooks` (Settings → Memory shows the path). Copy a
+  starter and keep its header: `name`, `description`, `tools` (the tools it may use) and `mode`
+  (`ask`, `plan` or `build`). A file with your own playbook's name replaces the starter of that name.
+  A playbook guides the agent; every change still goes through the review card.
 
 ## Models, keys and privacy
 
