@@ -27,6 +27,14 @@ const splitArgs = args({ level: 'Level 2', dryRun: false, minFraction: 0.02 });
 const SNAPSHOT_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAWklEQVR42u3ZsQkAIAwEwIwiFg7ldE7nHO4gCkoOvn64lPkotX2dAAAAAAC4AuhjPpUdwJELHekBAAAAAAAAAAAAAAAAAAAAAAAAAADIA/j7vW6hAQAAAEgBWIJD8XzuN00pAAAAAElFTkSuQmCC';
 
 export const SCENARIOS: Record<string, Scenario> = {
+  /** The Memory page: the pane opens Settings → Memory, where the mock host has sample notes. */
+  memory: {
+    label: 'Memory: notes and playbooks',
+    prompt: '',
+    caps: ALL_CAPS,
+    steps: [],
+  },
+
   l1: {
     label: 'L1 read: wall metrics',
     prompt: 'How long are the walls on Level 2?',

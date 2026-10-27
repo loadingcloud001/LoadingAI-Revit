@@ -334,6 +334,15 @@ declare global {
   }
 }
 
+/** The saved procedures the browser mock host knows about. */
+const MOCK_PLAYBOOKS: PlaybookInfo[] = [
+  { name: 'beam-split', description: 'Split beams at columns safely: dry run, review, split, check the receipt.', mode: 'build', source: 'starter', tools: ['resolve_names', 'find_elements_by_filter', 'split_beams_by_columns', 'capture_view'] },
+  { name: 'export-package', description: 'Export the chosen sheets to PDF and DWG, and the model to IFC, into one folder.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'export_pdf', 'export_dwg', 'export_ifc'] },
+  { name: 'model-qa', description: 'Check warnings, model health and room problems, then show the worst area.', mode: 'build', source: 'starter', tools: ['get_warnings', 'get_model_health_score', 'audit_issue_set', 'get_rooms', 'capture_view'] },
+  { name: 'sheet-setup', description: 'Create sheets from a list, place a view on each and apply a view template.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'resolve_names', 'create_sheet', 'place_view_on_sheet', 'set_view_template'] },
+];
+const MOCK_PLAYBOOK_FOLDER = 'C:/Users/you/AppData/Roaming/LoadingAI/Playbooks';
+
 export function postToHost(msg: ToHost) {
   if (window.chrome?.webview) {
     try {
@@ -381,6 +390,8 @@ export function postToHost(msg: ToHost) {
         { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.1', apiKind: 'openai', group: 'local', icon: '⬢', description: 'Local Ollama' },
       ];
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'catalog', presets: mockPresets } })), 120);
+      // The real host sends the playbooks with the caps, so the "/" menu has them from the first keypress.
+      setTimeout(() => emit({ type: 'playbooks', items: MOCK_PLAYBOOKS, issues: [], folder: MOCK_PLAYBOOK_FOLDER }), 130);
     }
     if ((msg as any).type === 'testProvider') {
       setTimeout(() => window.dispatchEvent(new CustomEvent('host-message', { detail: { type: 'testResult', ok: true, message: 'Mock OK — 12 models', providerId: (msg as any).providerId ?? (msg as any).provider?.id } })), 600);
@@ -399,13 +410,7 @@ export function postToHost(msg: ToHost) {
       setTimeout(() => emit({ type: 'notes', notes }), 200);
     }
     if (msg.type === 'listPlaybooks') {
-      const items: PlaybookInfo[] = [
-        { name: 'beam-split', description: 'Split beams at columns safely: dry run, review, split, check the receipt.', mode: 'build', source: 'starter', tools: ['resolve_names', 'find_elements_by_filter', 'split_beams_by_columns', 'capture_view'] },
-        { name: 'export-package', description: 'Export the chosen sheets to PDF and DWG, and the model to IFC, into one folder.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'export_pdf', 'export_dwg', 'export_ifc'] },
-        { name: 'model-qa', description: 'Check warnings, model health and room problems, then show the worst area.', mode: 'build', source: 'starter', tools: ['get_warnings', 'get_model_health_score', 'audit_issue_set', 'get_rooms', 'capture_view'] },
-        { name: 'sheet-setup', description: 'Create sheets from a list, place a view on each and apply a view template.', mode: 'build', source: 'starter', tools: ['get_sheets_views', 'resolve_names', 'create_sheet', 'place_view_on_sheet', 'set_view_template'] },
-      ];
-      setTimeout(() => emit({ type: 'playbooks', items, issues: [], folder: 'C:/Users/you/AppData/Roaming/LoadingAI/Playbooks' }), 200);
+      setTimeout(() => emit({ type: 'playbooks', items: MOCK_PLAYBOOKS, issues: [], folder: MOCK_PLAYBOOK_FOLDER }), 200);
     }
   }
 }

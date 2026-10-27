@@ -236,6 +236,15 @@ describe('settings from the host', () => {
   });
 });
 
+describe('memory from the host', () => {
+  it('stores notes and playbooks from the host', () => {
+    let s = run(initialState(), host([{ type: 'notes', notes: { projectTitle: 'Tower', hasProject: true, project: [{ id: 'a', text: 'UB beams', createdUtc: '2026-10-27T00:00:00Z', source: 'agent' }], global: [], issues: [] } }]));
+    s = run(s, host([{ type: 'playbooks', items: [{ name: 'model-qa', description: 'd', source: 'starter', tools: [] }], issues: [], folder: 'C:/x' }]));
+    expect(s.notes?.project[0].text).toBe('UB beams');
+    expect(s.playbooks.items[0].name).toBe('model-qa');
+  });
+});
+
 describe('screen reader announcement', () => {
   it('says nothing while the turn runs, then what happened', () => {
     expect(turnAnnouncement(lastTurnOf(play('reviewL3')))).toBe('');

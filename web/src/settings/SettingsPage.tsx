@@ -7,12 +7,14 @@ import { PluginShelf } from '../plugins/PluginShelf';
 import type { PaneState, PermissionLevel, ProviderTest } from '../state/types';
 import { Icon } from '../ui/Icon';
 import { ModelsSection } from './ModelsSection';
+import { MemorySection } from './MemorySection';
 
 export type ThemePref = 'dark' | 'light' | 'system';
-type Tab = 'models' | 'agent' | 'tools' | 'plugins' | 'about';
+export type Tab = 'models' | 'agent' | 'memory' | 'tools' | 'plugins' | 'about';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'models', label: 'Models' },
   { id: 'agent', label: 'Agent' },
+  { id: 'memory', label: 'Memory' },
   { id: 'tools', label: 'Tools' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'about', label: 'About' },
@@ -166,6 +168,7 @@ export function SettingsPage(p: Props) {
               </div>
             </div>
           )}
+          {tab === 'memory' && <MemorySection state={p.state} />}
           {tab === 'tools' && (
             <>
               {p.caps.has('reviewScopes') && p.state.settings && (
